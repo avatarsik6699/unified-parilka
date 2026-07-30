@@ -93,13 +93,19 @@ command = "/root/telegram-parilka-mcp/bin/telegram-parilka-mcp"
 ```
 
 Sending is preview-only by default. Live posts require explicit operator opt-in with `TELEGRAM_SEND_ENABLED=true` and
-`TELEGRAM_DRY_RUN_DEFAULT=false`, plus a server-issued approval for each message. Call `preview_message` first, then
+`TELEGRAM_DRY_RUN_DEFAULT=false`, plus a server-issued one-shot capability for each message. Call `preview_message` first, then
 pass the returned `approval_id` to `send_message` or `reply_to_message` with the exact same chat, text, reply id, parse
 mode, link preview, and silent options. `TELEGRAM_DRY_RUN_DEFAULT=true` or `TELEGRAM_SEND_ENABLED=false` forces every
 send tool call into hard dry-run mode; callers cannot override that with `dry_run:false`, even when the approval bypass
 flag is set. Reply targets are validated before approvals are consumed or send outbox rows are reserved; previews and
 dry-runs include a short reply target excerpt when the target is available.
 
+The `approval_id` binds the checked payload, expires, and is single-use, but it is **not human approval**: the same MCP
+caller can request and consume it. Keep live sends disabled for untrusted or prompt-driven clients unless a separate
+human-confirmation channel is enforced by the host.
+
 Use `dedupe_key` as a permanent idempotency/audit key for actionable live sends. Once a send is recorded as `sent`,
 reusing the same key and payload returns the original Telegram message id instead of posting again; different payloads
-with the same key are rejected. Failed or expired sends can be retried with the same key and payload.
+with the same key are rejected. A send that expired while still queued can be retried with the same key and payload.
+After dispatch starts, a rejected or interrupted Telegram request has an unknown delivery state and the same key is
+refused: inspect the target chat first, then use a deliberately new key only when another post is actually required.

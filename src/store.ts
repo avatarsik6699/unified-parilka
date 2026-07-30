@@ -149,8 +149,10 @@ export type SendStartupReconciliation = {
 };
 
 const RESTART_EXPIRED_SEND_ERROR = "Queued send abandoned by process restart before execution.";
-const UNKNOWN_DELIVERY_AFTER_RESTART_ERROR =
+const LEGACY_UNKNOWN_DELIVERY_AFTER_RESTART_ERROR =
   "Send was in-flight during process restart; Telegram delivery state is unknown and automatic retry is refused.";
+const UNKNOWN_DELIVERY_ERROR =
+  "Send dispatch did not receive a definitive Telegram acknowledgement; delivery state is unknown and automatic retry is refused.";
 
 export type StoredSendOutboxItem = {
   id: string;
@@ -1001,11 +1003,20 @@ export class MessageStore {
       this.expireStaleSendsLocked(params.nowMs);
       const existing = params.dedupeKey == null ? undefined : this.getSendByDedupeKeyLocked(params.dedupeKey);
       if (existing) {
-        if (isUnknownDeliveryAfterRestart(existing)) {
+        if (isUnknownDelivery(existing)) {
           throw new ToolError({
             category: "internal",
             retryable: false,
-            message: "Previous send with this dedupe_key has unknown Telegram delivery state after process restart; refusing automatic retry.",
+            message:
+              "Previous send with this dedupe_key has an unknown Telegram delivery state; refusing automatic retry.",
+          });
+        }
+        if (existing.status === "sending") {
+          throw new ToolError({
+            category: "internal",
+            retryable: false,
+            message:
+              "Send with this dedupe_key is or was in-flight; Telegram delivery state is unknown, so automatic retry is refused.",
           });
         }
         if (existing.payloadHash !== params.payloadHash) {
@@ -1023,7 +1034,7 @@ export class MessageStore {
             telegramMessageId: existing.telegramMessageId,
           };
         }
-        if ((existing.status === "queued" || existing.status === "sending") && existing.expiresAtMs > params.nowMs) {
+        if (existing.status === "queued" && existing.expiresAtMs > params.nowMs) {
           throw new ToolError({
             category: "rate_limit",
             retryable: true,
@@ -1120,6 +1131,19 @@ export class MessageStore {
     });
   }
 
+  markSendDeliveryUnknown(outboxId: string, nowMs = Date.now()): boolean {
+    return this.writeWithRetry("markSendDeliveryUnknown", () => {
+      const result = this.db
+        .prepare(
+          `UPDATE send_outbox
+           SET status = 'failed', error = ?, updated_at_ms = ?
+           WHERE id = ? AND status = 'sending'`,
+        )
+        .run(UNKNOWN_DELIVERY_ERROR, nowMs, outboxId);
+      return result.changes > 0;
+    });
+  }
+
   markSendExpired(outboxId: string, error = "Queued send expired before execution.", nowMs = Date.now()): boolean {
     return this.writeWithRetry("markSendExpired", () => {
       const result = this.db
@@ -1145,21 +1169,16 @@ export class MessageStore {
            SET status = 'expired',
                error = COALESCE(error, ?),
                updated_at_ms = ?
-           WHERE status = 'queued'`,
+           WHERE status = 'queued' AND expires_at_ms <= ?`,
         )
-        .run(RESTART_EXPIRED_SEND_ERROR, nowMs);
-      const sending = this.db
-        .prepare(
-          `UPDATE send_outbox
-           SET status = 'failed',
-               error = ?,
-               updated_at_ms = ?
-           WHERE status = 'sending'`,
-        )
-        .run(UNKNOWN_DELIVERY_AFTER_RESTART_ERROR, nowMs);
+        .run(RESTART_EXPIRED_SEND_ERROR, nowMs, nowMs);
       return {
         expiredQueued: Number(queued.changes ?? 0),
-        markedUnknownDelivery: Number(sending.changes ?? 0),
+        // A MessageStore does not own the process that created an outbox row.
+        // Another MCP process may still be sending it, so startup must never
+        // rewrite `sending`. The row itself is the durable unknown-delivery
+        // guard: reserveSend refuses to reuse its dedupe key.
+        markedUnknownDelivery: 0,
       };
     });
   }
@@ -1379,7 +1398,7 @@ export class MessageStore {
       .prepare(
         `UPDATE send_outbox
          SET status = 'expired', error = COALESCE(error, 'Queued send expired before execution.'), updated_at_ms = ?
-         WHERE status IN ('queued', 'sending') AND expires_at_ms <= ?`,
+         WHERE status = 'queued' AND expires_at_ms <= ?`,
       )
       .run(nowMs, nowMs);
   }
@@ -2346,8 +2365,11 @@ function rowToSendOutboxItem(row: Record<string, unknown>): StoredSendOutboxItem
   };
 }
 
-function isUnknownDeliveryAfterRestart(item: StoredSendOutboxItem): boolean {
-  return item.error === UNKNOWN_DELIVERY_AFTER_RESTART_ERROR;
+function isUnknownDelivery(item: StoredSendOutboxItem): boolean {
+  return (
+    item.error === UNKNOWN_DELIVERY_ERROR ||
+    item.error === LEGACY_UNKNOWN_DELIVERY_AFTER_RESTART_ERROR
+  );
 }
 
 function escapeFtsQuery(query: string): string {

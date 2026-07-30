@@ -174,7 +174,8 @@ Use cache-only tools first when inspecting state or answering from already synce
 
 These tools may connect to Telegram and should be used deliberately: `resolve_chat`, `get_chat_info`, `sync_history`,
 `preview_message`, `send_message`, and `reply_to_message`. Sending tools remain dry-run or approval-gated according to
-the safety config.
+the safety config. The `approval_id` is a server-issued payload capability, not human confirmation; enforce human
+approval separately in the host when an untrusted or prompt-driven client can call live write tools.
 
 ## Codex Config
 

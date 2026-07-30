@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { AppConfig } from "../src/config.js";
+import { ToolError } from "../src/errors.js";
 import { MessageStore } from "../src/store.js";
 import { TelegramTools } from "../src/tools.js";
 import type { ChatInfo, TelegramService } from "../src/telegram-client.js";
@@ -530,7 +531,7 @@ test("sent dedupe keys are permanent audit ids before and after the old ttl wind
   );
 });
 
-test("failed sends can retry with the same dedupe key", async () => {
+test("a rejected dispatch becomes unknown and cannot retry the same dedupe key", async () => {
   const telegram = new FakeTelegram();
   telegram.failNextSend = new Error("temporary send failure");
   const { tools, store } = makeTools(telegram, {
@@ -548,6 +549,7 @@ test("failed sends can retry with the same dedupe key", async () => {
 
   assert.equal(failed.ok, false);
   assert.equal(store.getSendOutboxByDedupeKey("dedupe/retry")?.status, "failed");
+  assert.match(store.getSendOutboxByDedupeKey("dedupe/retry")?.error ?? "", /delivery state is unknown/);
 
   const retryPreview = await callTool(tools, "preview_message", {
     text: "retry me",
@@ -559,9 +561,44 @@ test("failed sends can retry with the same dedupe key", async () => {
     dedupe_key: "dedupe/retry",
   });
 
-  assert.equal(retried.ok, true);
-  assert.equal(store.getSendOutboxByDedupeKey("dedupe/retry")?.status, "sent");
-  assert.equal(telegram.sends.length, 2);
+  assert.equal(retried.ok, false);
+  assert.match((retried.error as { message: string }).message, /unknown Telegram delivery state/);
+  assert.equal(store.getSendOutboxByDedupeKey("dedupe/retry")?.status, "failed");
+  assert.equal(telegram.sends.length, 1);
+});
+
+test("an explicitly definitive failed row can be retried with the same dedupe key", () => {
+  const store = new MessageStore(":memory:");
+  const original = store.reserveSend({
+    outboxId: "send/definitive-failure",
+    dedupeKey: "dedupe/definitive-failure",
+    payloadHash: "payload/hash",
+    chatId: "-1001",
+    userKey: "mcp-server",
+    nowMs: 1_000,
+    maxAgeMs: 120_000,
+    userCooldownMs: 0,
+    maxPendingPerUserPerChat: 10,
+    maxQueuePerChat: 10,
+  });
+  assert.equal(original.kind, "queued");
+  assert.equal(store.markSendSending(original.outboxId, 1_001), true);
+  assert.equal(store.markSendFailed(original.outboxId, "definitive Telegram rejection", 1_002), true);
+
+  const retry = store.reserveSend({
+    outboxId: "send/definitive-failure-retry",
+    dedupeKey: "dedupe/definitive-failure",
+    payloadHash: "payload/hash",
+    chatId: "-1001",
+    userKey: "mcp-server",
+    nowMs: 2_000,
+    maxAgeMs: 120_000,
+    userCooldownMs: 0,
+    maxPendingPerUserPerChat: 10,
+    maxQueuePerChat: 10,
+  });
+
+  assert.equal(retry.kind, "queued");
 });
 
 test("queued sends expire before execution", async () => {
@@ -709,7 +746,7 @@ test("persisted cooldown uses server-owned caller identity", async () => {
   assert.equal(telegram.sends.length, 1);
 });
 
-test("fresh tools reconcile active outbox rows without changing terminal rows", (t) => {
+test("a second tools instance does not rewrite another process's active outbox rows", (t) => {
   const dbPath = tempDbPath(t);
   const seedStore = new MessageStore(dbPath);
   seedSend(seedStore, "queued", "queued/restart");
@@ -721,12 +758,12 @@ test("fresh tools reconcile active outbox rows without changing terminal rows", 
   const { store } = makeTools(new FakeTelegram(), { dbPath });
 
   const queued = store.getSendOutboxByDedupeKey("queued/restart");
-  assert.equal(queued?.status, "expired");
-  assert.match(queued?.error ?? "", /abandoned by process restart/);
+  assert.equal(queued?.status, "queued");
+  assert.equal(queued?.error, undefined);
 
   const sending = store.getSendOutboxByDedupeKey("sending/restart");
-  assert.equal(sending?.status, "failed");
-  assert.match(sending?.error ?? "", /delivery state is unknown/);
+  assert.equal(sending?.status, "sending");
+  assert.equal(sending?.error, undefined);
 
   assert.equal(store.getSendOutboxByDedupeKey("failed/restart")?.status, "failed");
   assert.equal(store.getSendOutboxByDedupeKey("failed/restart")?.error, "original failure");
@@ -746,8 +783,7 @@ test("ambiguous in-flight send is not retried after restart", async (t) => {
   });
 
   const reconciled = store.getSendOutboxByDedupeKey("ambiguous/restart");
-  assert.equal(reconciled?.status, "failed");
-  assert.match(reconciled?.error ?? "", /delivery state is unknown/);
+  assert.equal(reconciled?.status, "sending");
 
   const preview = await callTool(tools, "preview_message", {
     text: "ambiguous send",
@@ -761,8 +797,62 @@ test("ambiguous in-flight send is not retried after restart", async (t) => {
 
   assert.equal(retried.ok, false);
   assert.equal((retried.error as { category: string }).category, "internal");
-  assert.match((retried.error as { message: string }).message, /unknown Telegram delivery state/);
+  assert.match((retried.error as { message: string }).message, /Telegram delivery state is unknown/);
   assert.equal(telegram.sends.length, 0);
+});
+
+test("an expired in-flight row never becomes a reusable dedupe reservation", () => {
+  const store = new MessageStore(":memory:");
+  const original = store.reserveSend({
+    outboxId: "send/in-flight",
+    dedupeKey: "dedupe/in-flight",
+    payloadHash: "payload/hash",
+    chatId: "-1001",
+    userKey: "mcp-server",
+    nowMs: 1_000,
+    maxAgeMs: 50,
+    userCooldownMs: 0,
+    maxPendingPerUserPerChat: 10,
+    maxQueuePerChat: 10,
+  });
+  assert.equal(original.kind, "queued");
+  assert.equal(store.markSendSending(original.outboxId, 1_001), true);
+
+  assert.throws(
+    () =>
+      store.reserveSend({
+        outboxId: "send/in-flight-retry",
+        dedupeKey: "dedupe/in-flight",
+        payloadHash: "payload/hash",
+        chatId: "-1001",
+        userKey: "mcp-server",
+        nowMs: 2_000,
+        maxAgeMs: 50,
+        userCooldownMs: 0,
+        maxPendingPerUserPerChat: 10,
+        maxQueuePerChat: 10,
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof ToolError);
+      assert.equal(error.normalized.retryable, false);
+      assert.match(error.message, /in-flight/);
+      return true;
+    },
+  );
+  assert.equal(store.getSendOutboxByDedupeKey("dedupe/in-flight")?.status, "sending");
+});
+
+test("startup reconciliation expires only stale queued rows and never touches sending", () => {
+  const store = new MessageStore(":memory:");
+  seedSend(store, "queued", "queued/stale");
+  seedSend(store, "sending", "sending/live");
+
+  const result = store.reconcileActiveSendsOnStartup(70_000);
+
+  assert.equal(result.expiredQueued, 1);
+  assert.equal(result.markedUnknownDelivery, 0);
+  assert.equal(store.getSendOutboxByDedupeKey("queued/stale")?.status, "expired");
+  assert.equal(store.getSendOutboxByDedupeKey("sending/live")?.status, "sending");
 });
 
 test("terminal send outbox states are not overwritten by later transitions", () => {

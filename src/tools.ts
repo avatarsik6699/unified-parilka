@@ -52,7 +52,6 @@ export class TelegramTools {
     private readonly telegram: TelegramService,
     private readonly store: MessageStore,
   ) {
-    this.store.reconcileActiveSendsOnStartup();
     this.throttler = new SendThrottler(config, store);
     this.syncer = new HistorySyncer(config, telegram, store);
     this.vectorRag = new VectorRag(config, store);
@@ -163,7 +162,8 @@ export class TelegramTools {
       },
       {
         name: "preview_message",
-        description: "Validate a Telegram send without sending anything and return a short-lived live-send approval id.",
+        description:
+          "Validate a Telegram send without sending anything and return a short-lived, one-shot payload capability. This is not human approval.",
         inputSchema: objectSchema({
           chat: stringProp("Chat ID, @username, or omitted for TELEGRAM_DEFAULT_CHAT_ID."),
           text: stringProp("Message text."),
@@ -184,7 +184,9 @@ export class TelegramTools {
           link_preview: boolProp("Enable link preview."),
           silent: boolProp("Send silently."),
           dry_run: boolProp("Force dry run."),
-          approval_id: stringProp("Short-lived approval id returned by preview_message; required for live sends unless admin bypass is enabled."),
+          approval_id: stringProp(
+            "Short-lived one-shot payload capability returned by preview_message; not human approval. Required for live sends unless admin bypass is enabled.",
+          ),
           dedupe_key: stringProp("Optional caller-provided idempotency key."),
         }, ["text"]),
       },
@@ -199,7 +201,9 @@ export class TelegramTools {
           link_preview: boolProp("Enable link preview."),
           silent: boolProp("Send silently."),
           dry_run: boolProp("Force dry run."),
-          approval_id: stringProp("Short-lived approval id returned by preview_message; required for live sends unless admin bypass is enabled."),
+          approval_id: stringProp(
+            "Short-lived one-shot payload capability returned by preview_message; not human approval. Required for live sends unless admin bypass is enabled.",
+          ),
           dedupe_key: stringProp("Optional caller-provided idempotency key."),
         }, ["message_id", "text"]),
       },

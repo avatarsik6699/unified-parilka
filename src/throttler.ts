@@ -127,7 +127,11 @@ export class SendThrottler {
             this.rememberRateLimit(job.chatId, normalized);
             const message = normalized.message;
             try {
-              if (!this.store.markSendFailed(job.outboxId, message)) {
+              // Once dispatch starts, a rejected client promise cannot prove
+              // that Telegram did not accept the message. Mark the delivery
+              // unknown and permanently refuse automatic reuse of this dedupe
+              // key; an operator can inspect Telegram and choose a new key.
+              if (!this.store.markSendDeliveryUnknown(job.outboxId)) {
                 throw new Error("outbox row was already terminal or missing");
               }
               job.reject(error);

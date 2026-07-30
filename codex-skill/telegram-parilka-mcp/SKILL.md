@@ -32,7 +32,8 @@ For replies:
 1. Read enough surrounding context first.
 2. Draft in the user's requested tone.
 3. Run `preview_message` or `send_message` with `dry_run: true`.
-4. Send only with explicit approval and only when `TELEGRAM_SEND_ENABLED=true`.
+4. Send only after explicit user approval and only when `TELEGRAM_SEND_ENABLED=true`. The server's `approval_id`
+   validates a payload but is not proof of human confirmation.
 
 For setup/deploy/troubleshooting, read `references/runbook.md`.
 
