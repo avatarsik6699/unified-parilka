@@ -166,6 +166,7 @@ export class HistorySyncer {
     let reconciliation: SyncResult["reconciliation"];
     let catchupNewestMessageId = activeRecentCatchup?.newestMessageId;
     let catchupNextOffsetId: number | undefined;
+    let lastFlushedRecentOffsetId: number | undefined;
     let rows: StoredMessage[] = [];
     const seen = new Set<string>();
 
@@ -173,8 +174,16 @@ export class HistorySyncer {
       if (rows.length === 0) {
         return;
       }
-      saved += this.store.upsertMessages(chat, rows);
+      const batch = rows;
       rows = [];
+      saved += this.store.upsertMessages(chat, batch);
+      if (params.mode === "recent") {
+        const batchOldestMessageId = Math.min(...batch.map((row) => row.messageId));
+        lastFlushedRecentOffsetId =
+          lastFlushedRecentOffsetId == null
+            ? batchOldestMessageId
+            : Math.min(lastFlushedRecentOffsetId, batchOldestMessageId);
+      }
       batches += 1;
     };
 
@@ -360,10 +369,23 @@ export class HistorySyncer {
       };
     } catch (error) {
       const normalized = normalizeError(error);
+      const partialRecentCatchup =
+        params.mode === "recent" && shouldUseRecentCatchup && lastFlushedRecentOffsetId != null
+          ? {
+              // Keep the confirmed high-water mark behind until the whole gap
+              // is traversed, but resume below the last durable batch. Without
+              // this checkpoint, a flood/network error after several pages
+              // refetched those pages forever and could never close the gap.
+              minMessageId: minId,
+              nextOffsetId: lastFlushedRecentOffsetId,
+              newestMessageId: catchupNewestMessageId,
+            }
+          : undefined;
       this.store.updateSyncState(chat, {
         syncedCount: this.store.countMessages(chat.chatId),
         mode: params.mode,
         error: normalized.message,
+        ...(partialRecentCatchup ? { recentCatchup: partialRecentCatchup } : {}),
       });
       this.store.finishHistoryJob(jobId, {
         status: "failed",
@@ -381,9 +403,15 @@ export class HistorySyncer {
         fetched,
         saved,
         batches,
-        nextOffsetId: offsetId,
+        nextOffsetId: partialRecentCatchup?.nextOffsetId ?? offsetId,
         oldestMessageId,
         newestMessageId,
+        catchup: partialRecentCatchup
+          ? {
+              status: "catching_up",
+              ...partialRecentCatchup,
+            }
+          : undefined,
         error: normalized,
       };
     }

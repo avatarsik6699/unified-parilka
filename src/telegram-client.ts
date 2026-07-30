@@ -65,8 +65,13 @@ export class TelegramService {
     if (!this.client) {
       return;
     }
-    await this.client.disconnect();
+    const client = this.client;
     this.client = undefined;
+    // TelegramClient.disconnect() leaves GramJS's update/ping loop alive. The
+    // daemon creates a fresh client on the next tick, so using disconnect()
+    // leaked one background loop per tick; every leaked loop then printed raw
+    // TIMEOUT stacks forever. destroy() terminates the loop and its senders.
+    await client.destroy();
   }
 
   assertChatAllowed(chat: string): void {

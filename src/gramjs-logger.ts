@@ -1,7 +1,10 @@
 import { Logger, LogLevel } from "telegram/extensions/Logger.js";
 
 export class StderrGramJsLogger extends Logger {
-  constructor(level: LogLevel = LogLevel.WARN) {
+  // GramJS's update loop bypasses Logger.log() and calls console.error(error)
+  // whenever canSend(ERROR) is true. The service records normalized operation
+  // failures itself, so NONE prevents duplicate unbounded raw stack traces.
+  constructor(level: LogLevel = LogLevel.NONE) {
     super(level);
   }
 

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import { errors as telegramErrors } from "telegram";
+import { LogLevel } from "telegram/extensions/Logger.js";
 import type { AppConfig } from "../src/config.js";
 import { normalizeError } from "../src/errors.js";
 import { MessageStore } from "../src/store.js";
@@ -19,6 +20,7 @@ test("telegram client options include configured flood sleep threshold", () => {
 
   assert.equal(options.connectionRetries, 3);
   assert.equal(options.floodSleepThreshold, 42);
+  assert.equal((options.baseLogger as { logLevel: LogLevel }).logLevel, LogLevel.NONE);
 });
 
 test("flood wait retry-after delays the next daemon tick", () => {

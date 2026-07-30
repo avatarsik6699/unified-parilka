@@ -219,7 +219,7 @@ test("history operation watchdog fails a stuck iterator and closes it", async ()
   assert.match(store.getSyncState(CHAT.chatId)?.lastError ?? "", /timed out/);
 });
 
-test("partial recent failure leaves high-water mark behind for repair", async () => {
+test("partial recent failure checkpoints flushed progress without advancing high-water", async () => {
   const store = seededStore(1000);
   const failingTelegram = new FakeTelegram(range(1001, 1500));
   failingTelegram.throwAfterTotal = 120;
@@ -233,7 +233,13 @@ test("partial recent failure leaves high-water mark behind for repair", async ()
 
   assert.equal(failed.error?.message, "simulated iterator failure");
   assert.equal(failed.saved, 100);
-  assert.equal(store.getSyncState(CHAT.chatId)?.newestMessageId, 1000);
+  let state = store.getSyncState(CHAT.chatId);
+  assert.equal(state?.newestMessageId, 1000);
+  assert.equal(state?.recentCatchupMinId, 1000);
+  assert.equal(state?.recentCatchupNextOffsetId, 1401);
+  assert.equal(state?.recentCatchupNewestId, 1500);
+  assert.equal(failed.catchup?.status, "catching_up");
+  assert.equal(failed.catchup?.nextOffsetId, 1401);
   assert.equal(store.countMessages(CHAT.chatId), 101);
 
   const repairingTelegram = new FakeTelegram(range(1001, 1500));
@@ -245,12 +251,44 @@ test("partial recent failure leaves high-water mark behind for repair", async ()
   });
 
   assert.equal(repaired.error, undefined);
-  assert.equal(repaired.fetched, 500);
-  assert.equal(store.getSyncState(CHAT.chatId)?.newestMessageId, 1500);
+  assert.equal(repaired.fetched, 400);
+  state = store.getSyncState(CHAT.chatId);
+  assert.equal(state?.newestMessageId, 1500);
+  assert.equal(state?.recentCatchupMinId, undefined);
+  assert.equal(state?.recentCatchupNextOffsetId, undefined);
+  assert.equal(state?.recentCatchupNewestId, undefined);
   assert.deepEqual(
     store.getHistory({ chatId: CHAT.chatId, afterId: 1000, limit: 600, order: "asc" }).map((message) => message.messageId),
     range(1001, 1500),
   );
+});
+
+test("repeated partial recent failures keep making durable progress", async () => {
+  const store = seededStore(1000);
+  const requestOffsets: number[] = [];
+  const results = [];
+
+  for (let tick = 0; tick < 5; tick += 1) {
+    const telegram = new FakeTelegram(range(1001, 1500));
+    telegram.throwAfterTotal = 120;
+    const syncer = new HistorySyncer(config(), telegram as unknown as TelegramService, store);
+    results.push(
+      await syncer.syncDirection({
+        mode: "recent",
+        limit: 300,
+        batchSize: 50,
+      }),
+    );
+    requestOffsets.push(...telegram.requests.map((request) => request.offsetId ?? 0));
+  }
+
+  assert.deepEqual(
+    results.map((result) => result.status),
+    ["failed", "failed", "failed", "failed", "done"],
+  );
+  assert.deepEqual(requestOffsets, [0, 1401, 1301, 1201, 1101]);
+  assert.equal(store.getSyncState(CHAT.chatId)?.newestMessageId, 1500);
+  assert.equal(store.countMessages(CHAT.chatId), 501);
 });
 
 test("recent sync with no new messages preserves the newest id", async () => {
