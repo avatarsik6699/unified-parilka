@@ -1,6 +1,10 @@
 import type { MessageStore, StoredBotTurn, StoredMessage } from "../../store.js";
 import type { FoldBatch, TurnBoundary, TurnCoordinator } from "../turn-coordinator.js";
 import type { GuardedChunk, OutputGuardPolicy, QuoteEvidence } from "../output-guards.js";
+import type {
+  ToolProgressBotApiPort,
+  ToolProgressPort,
+} from "../tool-progress.js";
 import type { TurnTelemetry } from "../telemetry.js";
 import type { TypingPort } from "../typing.js";
 
@@ -26,6 +30,7 @@ export interface BotAgentRequest {
   context: readonly Readonly<StoredMessage>[];
   signal: AbortSignal;
   drainFold: (boundary: TurnBoundary) => FoldBatch;
+  toolProgressPort?: ToolProgressPort;
 }
 
 export interface BotTurnAgent {
@@ -94,6 +99,7 @@ export interface BotTurnWorkerOptions {
   additionalAllowedMentions?: readonly string[];
   typingPort?: TypingPort;
   typingIntervalMs?: number;
+  toolProgressBotApiPort?: ToolProgressBotApiPort;
   logger?: JsonEventLogger;
   scheduler?: WorkerScheduler;
   now?: () => number;

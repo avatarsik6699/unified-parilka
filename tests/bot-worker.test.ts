@@ -14,6 +14,7 @@ import {
   range,
   stubTelemetry,
 } from "./support/bot-worker.js";
+import type { ToolProgressBotApiPort } from "../src/bot/tool-progress.js";
 
 test("live success uses bounded context/replay, guarded draft, and no raw streaming", async (t) => {
   const fixture = makeFixture(t);
@@ -234,4 +235,44 @@ test("provider failure before send is retryable through durable failed state", a
   assert.equal(publisherCalls, 0);
   assert.equal(fixture.store.getBotTurn(fixture.turnId)?.status, "failed");
   assert.doesNotMatch(JSON.stringify(fixture.logs), /SECRET_PROVIDER_TEXT/);
+});
+
+test("worker passes tool progress port and cleans up before durable final", async (t) => {
+  const fixture = makeFixture(t);
+  const portCalls: unknown[] = [];
+  const port: ToolProgressBotApiPort = {
+    async sendMessage(chatId, text, signal) {
+      portCalls.push({ kind: "send", chatId, text, signal });
+      return { ok: true, messageId: 42 };
+    },
+    async editMessageText() {
+      portCalls.push({ kind: "edit" });
+      return { ok: true };
+    },
+    async deleteMessage(chatId, messageId, signal) {
+      portCalls.push({ kind: "delete", chatId, messageId, signal });
+      return { ok: true };
+    },
+  };
+  let receivedPort: unknown;
+  const worker = fixture.worker({
+    agent: async (request) => {
+      receivedPort = request.toolProgressPort;
+      request.toolProgressPort?.onToolStarted({
+        toolName: "search_chat",
+        callId: "c1",
+      });
+      return final("done");
+    },
+    publisher: async () => ({ ok: true, chunksSent: 1 }),
+    toolProgressBotApiPort: port,
+  });
+
+  const result = await worker.runOnce();
+
+  assert.equal(result.status, "sent");
+  assert.ok(receivedPort, "agent must receive tool progress port");
+  assert.equal(portCalls.some((call) => call.kind === "send"), true);
+  const deleteCall = portCalls.find((call) => call.kind === "delete");
+  assert.ok(deleteCall, "progress message must be deleted before durable final");
 });

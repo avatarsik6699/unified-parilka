@@ -33,6 +33,7 @@ declare protected applyBackfillExhaustedMigration: () => void;
   declare protected applyBaseSchema: () => void;
   declare protected applyBotDurabilityMigration: () => void;
   declare protected applyBotRetryBackoffMigration: () => void;
+  declare protected applyBotToolProgressMigration: () => void;
   declare protected applyChatAliasMigration: () => void;
   declare protected applyDaemonStatusMigration: () => void;
   declare protected applyDigestCacheMigration: () => void;
@@ -108,6 +109,10 @@ declare protected applyBackfillExhaustedMigration: () => void;
       if (currentVersion < 13) {
         this.applyBotRetryBackoffMigration();
         this.db.exec("PRAGMA user_version = 13");
+      }
+      if (currentVersion < 14) {
+        this.applyBotToolProgressMigration();
+        this.db.exec("PRAGMA user_version = 14");
       }
       // This is a backwards-compatible performance index, not a data-model
       // change. Reconcile it for every writable v13 open so databases created
@@ -208,6 +213,8 @@ declare protected applyBackfillExhaustedMigration: () => void;
       "retry_not_before_ms",
       "draft_text",
       "telegram_message_id",
+      "progress_message_id",
+      "progress_state",
       "error",
       "created_at_ms",
       "updated_at_ms",

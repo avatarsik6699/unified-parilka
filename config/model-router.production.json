@@ -4,7 +4,7 @@
     {
       "id": "qwen",
       "protocol": "openai",
-      "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "baseUrl": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
       "apiKeyEnv": "PARILKA_QWEN_API_KEY"
     },
     {
@@ -17,11 +17,11 @@
   ],
   "roles": {
     "turn": [
-      "qwen:qwen-max-latest",
+      "qwen:qwen3.8-max-preview",
       "deepseek:deepseek-v4-flash"
     ],
     "summary": [
-      "qwen:qwen-max-latest",
+      "qwen:qwen3.8-max-preview",
       "deepseek:deepseek-v4-flash"
     ]
   }

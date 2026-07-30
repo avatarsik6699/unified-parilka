@@ -32,7 +32,13 @@ import type { MessageStore } from "../store.js";
 
 export type BotDaemonApi = Pick<
   Api,
-  "getMe" | "deleteWebhook" | "getUpdates" | "sendMessage" | "sendChatAction"
+  | "getMe"
+  | "deleteWebhook"
+  | "getUpdates"
+  | "sendMessage"
+  | "sendChatAction"
+  | "editMessageText"
+  | "deleteMessage"
 >;
 
 export interface ComposeBotDaemonOptions {

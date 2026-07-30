@@ -6,6 +6,10 @@ import {
 } from "../output-guards.js";
 import { buildTelemetryFooter } from "../telemetry.js";
 import {
+  ToolProgressPublisher,
+  type ToolProgressBotApiPort,
+} from "../tool-progress.js";
+import {
   startTypingHeartbeat,
   type TypingHeartbeat,
   type TypingPort,
@@ -53,6 +57,7 @@ export class BotTurnWorker {
   readonly #additionalAllowedMentions: readonly string[];
   readonly #typingPort: TypingPort | undefined;
   readonly #typingIntervalMs: number;
+  readonly #toolProgressBotApiPort: ToolProgressBotApiPort | undefined;
   readonly #logger: JsonEventLogger | undefined;
   readonly #scheduler: WorkerScheduler;
   readonly #now: () => number;
@@ -75,6 +80,7 @@ export class BotTurnWorker {
       settings.additionalAllowedMentions;
     this.#typingPort = options.typingPort;
     this.#typingIntervalMs = options.typingIntervalMs ?? 4_000;
+    this.#toolProgressBotApiPort = options.toolProgressBotApiPort;
     this.#logger = settings.logger;
     this.#scheduler = settings.scheduler;
     this.#now = settings.now;
@@ -178,6 +184,18 @@ export class BotTurnWorker {
           signal: controller.signal,
         });
       }
+      const toolProgress = this.#toolProgressBotApiPort
+        ? new ToolProgressPublisher({
+            turnId: turn.id,
+            workerId: this.#workerId,
+            chatId: turn.chatId,
+            signal: controller.signal,
+            botApi: this.#toolProgressBotApiPort,
+            store: this.#store,
+            initialMessageId: turn.progressMessageId,
+            now: this.#now,
+          })
+        : undefined;
       timers = startTurnTimers({
         store: this.#store,
         turn,
@@ -198,6 +216,10 @@ export class BotTurnWorker {
         coordinatorTurnId,
       );
 
+      if (toolProgress) {
+        await toolProgress.recoverPrevious(controller.signal);
+      }
+
       let final: BotAgentFinalResult;
       try {
         final = await Promise.race([
@@ -209,6 +231,7 @@ export class BotTurnWorker {
             ),
             signal: controller.signal,
             drainFold,
+            toolProgressPort: toolProgress,
           }),
           timers.interruption,
         ]);
@@ -360,6 +383,11 @@ export class BotTurnWorker {
       // `sending` row is the unknown-delivery fence.
       typing?.stop();
       timers.stop();
+      try {
+        await toolProgress?.finish(controller.signal);
+      } catch {
+        // Progress cleanup is best-effort presentation only.
+      }
       if (
         !this.#store.markBotTurnSending(
           turn.id,

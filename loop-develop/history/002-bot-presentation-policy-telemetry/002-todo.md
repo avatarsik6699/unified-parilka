@@ -159,6 +159,25 @@ git diff --check
    update, turn, tool/provider steps и publish outcome.
 8. Active record получает Final Status и переносится в `history/`.
 
+## Final Status
+
+**Completed:** 2026-07-31.
+
+**Done:**
+- Endpoint/key verified: `qwen3.8-max-preview` is reachable via `token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1`; key stored in `~/.parlang-bot/dashscope_key`.
+- Persisted tool-progress fence wired through `BotTurnWorker`, `AiSdkBotTurnAgent`, Grammy Bot API adapter, and `bot-daemon` composition.
+- Added `saveBotTurnProgress`/`clearBotTurnProgress` storage methods and schema v14 migration.
+- Added focused tests: `tests/bot-tool-progress.test.ts` and worker integration test.
+- All gates green: `npm run check`, `npm run check:shell`, `npm run check:architecture`, `npm run check:systemd`, `npm test` (447/447), `npm run secret-scan`, `npm run smoke:mtcute-storage`.
+- Production rebuilt (`npm run build`) and `parilka-bot.service` restarted cleanly.
+- Live E2E confirmed via Telegram MCP: mention → reply delivered with telemetry footer showing `qwen3.8-max-preview`.
+
+**Residual/limitations:**
+- Qwen reasoning display shows `off` because the OpenAI-compatible provider currently only reports reasoning when the API returns `reasoning_tokens`. Enabling explicit Qwen reasoning parameters is out of scope for this slice.
+- `parilka-sync.service` was not restarted; changes only affected the bot runtime.
+
+**Commit/push:** not authorized by this goal.
+
 ## Copy-Ready Goal Prompt
 
 ```text

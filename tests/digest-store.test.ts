@@ -213,7 +213,7 @@ test("version 11 databases receive digest tables in one atomic migration", (t) =
   raw.close();
 
   const migrated = new MessageStore(path);
-  assert.equal(migrated.getSchemaVersion(), 13);
+  assert.equal(migrated.getSchemaVersion(), 14);
   assert.deepEqual(
     migrated.getDayDigests({
       chatId: "-1001",
@@ -225,7 +225,7 @@ test("version 11 databases receive digest tables in one atomic migration", (t) =
   migrated.close();
 });
 
-test("writable v13 opens harden the database and reconcile the digest date index", (t) => {
+test("writable v14 opens harden the database and reconcile the digest date index", (t) => {
   const directory = mkdtempSync(
     join(tmpdir(), "parilka-digest-index-"),
   );

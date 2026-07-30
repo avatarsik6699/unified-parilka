@@ -10,6 +10,7 @@ import {
   botRuntimeOptionsFromConfig,
   createDurableGrammyBotTurnPublisher,
   createGrammyLongPollingApi,
+  createToolProgressGrammyBotApiPort,
 } from "../bot/runtime.js";
 import { TurnCoordinator } from "../bot/turn-coordinator.js";
 import type { TypingPort } from "../bot/typing.js";
@@ -84,6 +85,9 @@ export function composeBotDaemon(
         )
         .then(() => undefined),
   };
+  const toolProgressBotApiPort = createToolProgressGrammyBotApiPort(
+    options.api,
+  );
   const workers = Array.from(
     { length: config.workerConcurrency },
     (_unused, index) =>
@@ -99,6 +103,7 @@ export function composeBotDaemon(
         publishTimeoutMs: config.publishTimeoutMs,
         additionalAllowedMentions: config.allowedMentions,
         typingPort,
+        toolProgressBotApiPort,
         logger: options.logger,
       }),
   );

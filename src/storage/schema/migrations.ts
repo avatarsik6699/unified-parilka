@@ -395,4 +395,13 @@ declare protected applyMaintenanceSchema: () => void;
         );
     `);
   }
+
+  protected applyBotToolProgressMigration(): void {
+    this.ensureColumn("bot_turns", "progress_message_id", "INTEGER");
+    this.ensureColumn(
+      "bot_turns",
+      "progress_state",
+      "TEXT CHECK(progress_state IN ('none', 'dispatching', 'active', 'unknown'))",
+    );
+  }
 }
