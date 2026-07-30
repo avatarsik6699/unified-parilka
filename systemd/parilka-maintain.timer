@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Parilka maintenance daily
+
+[Timer]
+OnCalendar=*-*-* 04:20:00
+Persistent=true
+RandomizedDelaySec=5min
+Unit=parilka-maintain.service
+
+[Install]
+WantedBy=timers.target

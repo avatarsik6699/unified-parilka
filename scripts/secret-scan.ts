@@ -11,8 +11,9 @@ export type SecretFinding = { file: string; line: number; pattern: string };
 
 export const patterns: SecretPattern[] = [
   {
-    name: "OpenAI-compatible API key",
-    regex: /\b(?:OPENAI_API_KEY|TELEGRAM_EMBEDDINGS_API_KEY)\s*[:=]\s*['"]?sk-[A-Za-z0-9_-]{20,}/i,
+    name: "API key assignment",
+    regex:
+      /\b(?:[A-Z0-9_]*(?:ANTHROPIC|DASHSCOPE|DEEPSEEK|GEMINI|GOOGLE|OPENAI)[A-Z0-9_]*|[A-Z0-9_]*API_KEY)\s*[:=]\s*['"]?(?!example|placeholder|test|your[-_])(?:sk[-_])?[A-Za-z0-9._-]{20,}/i,
   },
   {
     name: "Telegram API hash",
@@ -25,6 +26,28 @@ export const patterns: SecretPattern[] = [
   {
     name: "Private key block",
     regex: /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/,
+  },
+  {
+    name: "Telegram bot token",
+    regex:
+      /\b[A-Z0-9_]*BOT_TOKEN\s*[:=]\s*['"]?\d{6,}:[A-Za-z0-9_-]{35,}/i,
+  },
+  {
+    name: "GitHub token",
+    regex: /\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,})\b/,
+  },
+  {
+    name: "AWS access key",
+    regex: /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/,
+  },
+  {
+    name: "AWS secret key assignment",
+    regex: /\bAWS_SECRET_ACCESS_KEY\s*[:=]\s*['"]?[A-Za-z0-9/+=]{40}\b/i,
+  },
+  {
+    name: "Bearer or JWT assignment",
+    regex:
+      /\b(?:AUTHORIZATION|BEARER_TOKEN|JWT|JWT_TOKEN)\s*[:=]\s*['"]?(?:Bearer\s+)?(?:eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|[A-Za-z0-9._-]{32,})/i,
   },
 ];
 

@@ -8,4 +8,34 @@ cd "$project_dir"
 entrypoint="$project_dir/dist/index.js"
 "$project_dir/bin/telegram-parilka-mcp-check-build" "$project_dir" "$entrypoint"
 
+# Normal/status proxy mode needs only PARILKA_MCP_HTTP_URL. Explicitly remove
+# credentials inherited from a long-lived harness so each stdio child remains
+# a transport proxy rather than a secret-bearing Telegram process.
+owner_mode=0
+for argument in "$@"; do
+  case "$argument" in
+    --direct|--validate-config|--print-config)
+      owner_mode=1
+      ;;
+  esac
+done
+if (( ! owner_mode )); then
+  unset \
+    TELEGRAM_API_ID \
+    TELEGRAM_API_HASH \
+    TELEGRAM_PHONE \
+    TELEGRAM_SESSION \
+    TELEGRAM_SESSION_STRING \
+    TELEGRAM_SESSION_STRING_PERSONAL \
+    TELEGRAM_SESSION_STRING_WIFE \
+    TELEGRAM_EMBEDDINGS_API_KEY \
+    OPENAI_API_KEY \
+    PARILKA_BOT_TOKEN \
+    PARILKA_QWEN_API_KEY \
+    PARILKA_DEEPSEEK_API_KEY \
+    PARILKA_OPENAI_API_KEY \
+    PARILKA_ANTHROPIC_API_KEY \
+    PARILKA_WEB_SEARCH_TOKEN
+fi
+
 exec node "$entrypoint" "$@"

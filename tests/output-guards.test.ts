@@ -1,0 +1,323 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import {
+  TELEGRAM_TEXT_LIMIT_UTF16,
+  guardFinalTelegramOutput,
+  splitTelegramText,
+  utf16Length,
+  type GuardedChunk,
+  type OutputGuardPolicy,
+  type OutputGuardResult,
+} from "../src/bot/output-guards.js";
+
+function chunkTexts(chunks: readonly GuardedChunk[]): string[] {
+  return chunks.map((chunk) => chunk.text);
+}
+
+function joinedChunkText(chunks: readonly GuardedChunk[]): string {
+  return chunks.map((chunk) => chunk.text).join("");
+}
+
+interface GuardCase {
+  name: string;
+  text: string;
+  policy?: OutputGuardPolicy;
+  verify: (result: OutputGuardResult) => void;
+}
+
+const guardCases: GuardCase[] = [
+  {
+    name: "emoji are split by UTF-16 budget without broken surrogate pairs",
+    text: "🔥".repeat(3_000),
+    verify(result) {
+      const sent = expectSend(result);
+      assert.equal(sent.chunks.length, 2);
+      assert.equal(joinedChunkText(sent.chunks), sent.text);
+      assert.ok(chunkTexts(sent.chunks).every((chunk) => utf16Length(chunk) <= 4_096));
+      assert.ok(chunkTexts(sent.chunks).every(hasNoUnpairedSurrogates));
+    },
+  },
+  {
+    name: "one token longer than Telegram limit is hard-split losslessly",
+    text: "x".repeat(9_000),
+    verify(result) {
+      const sent = expectSend(result);
+      assert.deepEqual(chunkTexts(sent.chunks).map(utf16Length), [4_096, 4_096, 808]);
+      assert.equal(joinedChunkText(sent.chunks), "x".repeat(9_000));
+    },
+  },
+  {
+    name: "think blocks, dangling reasoning tails, sentinels, and internal ordinals are removed",
+    text:
+      "<think>do not publish this</think>\nОтвет: сообщение #1234 готово.<thinking>hidden tail",
+    verify(result) {
+      const sent = expectSend(result);
+      assert.equal(sent.text, "Ответ: готово.");
+      assert.equal(sent.report.removedHiddenBlocks, 2);
+      assert.equal(sent.report.removedServiceArtifacts, 1);
+      assert.doesNotMatch(sent.text, /think|1234/iu);
+    },
+  },
+  {
+    name: "the same quote from another author does not verify the claimed speaker",
+    text: "Алиса: «это достаточно длинная дословная цитата»",
+    policy: {
+      evidence: [
+        {
+          speaker: "Боб",
+          text: "Вчера Боб написал: это достаточно длинная дословная цитата.",
+        },
+      ],
+    },
+    verify(result) {
+      expectRejection(result, "quote_speaker_mismatch");
+    },
+  },
+  {
+    name: "an allowlisted Telegram mention is preserved",
+    text: "@alice спасибо за уточнение",
+    policy: { allowedMentions: ["alice"] },
+    verify(result) {
+      const sent = expectSend(result);
+      assert.equal(sent.text, "@alice спасибо за уточнение");
+      assert.deepEqual(sent.report.mentions, ["@alice"]);
+    },
+  },
+  {
+    name: "a non-allowlisted Telegram mention rejects the complete output",
+    text: "@mallory посмотри сюда",
+    policy: { allowedMentions: ["alice"] },
+    verify(result) {
+      expectRejection(result, "unauthorized_mention");
+      assert.equal("text" in result, false);
+      assert.equal("chunks" in result, false);
+    },
+  },
+  {
+    name: "exact SKIP remains a no-send result",
+    text: " \nSKIP\n ",
+    verify(result) {
+      assert.deepEqual(result, {
+        ok: true,
+        disposition: "skip",
+        text: "SKIP",
+        chunks: [],
+        report: {
+          removedHiddenBlocks: 0,
+          removedServiceArtifacts: 0,
+          verifiedQuotes: 0,
+          mentions: [],
+        },
+      });
+    },
+  },
+];
+
+for (const guardCase of guardCases) {
+  test(guardCase.name, () => {
+    const result = guardFinalTelegramOutput(
+      { kind: "final", text: guardCase.text },
+      guardCase.policy,
+    );
+    guardCase.verify(result);
+  });
+}
+
+test("matching structured speaker and verbatim text verifies a quote", () => {
+  const result = guardFinalTelegramOutput(
+    {
+      kind: "final",
+      text: "Как сказала Алиса: «Это достаточно длинная дословная цитата».",
+    },
+    {
+      evidence: [
+        {
+          speaker: "Алиса",
+          text: "это достаточно длинная\nдословная цитата",
+        },
+      ],
+    },
+  );
+
+  const sent = expectSend(result);
+  assert.equal(sent.report.verifiedQuotes, 1);
+});
+
+test("quote attribution after an em dash is matched to the structured speaker", () => {
+  const result = guardFinalTelegramOutput(
+    {
+      kind: "final",
+      text: "«Это ещё одна достаточно длинная цитата» — Алиса.",
+    },
+    {
+      evidence: [
+        {
+          speaker: "Алиса",
+          text: "Это ещё одна достаточно длинная цитата",
+        },
+      ],
+    },
+  );
+
+  assert.equal(expectSend(result).report.verifiedQuotes, 1);
+});
+
+test("an unverified quote passes through without blocking the response", () => {
+  const text = "В тексте встречается «полностью выдуманная длинная цитата» без атрибуции.";
+  const result = guardFinalTelegramOutput(
+    { kind: "final", text },
+    { evidence: [] },
+  );
+
+  const sent = expectSend(result);
+  assert.equal(sent.report.verifiedQuotes, 0);
+  assert.match(sent.text, /полностью выдуманная длинная цитата/u);
+});
+
+test("more than two mentions rejects even when every username is allowlisted", () => {
+  const result = guardFinalTelegramOutput(
+    { kind: "final", text: "@alice @bobby @carol общий ответ" },
+    {
+      allowedMentions: ["alice", "bobby", "carol"],
+      maxMentions: 2,
+    },
+  );
+
+  const rejection = expectRejection(result, "mass_mentions");
+  assert.equal(rejection.details?.count, 3);
+});
+
+test("repeating one authorized username does not count as a mass mention", () => {
+  const result = guardFinalTelegramOutput(
+    { kind: "final", text: "@alice ответил выше, @Alice глянь ещё раз" },
+    { allowedMentions: ["alice"], maxMentions: 1 },
+  );
+
+  assert.deepEqual(expectSend(result).report.mentions, ["@Alice"]);
+});
+
+test("plain-text output rejects unauthorized mentions inside code spans", () => {
+  const text =
+    "Вот код:\n```ts\n  const value  = \"a long quoted string value\";\n  message #1234\n  @decorator\n```\nИ `@inline_name` тоже код.";
+  const result = guardFinalTelegramOutput(
+    { kind: "final", text },
+    { allowedMentions: [], evidence: [] },
+  );
+
+  expectRejection(result, "unauthorized_mention");
+});
+
+test("plain-text output passes quotes inside code spans without rejection", () => {
+  const result = guardFinalTelegramOutput(
+    {
+      kind: "final",
+      text: "Пример: `const value = \"полностью выдуманная длинная цитата\"`.",
+    },
+    { evidence: [] },
+  );
+
+  const sent = expectSend(result);
+  assert.equal(sent.report.verifiedQuotes, 0);
+});
+
+test("code spans keep formatting and service ordinals are not rewritten", () => {
+  const text =
+    "Вот код:\n```ts\n  const value  = 42;\n  message #1234\n```\nИ `inline_name` тоже код.";
+  const result = guardFinalTelegramOutput({
+    kind: "final",
+    text,
+  });
+
+  const sent = expectSend(result);
+  // Markdown is stripped to visible text; code content is preserved.
+  assert.match(sent.text, /  const value  =/u);
+  assert.match(sent.text, /message #1234/u);
+  assert.deepEqual(sent.report.mentions, []);
+  assert.equal(sent.report.verifiedQuotes, 0);
+  // Entities include code spans for the fenced block and inline code.
+  assert.ok(sent.chunks[0]!.entities.length > 0);
+});
+
+test("SKIP with additional text is ordinary output, not a silent skip", () => {
+  const result = guardFinalTelegramOutput({
+    kind: "final",
+    text: "SKIP — но вот ответ",
+  });
+
+  const sent = expectSend(result);
+  assert.equal(sent.text, "SKIP — но вот ответ");
+});
+
+test("a fully hidden answer is rejected rather than treated as model-requested SKIP", () => {
+  const result = guardFinalTelegramOutput({
+    kind: "final",
+    text: "<analysis>only private reasoning</analysis>",
+  });
+
+  expectRejection(result, "empty_after_sanitization");
+});
+
+test("malformed UTF-16 is rejected before Telegram chunking", () => {
+  const result = guardFinalTelegramOutput({
+    kind: "final",
+    text: `ответ \ud83d без второй половины`,
+  });
+
+  expectRejection(result, "invalid_unicode");
+});
+
+test("splitter preserves paragraph whitespace and never exceeds a conservative limit", () => {
+  const text = `${"абзац ".repeat(40)}\n\n${"🔥".repeat(80)}`;
+  const chunks = splitTelegramText(text, 128);
+
+  assert.equal(chunks.join(""), text);
+  assert.ok(chunks.length > 1);
+  assert.ok(chunks.every((chunk) => utf16Length(chunk) <= 128));
+  assert.ok(chunks.every(hasNoUnpairedSurrogates));
+  assert.equal(TELEGRAM_TEXT_LIMIT_UTF16, 4_096);
+
+  const boundaryPair = splitTelegramText("abc\n\nx", 4);
+  assert.equal(boundaryPair.join(""), "abc\n\nx");
+  assert.ok(boundaryPair.every((chunk) => utf16Length(chunk) <= 4));
+});
+
+function expectSend(
+  result: OutputGuardResult,
+): Extract<OutputGuardResult, { ok: true; disposition: "send" }> {
+  assert.equal(
+    result.ok && result.disposition,
+    "send",
+    result.ok ? `unexpected disposition: ${result.disposition}` : result.rejection.message,
+  );
+  return result as Extract<
+    OutputGuardResult,
+    { ok: true; disposition: "send" }
+  >;
+}
+
+function expectRejection(
+  result: OutputGuardResult,
+  code: Extract<OutputGuardResult, { ok: false }>["rejection"]["code"],
+): Extract<OutputGuardResult, { ok: false }>["rejection"] {
+  if (result.ok) {
+    assert.fail(`expected ${code}, received ${result.disposition}`);
+  }
+  assert.equal(result.rejection.code, code);
+  return result.rejection;
+}
+
+function hasNoUnpairedSurrogates(text: string): boolean {
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = text.charCodeAt(index + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) {
+        return false;
+      }
+      index += 1;
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      return false;
+    }
+  }
+  return true;
+}

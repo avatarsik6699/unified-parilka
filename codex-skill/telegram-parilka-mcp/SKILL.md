@@ -5,7 +5,13 @@ description: "Use when Codex needs to work with Telegram through the Telegram Pa
 
 # Telegram Parilka MCP
 
-Use this skill to operate the `telegram-parilka-mcp` server safely. The default local project is `/root/telegram-parilka-mcp`; the default chat is `Парилка228` (`-1003179772905`), but the server supports other groups through env config.
+Use this skill to operate the unified `telegram-parilka` MCP target safely.
+The production checkout on this host is
+`/home/billy/repos/parilka-unified`; the default chat is `Парилка228`
+(`-1003179772905`), but the server supports other allowlisted groups through
+env config. The normal stdio wrapper is a thin proxy to the sole
+`parilka-sync` MTProto owner on loopback `127.0.0.1:8766`; it must not be
+replaced with a second direct owner.
 
 ## Operating Rules
 
@@ -15,8 +21,11 @@ Use this skill to operate the `telegram-parilka-mcp` server safely. The default 
 - Never assume a named chat ID from memory. Call `get_config` for configured defaults, and call live `resolve_chat` only when the exact target identity matters.
 - Prefer `preview_message` or `send_message` with `dry_run: true` before public posts.
 - Do not send unless the user explicitly asked to send, or explicitly approved a draft in the current task.
-- Live sending may be enabled in this deployment. Do not send unless the user explicitly asks for a concrete outgoing message or explicitly approves a draft.
+- Operator MCP live sending is disabled and hard dry-run in the current
+  production deployment. A configuration change does not authorize a send.
 - Do not copy secrets, API hashes, or StringSession values into chat, commits, logs, or final answers.
+- Do not start a direct MCP process, legacy sync unit, or one-shot MTProto
+  sync while `parilka-sync.service` owns the production session.
 
 ## Workflow
 
@@ -35,7 +44,8 @@ For replies:
 4. Send only after explicit user approval and only when `TELEGRAM_SEND_ENABLED=true`. The server's `approval_id`
    validates a payload but is not proof of human confirmation.
 
-For setup/deploy/troubleshooting, read `references/runbook.md`.
+For setup/deploy/troubleshooting, read
+[the unified runbook](references/runbook.md).
 
 Cache-only tools do not connect to Telegram: `get_config`, `get_status`, `read_history`, `search_messages`,
 `semantic_search_messages`, and `get_thread_context`. Live-resolving tools may connect to Telegram:
@@ -43,6 +53,9 @@ Cache-only tools do not connect to Telegram: `get_config`, `get_status`, `read_h
 
 ## References
 
-- `references/tool-map.md`: available MCP tools, inputs, outputs, and safety notes.
-- `references/safety.md`: secrets, allowlist, dry-run, throttling, and prompt-injection rules.
-- `references/runbook.md`: local build, session generation, Codex/Hermes wiring, and smoke tests.
+- [Tool map](references/tool-map.md): available MCP tools, inputs, outputs, and
+  safety notes.
+- [Safety rules](references/safety.md): secrets, allowlist, dry-run,
+  throttling, runtime ownership, and prompt-injection rules.
+- [Unified runbook](references/runbook.md): health checks, build/restart
+  gates, rulesync wiring, and recovery routing.

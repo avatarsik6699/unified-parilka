@@ -1,0 +1,37 @@
+# parilka-unified
+
+> Единый TypeScript runtime для Parilka: durable Telegram Bot API poller,
+> MTProto history owner, loopback MCP, SQLite state, provider-routed agent и
+> digest jobs. Сначала прочитайте `AGENTS.md`.
+
+## Start here
+
+- [Agent contract](AGENTS.md): safety, architecture boundaries, verification
+  и routing документации.
+- [Architecture index](docs/README.md): стабильный архитектурный канон и ADR.
+- [Operator runbooks](operations/README.md): install, state, logging,
+  migration/cutover/rollback.
+
+## Runtime owners
+
+- `src/bot/`: Bot API ingest, durable turn worker, agent loop и read tools.
+- `src/storage/`: единый SQLite connection/transaction kernel и domain state.
+- `src/sync/`, `src/telegram/`: MTProto ownership, history sync и transports.
+- `src/mcp-tools/`, `src/mcp-loopback.ts`: operator MCP registry и loopback
+  transport.
+- `src/digest/`: day/week planning, generation, hashing и process lock.
+- `src/providers/`: model/provider config, hardened HTTP и fallback.
+- `src/vector/`, `src/embeddings.ts`: opt-in embedding index/search.
+
+## Agent workflow
+
+- [Detailed rules](.agents/rules/README.md): читать по релевантному trigger.
+- [Completed goal 001](loop-develop/history/001-unified-parilka/001-todo.md):
+  unification, decomposition, review и deployment evidence.
+- [Loop lifecycle](loop-develop/README.md): current/history и handoff contract.
+
+## Operations and evidence
+
+- [Migration and rollback](operations/MIGRATION.md).
+- Audit/research/rehearsal/deployment evidence goal 001 находится рядом с
+  завершённой записью в `loop-develop/history/001-unified-parilka/`.

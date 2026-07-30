@@ -4,17 +4,52 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { AppConfig } from "../src/config.js";
+import { LoopbackMcpServer } from "../src/mcp-loopback.js";
+import { MessageStore } from "../src/store.js";
+import type {
+  ChatInfo,
+  TelegramGateway,
+} from "../src/telegram/types.js";
+import { TelegramTools } from "../src/tools.js";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const tempDir = mkdtempSync(join(tmpdir(), "telegram-parilka-mcp-smoke-"));
 const smokeChatId = "-1001234567890";
 const stderrChunks: string[] = [];
 const useWrapper = process.argv.includes("--wrapper");
-const entrypoint = useWrapper ? "bin-wrapper" : "source";
+const useDirect = process.argv.includes("--direct");
+const entrypoint =
+  `${useWrapper ? "bin-wrapper" : "source"}:` +
+  `${useDirect ? "direct-recovery" : "loopback-proxy"}`;
+const smokeConfig = createSmokeConfig(tempDir, smokeChatId);
+const ownerStore = useDirect
+  ? undefined
+  : new MessageStore(smokeConfig.storage.dbPath);
+const owner = ownerStore
+  ? new LoopbackMcpServer({
+      registry: new TelegramTools(
+        smokeConfig,
+        createSmokeTelegram(smokeChatId),
+        ownerStore,
+      ),
+      testPort: 0,
+    })
+  : undefined;
+const ownerUrl = await owner?.start();
 
 const transport = new StdioClientTransport({
   command: useWrapper ? join(repoRoot, "bin", "telegram-parilka-mcp") : process.execPath,
-  args: useWrapper ? [] : ["--import", "tsx", "src/index.ts"],
+  args: useWrapper
+    ? useDirect
+      ? ["--direct"]
+      : []
+    : [
+        "--import",
+        "tsx",
+        "src/index.ts",
+        ...(useDirect ? ["--direct"] : []),
+      ],
   cwd: repoRoot,
   stderr: "pipe",
   env: {
@@ -37,6 +72,12 @@ const transport = new StdioClientTransport({
     TELEGRAM_EMBEDDINGS_ENABLED: "false",
     TELEGRAM_EMBEDDINGS_API_KEY: "",
     OPENAI_API_KEY: "",
+    ...(useDirect
+      ? { PARILKA_MTPROTO_EXCLUSIVE_OWNER: "true" }
+      : {}),
+    ...(ownerUrl
+      ? { PARILKA_MCP_HTTP_URL: ownerUrl.href }
+      : {}),
   },
 });
 
@@ -72,7 +113,126 @@ try {
   process.exitCode = 1;
 } finally {
   await client.close().catch(() => undefined);
+  await owner?.close().catch(() => undefined);
+  ownerStore?.close();
   rmSync(tempDir, { recursive: true, force: true });
+}
+
+function createSmokeTelegram(chatId: string): TelegramGateway {
+  const chat: ChatInfo = {
+    chatId,
+    requested: chatId,
+    kind: "Smoke",
+  };
+  return {
+    isConfigured: false,
+    assertChatAllowed(requested) {
+      if (requested !== chatId) {
+        throw new Error("Smoke chat is not allowlisted.");
+      }
+    },
+    async resolveChat() {
+      return { info: chat };
+    },
+    async getMessages() {
+      return { chat, messages: [] };
+    },
+    async iterateMessages() {
+      return {
+        chat,
+        messages: (async function* () {})(),
+      };
+    },
+    async sendMessage() {
+      throw new Error("Smoke gateway does not send.");
+    },
+    async disconnect() {},
+    async destroy() {},
+  };
+}
+
+function createSmokeConfig(
+  directory: string,
+  chatId: string,
+): AppConfig {
+  return {
+    telegram: {
+      apiId: 0,
+      apiHash: "",
+      session: "",
+      phone: "",
+      defaultChatId: chatId,
+      allowedChatIds: [chatId],
+      requireAllowlistedChat: true,
+      connectionRetries: 1,
+      transport: "mtcute",
+      mtcute: {
+        authStoragePath: join(directory, "mtcute-auth.sqlite"),
+        historyPageSize: 100,
+        maxHistoryMessages: 1_000_000,
+        connectionMaxAttempts: 3,
+        connectionTimeoutMs: 30_000,
+        connectionRetryInitialMs: 250,
+        connectionRetryMaxMs: 4_000,
+        requestTimeoutMs: 120_000,
+        requestMaxRetries: 2,
+        requestRetryDelayMs: 1_000,
+        floodWaitMaxMs: 10_000,
+      },
+    },
+    storage: {
+      dbPath: join(directory, "messages.sqlite"),
+    },
+    safety: {
+      sendEnabled: false,
+      dryRunDefault: true,
+      maxSendChars: 4_096,
+      liveSendApprovalTtlMs: 300_000,
+      liveSendApprovalBypass: false,
+    },
+    sync: {
+      batchSize: 100,
+      maxSyncLimit: 500_000,
+      floodWaitMaxSleepSec: 10,
+      historyWaitTimeSec: 1,
+      historyOperationTimeoutMs: 120_000,
+      intervalMs: 60_000,
+      recentLimit: 300,
+      backfillLimit: 1_000,
+      transientBackoffInitialMs: 5_000,
+      transientBackoffMaxMs: 300_000,
+    },
+    embeddings: {
+      enabled: false,
+      apiKey: "",
+      baseUrl: "https://api.openai.com/v1",
+      model: "text-embedding-3-small",
+      dimensions: 256,
+      apiBatchSize: 64,
+      requestTimeoutMs: 60_000,
+      maxRetries: 2,
+      retryInitialMs: 1_000,
+      retryMaxMs: 30_000,
+      tickIntervalMs: 60_000,
+      tickBudgetMs: 30_000,
+      chunkMessages: 12,
+      chunkOverlapMessages: 0,
+      chunkMaxChars: 1_600,
+      tickChunkLimit: 100,
+      maxChunksPerRun: 1_000,
+      maxCharsPerRun: 500_000,
+      vectorCandidateLimit: 20_000,
+      searchLimit: 12,
+    },
+    throttle: {
+      userCooldownMs: 20_000,
+      maxPendingPerUserPerChat: 1,
+      maxQueuePerChat: 25,
+      maxAgeMs: 120_000,
+      globalConcurrency: 2,
+      maxRunningPerChat: 1,
+    },
+  };
 }
 
 function parseTextPayload(content: unknown): Record<string, any> {

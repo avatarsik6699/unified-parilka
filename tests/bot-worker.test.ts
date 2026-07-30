@@ -1,0 +1,237 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import {
+  BOT_CONTEXT_MESSAGES,
+  BOT_REPLAY_MESSAGES,
+  type BotAgentRequest,
+} from "../src/bot/worker.js";
+import {
+  CHAT,
+  TRIGGER_ID,
+  final,
+  makeFixture,
+  message,
+  range,
+  stubTelemetry,
+} from "./support/bot-worker.js";
+
+test("live success uses bounded context/replay, guarded draft, and no raw streaming", async (t) => {
+  const fixture = makeFixture(t);
+  const before = range(TRIGGER_ID - 65, TRIGGER_ID - 1).map((id) =>
+    message(id, `context-${id}`, "context-user"),
+  );
+  const after = range(TRIGGER_ID + 1, TRIGGER_ID + 105).map((id) =>
+    message(id, `replay-${id}`, id % 2 ? "owner" : "ambient"),
+  );
+  fixture.store.upsertMessages(CHAT, [...before, ...after]);
+  const finalText = "Готовый безопасный ответ UNIQUE_FINAL_TEXT";
+  let agentRequest: BotAgentRequest | undefined;
+  let replayed = 0;
+  const publisherCalls: Array<{
+    chatId: string;
+    replyToMessageId: number;
+    chunks: readonly string[];
+  }> = [];
+  const worker = fixture.worker({
+    agent: async (request) => {
+      agentRequest = request;
+      for (let index = 0; index < 5; index += 1) {
+        replayed += request.drainFold("tool").messages.length;
+      }
+      return final(finalText);
+    },
+    publisher: async (request) => {
+      assert.equal(
+        fixture.scheduler.intervalCount,
+        0,
+        "lease heartbeat must stop before publisher",
+      );
+      assert.equal(
+        fixture.scheduler.timeoutCount,
+        1,
+        "only the publisher deadline may remain active",
+      );
+      assert.equal(fixture.store.getBotTurn(fixture.turnId)?.status, "sending");
+      assert.match(
+        fixture.store.getBotTurn(fixture.turnId)?.draftText ?? "",
+        new RegExp(`^${finalText}\\n\\n──\\n`, "u"),
+      );
+      publisherCalls.push(request);
+      return {
+        ok: true,
+        chunksSent: request.chunks.length,
+        telegramMessageId: 9_001,
+      };
+    },
+  });
+
+  const result = await worker.runOnce();
+
+  assert.deepEqual(result, {
+    status: "sent",
+    turnId: fixture.turnId,
+    telegramMessageId: 9_001,
+  });
+  assert.equal(agentRequest?.signal instanceof AbortSignal, true);
+  assert.equal(agentRequest?.context.length, BOT_CONTEXT_MESSAGES + 1);
+  assert.equal(agentRequest?.context[0]?.messageId, TRIGGER_ID - 60);
+  assert.equal(agentRequest?.context.at(-1)?.messageId, TRIGGER_ID);
+  assert.equal(replayed, BOT_REPLAY_MESSAGES);
+  assert.equal(publisherCalls.length, 1);
+  assert.equal(publisherCalls[0]?.replyToMessageId, TRIGGER_ID);
+  assert.equal(publisherCalls[0]?.chunks.length, 1);
+  assert.match(publisherCalls[0]?.chunks[0]?.text ?? "", new RegExp(`^${finalText}\\n\\n──\\n`, "u"));
+  assert.match(
+    fixture.store.getBotTurn(fixture.turnId)?.draftText ?? "",
+    new RegExp(`^${finalText}\\n\\n──\\n`, "u"),
+  );
+  assert.equal(fixture.store.getBotTurn(fixture.turnId)?.status, "sent");
+  const serializedLogs = JSON.stringify(fixture.logs);
+  assert.doesNotMatch(serializedLogs, /UNIQUE_FINAL_TEXT|trigger secret/);
+});
+
+test("durable replay is seeded even when live dedupe saw the message first", async (t) => {
+  const fixture = makeFixture(t);
+  const followUp = message(
+    TRIGGER_ID + 1,
+    "важное уточнение из durable replay",
+    "owner",
+  );
+  fixture.store.upsertMessages(CHAT, [followUp]);
+  fixture.coordinator.routeMessage({
+    messageId: `${CHAT.chatId}:${followUp.messageId}`,
+    senderId: followUp.senderId!,
+    senderName: followUp.senderName,
+    text: followUp.text,
+  });
+  let foldedIds: string[] = [];
+  const worker = fixture.worker({
+    agent: async (request) => {
+      foldedIds = request
+        .drainFold("model")
+        .messages.map(({ messageId }) => messageId);
+      return final("Учёл уточнение");
+    },
+    publisher: async (request) => ({
+      ok: true,
+      chunksSent: request.chunks.length,
+    }),
+  });
+
+  assert.equal((await worker.runOnce()).status, "sent");
+  assert.deepEqual(foldedIds, [`${CHAT.chatId}:${followUp.messageId}`]);
+});
+
+test("exact SKIP is durably recorded and completes before publisher", async (t) => {
+  const fixture = makeFixture(t);
+  let publisherCalls = 0;
+  const worker = fixture.worker({
+    agent: async () => final("SKIP"),
+    publisher: async () => {
+      publisherCalls += 1;
+      throw new Error("must not publish SKIP");
+    },
+  });
+
+  const result = await worker.runOnce();
+
+  assert.deepEqual(result, {
+    status: "skipped",
+    turnId: fixture.turnId,
+    reason: "model_skip",
+  });
+  assert.equal(publisherCalls, 0);
+  assert.equal(fixture.store.getBotTurn(fixture.turnId)?.status, "skipped");
+  assert.equal(fixture.store.getBotTurn(fixture.turnId)?.draftText, "SKIP");
+});
+
+test("guard rejection is terminal before network and never stores unsafe raw output", async (t) => {
+  const fixture = makeFixture(t);
+  const unsafe = "Алиса: «это достаточно длинная дословная цитата»";
+  let publisherCalls = 0;
+  const worker = fixture.worker({
+    agent: async () => ({
+      kind: "final",
+      text: unsafe,
+      evidence: [
+        {
+          speaker: "Боб",
+          text: "это достаточно длинная дословная цитата",
+        },
+      ],
+      telemetry: stubTelemetry(),
+    }),
+    publisher: async () => {
+      publisherCalls += 1;
+      throw new Error("must not publish rejected output");
+    },
+  });
+
+  const result = await worker.runOnce();
+
+  assert.deepEqual(result, {
+    status: "skipped",
+    turnId: fixture.turnId,
+    reason: "guard_rejected",
+    guardCode: "quote_speaker_mismatch",
+  });
+  assert.equal(publisherCalls, 0);
+  const stored = fixture.store.getBotTurn(fixture.turnId);
+  assert.equal(stored?.status, "skipped");
+  assert.equal(stored?.draftText, undefined);
+  assert.doesNotMatch(JSON.stringify(fixture.logs), /дословная цитата/);
+});
+
+test("shadow mode saves guarded draft and terminates without publisher", async (t) => {
+  const fixture = makeFixture(t, { mode: "shadow" });
+  let publisherCalls = 0;
+  const worker = fixture.worker({
+    agent: async () =>
+      final("<think>private chain</think>\nПубличный ответ"),
+    publisher: async () => {
+      publisherCalls += 1;
+      throw new Error("shadow must not publish");
+    },
+  });
+
+  const result = await worker.runOnce();
+
+  assert.deepEqual(result, {
+    status: "skipped",
+    turnId: fixture.turnId,
+    reason: "shadow",
+  });
+  assert.equal(publisherCalls, 0);
+  assert.match(
+    fixture.store.getBotTurn(fixture.turnId)?.draftText ?? "",
+    /^Публичный ответ\n\n──\n/u,
+  );
+  assert.equal(fixture.store.getBotTurn(fixture.turnId)?.status, "skipped");
+});
+
+test("provider failure before send is retryable through durable failed state", async (t) => {
+  const fixture = makeFixture(t);
+  let publisherCalls = 0;
+  const worker = fixture.worker({
+    agent: async () => {
+      const error = new Error("provider response contained SECRET_PROVIDER_TEXT");
+      error.name = "ProviderUnavailable";
+      throw error;
+    },
+    publisher: async () => {
+      publisherCalls += 1;
+      throw new Error("must not publish");
+    },
+  });
+
+  const result = await worker.runOnce();
+
+  assert.deepEqual(result, {
+    status: "failed",
+    turnId: fixture.turnId,
+    stage: "agent",
+  });
+  assert.equal(publisherCalls, 0);
+  assert.equal(fixture.store.getBotTurn(fixture.turnId)?.status, "failed");
+  assert.doesNotMatch(JSON.stringify(fixture.logs), /SECRET_PROVIDER_TEXT/);
+});

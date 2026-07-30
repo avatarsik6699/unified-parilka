@@ -1,0 +1,42 @@
+[Unit]
+Description=Parilka durable Telegram bot
+Documentation=file:%h/repos/parilka-unified/README.md
+After=network-online.target parilka-sync.service
+Wants=network-online.target parilka-sync.service
+StartLimitIntervalSec=10min
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=%h/repos/parilka-unified
+EnvironmentFile=-%h/.config/telegram-mcp/.env
+EnvironmentFile=-%h/.config/parilka/parilka.env
+Environment=NODE_ENV=production
+Environment=TELEGRAM_PROJECT_DIR=%h/repos/parilka-unified
+ExecStartPre=%h/repos/parilka-unified/bin/telegram-parilka-mcp-check-build %h/repos/parilka-unified %h/repos/parilka-unified/dist/bot-daemon.js
+ExecStart=%h/repos/parilka-unified/bin/parilka-bot
+Restart=on-failure
+RestartSec=10s
+# Runtime drain is configurable up to 15 minutes. Give systemd one extra
+# minute so a graceful stop is not converted into SIGKILL at the boundary.
+TimeoutStopSec=16min
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.telegram-parilka-mcp
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectClock=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=parilka-bot
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,114 @@
+# Architecture Map
+
+Parilka — небольшой agent-native TypeScript repository для одного Telegram
+group chat. Application shells только компонуют independently testable
+домены; SQLite остаётся единым correctness boundary.
+
+## Runtime topology
+
+```text
+Bot API ──► parilka-bot ───────────────┐
+                                       ├──► SQLite WAL v13 ◄── maintenance/digests
+MTProto ──► parilka-sync ──────────────┘
+                 │
+                 └──► HTTP 127.0.0.1:8766/mcp
+                                  ▲
+MCP harness ──stdio──► thin proxy─┘
+```
+
+- `parilka-sync` — единственный штатный MTProto owner, history sync owner и
+  loopback MCP owner.
+- `parilka-bot` — единственный Bot API long poller для данного token; model
+  work выполняется durable workers после committed ingest.
+- Оба процесса используют один canonical SQLite file, но не общий process.
+- Общий Telegram MCP rulesync service на `127.0.0.1:8765` — отдельная система
+  машины и не является частью Parilka.
+
+## Repository lanes
+
+| Lane | Path | Authority |
+| --- | --- | --- |
+| Process shells | `src/{index,bot-daemon,sync-daemon}.ts` | startup, composition, signals и graceful shutdown |
+| Bot | `src/bot/` | Bot API update ingest, turn FSM worker, bounded agent loop и guarded publish |
+| Storage | `src/storage/` + `src/store.ts` barrel | один connection/transaction kernel, schema и domain repositories |
+| Telegram/sync | `src/telegram/`, `src/sync/` | transport lifecycle, one-owner guard, recent/backfill reconciliation |
+| MCP | `src/mcp-tools/`, `src/mcp-loopback.ts` | 13 operator tools, loopback session transport и stdio proxy |
+| Digests | `src/digest/` | source planning/hash, sequential day/week generation и process lock |
+| Providers | `src/providers/` | validated roles/candidates, hardened HTTP, fallback classification |
+| Vector | `src/vector/`, `src/embeddings.ts` | opt-in index, atomic source recheck, search/fusion |
+| Operational CLI | `src/{python-import,digest-cli}/` | offline migration and digest command implementations compiled into `dist` |
+| Operations | `operations/`, `systemd/`, `bin/` | human-reviewed install, migration, retention и rollback procedures |
+| Long-lived handoff | `loop-develop/` | один active goal; closed/retired evidence в history |
+
+Production files обычно держатся в диапазоне 150–500 строк; hard ceiling CI —
+700. Cohesive test modules имеют отдельный ceiling 500, чтобы regression
+fixtures не превращались в смешанные монолиты. Три текущих пограничных модуля
+сознательно остаются чуть выше мягкой
+границы: `storage/embeddings.ts` держит одну SQLite membership/commit
+транзакцию, `storage/bot-turns.ts` — одну durable turn state machine, а
+`mcp-loopback.ts` — один lifecycle session-scoped HTTP transport. Они уже
+вынесены из прежних монолитов, ниже hard ceiling и не дробятся только ради
+счётчика строк: разрыв их инвариантов добавил бы больше связности, чем убрал.
+
+## Dependency direction
+
+```text
+process shells
+  ├── bot ────────┐
+  ├── sync/MCP ───┼──► storage core/domain repositories
+  ├── digests ────┤
+  └── vector ─────┘
+
+bot agent ──► read-only bot tools ──► storage/vector/web-search ports
+operator MCP ──► Telegram gateway + storage + serialized sync
+```
+
+- Storage не импортирует process shells, bot agent или MCP registry.
+- Bot model никогда не получает operator MCP write/sync tools; его registry
+  состоит из четырёх read-only tools.
+- MCP stdio proxy не владеет Telegram credentials, SQLite или session.
+- Providers не владеют state и получают secrets только через env references.
+
+## Correctness boundaries
+
+- Один `DatabaseSync`, WAL и `synchronous=FULL`.
+- `BEGIN IMMEDIATE` остаётся вокруг bot ingest/reservation, turn+parent update
+  transitions, send reserve+throttle, digest source recheck+commit, message
+  edit/delete+embedding dirty mark и schema migration.
+- Telegram delivery после dispatch fence считается неоднозначной:
+  автоматический retry запрещён, состояние становится `lost_ack`/unknown
+  delivery.
+- Embedding result коммитится только после atomic повторной проверки exact
+  source IDs и canonical rendered text.
+- Digest append threshold применяется только к доказанному pure append;
+  edit/delete исторического prefix инвалидирует cache немедленно.
+
+## Security and observability
+
+- Chat allowlist, exact exclusive-owner acknowledgements и disabled live send
+  — fail-closed defaults.
+- Network endpoints валидируются; credentials, redirects и oversized bodies
+  не проходят provider boundary.
+- Model/tool/Telegram content недоверенно; logs не содержат message bodies,
+  secrets или raw provider payloads.
+- Pino пишет structured JSON в stderr, systemd направляет его в journald.
+  Application append-only log files не создаются.
+
+## Verification map
+
+Канонический routing находится в [../AGENTS.md](../AGENTS.md). Быстрый
+fail-closed контур:
+
+```bash
+npm run check
+npm run check:architecture
+npm run build
+npm test
+```
+
+Transport, systemd и migration slices добавляют свои offline smoke,
+`systemd-analyze verify` и temp-DB rehearsal; production state этим не
+мутируется. Architecture gate применяет production ceiling к `src/` и
+production CLI в `scripts/`, отдельный test ceiling — к `tests/`, чтобы
+эксплуатационные команды и regression suites не становились скрытыми
+монолитами.

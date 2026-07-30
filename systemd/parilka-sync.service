@@ -1,0 +1,40 @@
+[Unit]
+Description=Parilka MTProto sync owner and loopback MCP
+Documentation=file:%h/repos/parilka-unified/README.md
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=10min
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=%h/repos/parilka-unified
+EnvironmentFile=-%h/.config/telegram-mcp/.env
+EnvironmentFile=-%h/.config/parilka/parilka.env
+Environment=NODE_ENV=production
+Environment=TELEGRAM_PROJECT_DIR=%h/repos/parilka-unified
+ExecStartPre=%h/repos/parilka-unified/bin/telegram-parilka-mcp-check-build %h/repos/parilka-unified %h/repos/parilka-unified/dist/sync-daemon.js
+ExecStart=%h/repos/parilka-unified/bin/telegram-parilka-mcp-sync-daemon
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=3min
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.telegram-parilka-mcp
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectClock=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=parilka-sync
+
+[Install]
+WantedBy=default.target

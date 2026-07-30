@@ -379,6 +379,9 @@ function config(embeddings?: Partial<AppConfig["embeddings"]>): AppConfig {
       requestTimeoutMs: 60_000,
       maxRetries: 2,
       retryInitialMs: 0,
+      retryMaxMs: 30_000,
+      tickIntervalMs: 60_000,
+      tickBudgetMs: 30_000,
       chunkMessages: 12,
       chunkOverlapMessages: 0,
       chunkMaxChars: 1600,
@@ -411,6 +414,8 @@ async function withEnv(vars: Record<string, string>, fn: (dbPath: string) => Pro
   const applied = {
     ...vars,
     TELEGRAM_DB_PATH: dbPath,
+    TELEGRAM_DEFAULT_CHAT_ID: CHAT.chatId,
+    TELEGRAM_ALLOWED_CHAT_IDS: CHAT.chatId,
   };
   const previous = new Map<string, string | undefined>();
   for (const key of Object.keys(applied)) {

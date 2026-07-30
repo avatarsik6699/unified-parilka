@@ -6,7 +6,10 @@ import { loadTelegramAuthConfig } from "./config.js";
 import { StderrGramJsLogger } from "./gramjs-logger.js";
 
 async function main(): Promise<void> {
-  const telegram = loadTelegramAuthConfig({ requireApiCredentials: true });
+  const telegram = loadTelegramAuthConfig({
+    requireApiCredentials: true,
+    requireChatConfig: false,
+  });
 
   const client = new TelegramClient(new StringSession(telegram.session), telegram.apiId, telegram.apiHash, {
     connectionRetries: telegram.connectionRetries,

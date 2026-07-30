@@ -1,0 +1,28 @@
+{
+  "allowInsecureLocal": false,
+  "providers": [
+    {
+      "id": "qwen",
+      "protocol": "openai",
+      "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "apiKeyEnv": "PARILKA_QWEN_API_KEY"
+    },
+    {
+      "id": "deepseek",
+      "protocol": "deepseek",
+      "baseUrl": "https://api.deepseek.com",
+      "apiKeyEnv": "PARILKA_DEEPSEEK_API_KEY",
+      "thinkingMode": "disabled"
+    }
+  ],
+  "roles": {
+    "turn": [
+      "qwen:qwen-max-latest",
+      "deepseek:deepseek-v4-flash"
+    ],
+    "summary": [
+      "qwen:qwen-max-latest",
+      "deepseek:deepseek-v4-flash"
+    ]
+  }
+}

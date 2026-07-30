@@ -1,6 +1,8 @@
 # Telegram Parilka MCP Tool Map
 
-Default chat: `-1003179772905` (`Парилка228`). All tools accept optional `chat`; omitted means `TELEGRAM_DEFAULT_CHAT_ID`.
+The current production deployment explicitly configures
+`-1003179772905` (`Парилка228`) as its default chat. All tools accept optional
+`chat`; omission resolves the required `TELEGRAM_DEFAULT_CHAT_ID` setting.
 
 ## Read Tools
 
@@ -37,10 +39,14 @@ When a read/context result returns zero rows, `empty_reason` is one of `cache_em
 - `send_message`: send or dry-run a message. Respects allowlist, hard dry-run config, live-send approval, reply-target preflight, dedupe, per-user cooldown, per-chat queue, and global concurrency.
 - `reply_to_message`: convenience wrapper for `send_message` with required `message_id`; live replies require a matching preview approval too. Reply targets are checked before approval consumption and outbox reservation.
 
-`dedupe_key` is a permanent audit/idempotency key after a successful live send. Reusing the same key and payload returns
-the recorded Telegram message id; reusing the key with different payload is rejected. A send that expires while still
-queued may be retried with the same key and payload. After dispatch begins, a rejected or interrupted request has
-unknown delivery state; inspect Telegram before intentionally using a new key for another post.
+`dedupe_key` is an audit/idempotency key while its terminal outbox row remains
+within configured age/keep-last retention. Reusing the same key and payload
+then returns the recorded Telegram message id; using a different payload is
+rejected. After maintenance prunes that row, the key can be reserved again, so
+retention must cover the real client retry window. A send that expires while
+still queued may be retried with the same key and payload. After dispatch
+begins, a rejected or interrupted request has unknown delivery state; inspect
+Telegram before intentionally using a new key for another post.
 
 ## Output Shape
 

@@ -1,198 +1,175 @@
-# Runbook
+# Unified Parilka runbook
 
-## Project
+## Production topology
+
+The checkout on this host is:
 
 ```bash
-cd /root/telegram-parilka-mcp
-npm install
-npm run build
-npm run smoke:mcp:wrapper
-./bin/telegram-parilka-mcp --print-config
+cd /home/billy/repos/parilka-unified
 ```
 
-Wrappers derive the project directory from their own location, or from `TELEGRAM_PROJECT_DIR` when set, then exec the
-built Node entrypoint. They fail with a clear `npm run build` remediation when `dist/*.js` is missing or older than
-the TypeScript source/config used to build it. They do not source `.env` as shell.
+There are two long-lived user services and one timer:
 
-Environment precedence is handled by TypeScript config with dotenv parsing:
+- `parilka-sync.service`: sole MTProto/auth owner, history sync, and loopback
+  MCP on `127.0.0.1:8766`;
+- `parilka-bot.service`: sole Bot API poller and durable turn workers;
+- `parilka-maintain.timer`: bounded maintenance followed by digest work.
 
-1. Real process environment wins and is never overridden by dotenv files.
-2. `TELEGRAM_SHARED_ENV_PATH` is parsed first; default is `~/.config/telegram-mcp/.env`.
-3. `TELEGRAM_ENV_PATH` is parsed second; default is `<project>/.env` from the current working directory. It can override
-   values from the shared dotenv file, but not real process environment variables.
+The shared user service `telegram-mcp.service` on `127.0.0.1:8765` is
+independent.
+Never stop, replace, or reconfigure it as part of Parilka work.
 
-Common local env variants, logs, SQLite files, session dumps, and backup/dump files are ignored by git. Keep
-`.env.example` tracked. Before pushing release or ops changes, run:
+Legacy `telegram-parilka-sync.service`, `parlang-bot.service`,
+`parlang-watchdog.service`, and `parlang-maintain.timer` are rollback-only and
+must remain disabled while unified services own production state.
+
+## Read-only health checks
 
 ```bash
+cd /home/billy/repos/parilka-unified
+./bin/telegram-parilka-mcp --status
+
+systemctl --user show \
+  parilka-sync.service parilka-bot.service telegram-mcp.service \
+  --property=Id,ActiveState,SubState,UnitFileState,MainPID,Result
+systemctl --user list-timers parilka-maintain.timer
+ss -ltnp '( sport = :8765 or sport = :8766 )'
+
+journalctl --user -u parilka-sync.service -n 100 --no-pager
+journalctl --user -u parilka-bot.service -n 100 --no-pager
+```
+
+Healthy production has exactly one Parilka listener on loopback `:8766`, the
+independent general Telegram MCP on loopback `:8765`, both new services
+active, and all four legacy Parilka units inactive. Structured logs must not
+contain message bodies, model output, credentials, or raw provider payloads.
+
+## Build and offline verification
+
+Run before installing or restarting code:
+
+```bash
+cd /home/billy/repos/parilka-unified
+npm ci
+npm run check
+npm run check:architecture
+npm run check:shell
+npm run check:systemd
+npm run build
+npm test
+npm run test:coverage
 npm run secret-scan
-```
-
-## Session Generation
-
-```bash
-cd /root/telegram-parilka-mcp
-cp .env.example .env
-npm run generate-session
-```
-
-Put the generated StringSession into `.env` as `TELEGRAM_SESSION`.
-
-## MCP Smoke Test
-
-Source entrypoint smoke, useful while developing:
-
-```bash
+npm run audit
 npm run smoke:mcp
+npm run smoke:mcp:wrapper
+npm run smoke:mcp:direct
+npm run smoke:mtcute-storage
+git diff --check
 ```
 
-Built wrapper smoke, required after `npm run build` and before deploying/restarting clients:
+The MCP smokes use isolated/offline composition and must not send to Telegram.
+Production wrappers reject missing or stale `dist` output. Documentation-only
+changes do not make the build stale.
+
+For a quick 13-tool JSON-RPC smoke against the normal loopback proxy:
 
 ```bash
 npm run smoke:mcp:wrapper
 ```
 
-Manual JSON-RPC smoke through the wrapper:
+Do not use `--direct`, `npm run sync-once`, session generation, or a raw
+sync daemon against production while `parilka-sync.service` is active. Direct
+mode is recovery-only and also requires the exact exclusive-owner guard.
+
+## Controlled restart
+
+A restart is allowed only when the task authorizes deployment and read-only
+checks prove there is no second Bot API poller or MTProto owner. Build and
+verify first, restart one owner at a time, then inspect state and journal:
 
 ```bash
-printf '%s\n' \
-'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0.0.0"}}}' \
-'{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}' \
-'{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
-| ./bin/telegram-parilka-mcp
-```
-
-## Background Cache Warmer
-
-Run one pass:
-
-```bash
-cd /root/telegram-parilka-mcp
-npm run sync-once
-```
-
-Install the persistent system service:
-
-```bash
-cd /root/telegram-parilka-mcp
+cd /home/billy/repos/parilka-unified
 npm run build
+npm run check:systemd
 npm run smoke:mcp:wrapper
-install -m 0644 /root/telegram-parilka-mcp/systemd/telegram-parilka-mcp-sync.service /etc/systemd/system/telegram-parilka-mcp-sync.service
-systemd-analyze verify /etc/systemd/system/telegram-parilka-mcp-sync.service
-systemctl daemon-reload
-systemctl enable --now telegram-parilka-mcp-sync.service
+
+systemctl --user restart parilka-sync.service
+systemctl --user is-active parilka-sync.service
+./bin/telegram-parilka-mcp --status
+
+systemctl --user restart parilka-bot.service
+systemctl --user is-active parilka-bot.service
 ```
 
-The unit runs as `User=root`, starts at boot through `multi-user.target`, calls `/usr/bin/bash` explicitly, sets a
-known `PATH`, and pins Node through `TELEGRAM_NODE=/usr/bin/node`. Before restarting after code changes, run
-`npm run build` and `npm run smoke:mcp:wrapper`. The unit also runs a build freshness preflight and fails clearly if
-`dist/sync-daemon.js` is missing or stale.
+For sync shutdown, require `sync.shutdown_completed`, an inactive old PID,
+then a successful new tick. For bot shutdown, require the poll offset
+confirmation and no active worker left behind. Do not infer success only from
+`systemctl --user restart` exit status.
 
-Check it:
+Unit installation, initial migration, production mode changes, rollback, and
+post-live delivery reconciliation are deliberately not duplicated here. Use
+the canonical [migration and rollback runbook](../../../operations/MIGRATION.md).
 
-```bash
-systemctl status telegram-parilka-mcp-sync.service
-systemctl show telegram-parilka-mcp-sync.service -p ActiveState -p SubState -p MainPID -p ExecMainStartTimestamp
-journalctl -u telegram-parilka-mcp-sync.service -n 100 --no-pager
-npm run status
-```
+## Configuration and secrets
 
-Restart after a verified build:
+Production runtime reads private env files owned by the current user:
 
-```bash
-cd /root/telegram-parilka-mcp
-npm run build
-npm run smoke:mcp:wrapper
-systemd-analyze verify /root/telegram-parilka-mcp/systemd/telegram-parilka-mcp-sync.service
-systemctl restart telegram-parilka-mcp-sync.service
-systemctl status telegram-parilka-mcp-sync.service
-```
+- `~/.config/telegram-mcp/.env` for shared MTProto settings;
+- `~/.config/parilka/parilka.env` for bot/router/runtime settings.
 
-Rollback or remove the service:
+Keep their mode `0600`. Do not print, commit, paste, or copy token, API hash,
+session, or provider-key values. The model router stores env variable names,
+not credentials.
 
-```bash
-cd /root/telegram-parilka-mcp
-git switch --detach <known-good-commit>
-npm run build
-npm run smoke:mcp:wrapper
-systemctl restart telegram-parilka-mcp-sync.service
+Normal production invariants:
 
-systemctl disable --now telegram-parilka-mcp-sync.service
-rm -f /etc/systemd/system/telegram-parilka-mcp-sync.service
-systemctl daemon-reload
-```
+- `PARILKA_MTPROTO_EXCLUSIVE_OWNER=true` only while unified sync is the sole
+  owner;
+- `PARILKA_BOT_EXCLUSIVE_POLLER=true` only while unified bot is the sole
+  poller;
+- operator MCP `TELEGRAM_SEND_ENABLED=false`;
+- operator MCP `TELEGRAM_DRY_RUN_DEFAULT=true`;
+- allowlist enforcement remains enabled.
 
-## Health Status
+For first-time session generation or transport recovery, follow the
+repository [README](../../../README.md) only inside an authorized maintenance
+window with the production owner stopped. Never overwrite the existing mtcute
+auth DB merely to test a session.
 
-Use the cache-only status command for a quick operational read:
+## Harness MCP configuration
 
-```bash
-cd /root/telegram-parilka-mcp
-npm run status
-```
-
-The JSON includes service config summary, cache message count and oldest/newest IDs, sync timestamps and last error,
-backfill exhaustion, daemon last started/success/failure status, and embedding coverage. It does not connect to
-Telegram or call an embeddings provider.
-
-Alert thresholds are included in the `health.thresholds` field. With the default 60s daemon interval, warning lag is
-5 minutes and critical lag is 30 minutes for both recent sync and daemon success. Treat
-`daemonCriticalFailures` (3 consecutive failures by default) as critical immediately. `unknown` usually means a fresh DB
-or a daemon that has not written status yet; run one sync pass and recheck.
-
-## Vector RAG
-
-Configure an OpenAI-compatible embeddings endpoint:
-
-```bash
-OPENAI_API_KEY=...
-TELEGRAM_EMBEDDINGS_ENABLED=true
-TELEGRAM_EMBEDDINGS_MODEL=text-embedding-3-small
-TELEGRAM_EMBEDDINGS_DIMENSIONS=256
-```
-
-Index a bounded batch of cached messages:
-
-```bash
-cd /root/telegram-parilka-mcp
-npm run embed-once -- --limit-chunks 1000 --estimate-only
-npm run embed-once -- --limit-chunks 1000 --confirm-estimate
-```
-
-The estimate prints provider, model, dimensions, namespace, chat, estimated chunks/messages/chars, and budget flags
-without calling the embeddings API. CLI output includes `status:"estimate_only"`, `status:"requires_confirmation"`,
-or `status:"indexed"`. Run the confirmed command only after reviewing that privacy/cost surface; confirmation is
-required for first runs and when chunk/character budgets truncate the requested work. On the first daemon indexing run,
-the daemon logs the estimate and skips API calls until a confirmed manual index exists.
-
-Search with `search_messages` for keyword/vector/hybrid results, or `semantic_search_messages` for vector-only chunks.
-
-## Cache-Only Vs Live-Resolving Tools
-
-Use cache-only tools first when inspecting state or answering from already synced data: `get_config`, `get_status`,
-`read_history`, `search_messages`, `semantic_search_messages`, and `get_thread_context`.
-
-These tools may connect to Telegram and should be used deliberately: `resolve_chat`, `get_chat_info`, `sync_history`,
-`preview_message`, `send_message`, and `reply_to_message`. Sending tools remain dry-run or approval-gated according to
-the safety config. The `approval_id` is a server-issued payload capability, not human confirmation; enforce human
-approval separately in the host when an untrusted or prompt-driven client can call live write tools.
-
-## Codex Config
+The normal target is a credentialless stdio proxy:
 
 ```toml
 [mcp_servers.telegram-parilka]
-command = "/root/telegram-parilka-mcp/bin/telegram-parilka-mcp"
+command = "/home/billy/repos/parilka-unified/bin/telegram-parilka-mcp"
 startup_timeout_sec = 30.0
 tool_timeout_sec = 600.0
 ```
 
-## Hermes Config
+On this machine, do not edit generated Codex/Claude/Kimi/OpenCode/Pi/Qwen
+configs directly. The canonical target lives under
+`~/.config/agents/.rulesync/`; changes use:
 
-```yaml
-mcp_servers:
-  telegram-parilka:
-    command: /root/telegram-parilka-mcp/bin/telegram-parilka-mcp
-    supports_parallel_tool_calls: false
+```bash
+mcp-sync --dry-run
+mcp-sync
+mcp-sync --check
 ```
 
-Restart/reload the gateway after changing Hermes config.
+The general `telegram` target and `telegram-mcp.service` on `:8765` remain
+unchanged.
+
+## Embeddings
+
+Embeddings are opt-in and disabled in current production. Enabling them adds a
+provider privacy/cost surface and requires explicit configuration and a
+reviewed estimate:
+
+```bash
+npm run embed-once -- --limit-chunks 1000 --estimate-only
+npm run embed-once -- --limit-chunks 1000 --confirm-estimate
+```
+
+Do not run the confirmed command without authorization. Keyword/history tools
+remain available when embeddings are disabled.

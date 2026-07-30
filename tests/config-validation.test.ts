@@ -65,6 +65,33 @@ test("allowlist cannot be disabled by a boolean typo", () => {
   });
 });
 
+test("runtime chat configuration is explicit and fail closed", () => {
+  withEnv(
+    {
+      TELEGRAM_DEFAULT_CHAT_ID: undefined,
+      TELEGRAM_ALLOWED_CHAT_IDS: undefined,
+    },
+    () => {
+      assert.throws(
+        () => loadConfig(),
+        /TELEGRAM_DEFAULT_CHAT_ID is required/,
+      );
+    },
+  );
+  withEnv(
+    {
+      TELEGRAM_DEFAULT_CHAT_ID: "-1002",
+      TELEGRAM_ALLOWED_CHAT_IDS: "-1001",
+    },
+    () => {
+      assert.throws(
+        () => loadConfig(),
+        /TELEGRAM_DEFAULT_CHAT_ID must be present/,
+      );
+    },
+  );
+});
+
 test("unset boolean defaults are safe for live sending", () => {
   withEnv(unsetBooleanEnv(), () => {
     const config = loadConfig();
@@ -106,6 +133,65 @@ test("cross-field validation rejects a backoff max below initial backoff", () =>
   );
 });
 
+test("embedding retry max cannot be below its initial delay", () => {
+  withEnv(
+    {
+      TELEGRAM_EMBEDDINGS_RETRY_INITIAL_MS: "1000",
+      TELEGRAM_EMBEDDINGS_RETRY_MAX_MS: "999",
+    },
+    () => {
+      assert.throws(
+        () => loadConfig(),
+        /TELEGRAM_EMBEDDINGS_RETRY_MAX_MS must be greater than or equal to TELEGRAM_EMBEDDINGS_RETRY_INITIAL_MS/u,
+      );
+    },
+  );
+});
+
+test("mtcute is the default transport and GramJS remains an explicit fallback", () => {
+  withEnv({ TELEGRAM_TRANSPORT: undefined }, () => {
+    assert.equal(loadConfig().telegram.transport, "mtcute");
+  });
+  withEnv({ TELEGRAM_TRANSPORT: "gramjs" }, () => {
+    assert.equal(loadConfig().telegram.transport, "gramjs");
+  });
+  for (const raw of ["", "telegram", "MT Cute"]) {
+    withEnv({ TELEGRAM_TRANSPORT: raw }, () => {
+      assert.throws(
+        () => loadConfig(),
+        /TELEGRAM_TRANSPORT must be one of mtcute or gramjs/,
+      );
+    });
+  }
+});
+
+test("mtcute retry bounds and auth database separation are validated", () => {
+  withEnv(
+    {
+      TELEGRAM_MTCUTE_CONNECTION_RETRY_INITIAL_MS: "1000",
+      TELEGRAM_MTCUTE_CONNECTION_RETRY_MAX_MS: "999",
+    },
+    () => {
+      assert.throws(
+        () => loadConfig(),
+        /TELEGRAM_MTCUTE_CONNECTION_RETRY_MAX_MS must be greater than or equal/,
+      );
+    },
+  );
+  withEnv(
+    {
+      TELEGRAM_MTCUTE_AUTH_DB_PATH: "/tmp/same.sqlite",
+      TELEGRAM_DB_PATH: "/tmp/same.sqlite",
+    },
+    () => {
+      assert.throws(
+        () => loadConfig(),
+        /TELEGRAM_MTCUTE_AUTH_DB_PATH must be separate from TELEGRAM_DB_PATH/,
+      );
+    },
+  );
+});
+
 test("validate-config CLI fails before startup on invalid config", () => {
   const dir = mkdtempSync(join(tmpdir(), "telegram-config-cli-test-"));
   try {
@@ -114,6 +200,8 @@ test("validate-config CLI fails before startup on invalid config", () => {
       env: {
         ...process.env,
         TELEGRAM_DB_PATH: join(dir, "messages.sqlite"),
+        TELEGRAM_DEFAULT_CHAT_ID: "-1000000000000",
+        TELEGRAM_ALLOWED_CHAT_IDS: "-1000000000000",
         TELEGRAM_GLOBAL_CONCURRENCY: "0",
       },
       encoding: "utf8",
@@ -210,7 +298,7 @@ test("session generation uses runtime dotenv precedence for Telegram auth", () =
 
     const probe = [
       'import { loadConfig, loadTelegramAuthConfig } from "./src/config.js";',
-      "const runtime = loadConfig().telegram;",
+      "const { transport, mtcute, ...runtime } = loadConfig().telegram;",
       "const session = loadTelegramAuthConfig({ requireApiCredentials: true });",
       "console.log(JSON.stringify({ runtime, session }));",
     ].join("\n");
@@ -301,18 +389,69 @@ test("copied env example keeps live sends hard-disabled", () => {
   }
 });
 
-test("redacted config hides credentials in embeddings base URL", () => {
+test("embeddings URL is HTTPS or an explicit loopback HTTP endpoint", () => {
+  for (const baseUrl of [
+    "http://remote.example.test/v1",
+    "https://user:pass@example.test/v1",
+    "https://example.test/v1?api_key=secret",
+    "https://example.test/v1#fragment",
+    "not-a-url",
+  ]) {
+    withEnv(
+      { TELEGRAM_EMBEDDINGS_BASE_URL: baseUrl },
+      () => {
+        assert.throws(
+          () => loadConfig(),
+          /TELEGRAM_EMBEDDINGS_BASE_URL/u,
+          baseUrl,
+        );
+      },
+    );
+  }
+
+  for (const baseUrl of [
+    "https://embeddings.example.test/v1",
+    "http://127.0.0.1:11434/v1",
+    "http://[::1]:11434/v1",
+    "http://localhost:11434/v1",
+  ]) {
+    withEnv(
+      { TELEGRAM_EMBEDDINGS_BASE_URL: baseUrl },
+      () => {
+        assert.equal(loadConfig().embeddings.baseUrl, baseUrl);
+      },
+    );
+  }
+});
+
+test("redacted transport config never exposes Telegram credentials", () => {
   withEnv(
     {
-      TELEGRAM_EMBEDDINGS_BASE_URL:
-        "https://user:pass@example.test/v1?api_key=x&foo=bar&Authorization=Bearer%20secret",
+      TELEGRAM_API_ID: "123",
+      TELEGRAM_API_HASH: "super-secret-api-hash",
+      TELEGRAM_SESSION: "super-secret-string-session",
+      TELEGRAM_PHONE: "+79990001122",
+      TELEGRAM_TRANSPORT: "mtcute",
     },
     () => {
-      const config = redactedConfig(loadConfig()) as { embeddings: { baseUrl: string } };
-      assert.equal(
-        config.embeddings.baseUrl,
-        "https://example.test/v1?api_key=redacted&foo=bar&Authorization=redacted",
-      );
+      const config = redactedConfig(loadConfig()) as {
+        telegram: {
+          apiId: string;
+          apiHash: string;
+          session: string;
+          phone: string;
+          transport: string;
+          mtcute: { requestTimeoutMs: number };
+        };
+      };
+      const serialized = JSON.stringify(config);
+      assert.equal(config.telegram.transport, "mtcute");
+      assert.equal(config.telegram.apiId, "<set>");
+      assert.equal(config.telegram.apiHash, "<set>");
+      assert.equal(config.telegram.session, "<set>");
+      assert.equal(config.telegram.phone, "<set>");
+      assert.equal(config.telegram.mtcute.requestTimeoutMs, 120_000);
+      assert.doesNotMatch(serialized, /super-secret|79990001122/);
     },
   );
 });
@@ -324,8 +463,10 @@ function unsetBooleanEnv(): Record<string, undefined> {
 function withEnv(vars: Record<string, string | undefined>, fn: () => void): void {
   const dir = mkdtempSync(join(tmpdir(), "telegram-config-test-"));
   const applied = {
-    ...vars,
     TELEGRAM_DB_PATH: join(dir, "messages.sqlite"),
+    TELEGRAM_DEFAULT_CHAT_ID: "-1000000000000",
+    TELEGRAM_ALLOWED_CHAT_IDS: "-1000000000000",
+    ...vars,
   };
   const previous = new Map<string, string | undefined>();
   for (const key of Object.keys(applied)) {

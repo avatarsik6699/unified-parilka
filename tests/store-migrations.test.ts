@@ -31,11 +31,11 @@ test("old fixture DB migrates once and rebuilds FTS for historical rows", (t) =>
 
   const store = new MessageStore(dbPath);
 
-  assert.equal(store.getSchemaVersion(), 10);
+  assert.equal(store.getSchemaVersion(), 13);
   assert.equal(store.search({ chatId: "-1001", query: "historical", limit: 10 }).length, 1);
 
   const reopened = new MessageStore(dbPath);
-  assert.equal(reopened.getSchemaVersion(), 10);
+  assert.equal(reopened.getSchemaVersion(), 13);
   assert.equal(reopened.search({ chatId: "-1001", query: "searchable", limit: 10 })[0]?.messageId, 1);
 });
 
@@ -162,7 +162,7 @@ test("version 5 fixture without send tables migrates send audit schema", (t) => 
 
   const store = new MessageStore(dbPath);
 
-  assert.equal(store.getSchemaVersion(), 10);
+  assert.equal(store.getSchemaVersion(), 13);
   assert.equal(store.search({ chatId: "-1001", query: "preexisting", limit: 10 })[0]?.messageId, 1);
   assert.equal(store.countMessages("-1001"), 1);
   const [legacyStats] = store.getEmbeddingStats("-1001");
@@ -238,7 +238,7 @@ test("stale managed FTS and trigger definitions are repaired", (t) => {
   db.close();
 
   const repaired = new MessageStore(dbPath);
-  assert.equal(repaired.getSchemaVersion(), 10);
+  assert.equal(repaired.getSchemaVersion(), 13);
   assert.equal(repaired.search({ chatId: "-1001", query: "repaired", limit: 10 })[0]?.messageId, 1);
   repaired.upsertMessages(
     { chatId: "-1001", requested: "-1001", kind: "Fake" },
@@ -260,6 +260,63 @@ test("stale managed FTS and trigger definitions are repaired", (t) => {
   } finally {
     inspect.close();
   }
+});
+
+test("large managed FTS repair is deferred and keyword search fails closed", (t) => {
+  const dbPath = tempDbPath(t);
+  const initial = new MessageStore(dbPath);
+  initial.close();
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec("BEGIN IMMEDIATE");
+    const insertMessage = db.prepare(
+      `INSERT INTO messages (
+         chat_id, message_id, sender_name, text, updated_at
+       )
+       VALUES ('-1001', ?, 'alice', ?, datetime('now'))`,
+    );
+    for (let messageId = 1; messageId <= 10_001; messageId += 1) {
+      insertMessage.run(
+        messageId,
+        `large deferred corpus ${messageId}`,
+      );
+    }
+    db.exec(`
+      COMMIT;
+      DROP TRIGGER IF EXISTS messages_ai;
+      DROP TRIGGER IF EXISTS messages_ad;
+      DROP TRIGGER IF EXISTS messages_au;
+      DROP TABLE IF EXISTS messages_fts;
+      CREATE VIRTUAL TABLE messages_fts USING fts5(
+        text,
+        content='messages',
+        content_rowid='id'
+      );
+      DELETE FROM schema_object_versions
+      WHERE object_name IN (
+        'messages_fts', 'messages_ai', 'messages_ad', 'messages_au'
+      );
+      PRAGMA user_version = 9;
+    `);
+  } finally {
+    db.close();
+  }
+
+  const migrated = new MessageStore(dbPath);
+  const job = migrated
+    .getMaintenanceJobs()
+    .find((item) => item.name === "messages_fts_rebuild");
+  assert.equal(job?.status, "pending");
+  assert.equal(job?.details?.messageCount, 10_001);
+  assert.throws(
+    () =>
+      migrated.search({
+        chatId: "-1001",
+        query: "corpus",
+        limit: 10,
+      }),
+    /Keyword search is temporarily unavailable/u,
+  );
 });
 
 test("large embedding membership migration is deferred with maintenance status", (t) => {
@@ -285,10 +342,20 @@ test("large embedding membership migration is deferred with maintenance status",
   db.close();
 
   const migrated = new MessageStore(dbPath);
-  assert.equal(migrated.getSchemaVersion(), 10);
+  assert.equal(migrated.getSchemaVersion(), 13);
   const job = migrated.getMaintenanceJobs().find((item) => item.name === "embedding_chunk_membership_backfill");
   assert.equal(job?.status, "pending");
   assert.equal(job?.details?.chunkCount, 1001);
+  assert.equal(job?.details?.targetMaxChunkId, 1001);
+  assert.equal(job?.details?.lastChunkId, 0);
+  assert.equal(job?.details?.processedChunks, 0);
+  assert.equal(typeof job?.details?.sourceSnapshotAt, "string");
+  assert.equal(
+    migrated.isMaintenanceJobPending(
+      "embedding_chunk_membership_backfill",
+    ),
+    true,
+  );
   assert.equal(migrated.getChatStatus("-1001").maintenance.some((item) => item.name === job?.name), true);
 
   const inspect = new DatabaseSync(dbPath);

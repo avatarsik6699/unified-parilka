@@ -26,11 +26,20 @@ jobs:
       - name: Type check
         run: npm run check
 
+      - name: Architecture contract
+        run: npm run check:architecture
+
       - name: Shell syntax check
         run: npm run check:shell
 
+      - name: systemd unit verification
+        run: npm run check:systemd
+
       - name: Build
         run: npm run build
+
+      - name: mtcute native storage smoke
+        run: npm run smoke:mtcute-storage
 
       - name: Unit tests
         run: npm test
@@ -38,8 +47,14 @@ jobs:
       - name: Secret scan
         run: npm run secret-scan
 
+      - name: Dependency audit
+        run: npm run audit
+
       - name: MCP smoke
         run: npm run smoke:mcp
 
       - name: MCP smoke through built wrapper
         run: npm run smoke:mcp:wrapper
+
+      - name: MCP direct-recovery smoke
+        run: npm run smoke:mcp:direct

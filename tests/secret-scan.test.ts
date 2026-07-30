@@ -18,6 +18,11 @@ test("secret scan detects synthetic fixtures with redacted file and line finding
   const telegramHash = "0123456789abcdef".repeat(2);
   const stringSession = "A".repeat(90);
   const privateKeyBegin = "-----BEGIN " + "PRIVATE KEY-----";
+  const botToken = `${"123456789"}:${"A".repeat(35)}`;
+  const githubToken = `ghp_${"B".repeat(36)}`;
+  const awsAccessKey = `AKIA${"C".repeat(16)}`;
+  const awsSecret = "D".repeat(40);
+  const jwt = `eyJ${"e".repeat(12)}.${"f".repeat(12)}.${"g".repeat(12)}`;
   try {
     writeFileSync(
       fixture,
@@ -32,6 +37,11 @@ test("secret scan detects synthetic fixtures with redacted file and line finding
         privateKeyBegin,
         "synthetic-body",
         "-----END PRIVATE KEY-----",
+        `PARILKA_BOT_TOKEN=${botToken}`,
+        `GITHUB_TOKEN=${githubToken}`,
+        `AWS_ACCESS_KEY_ID=${awsAccessKey}`,
+        `AWS_SECRET_ACCESS_KEY=${awsSecret}`,
+        `JWT_TOKEN=${jwt}`,
       ].join("\n"),
     );
 
@@ -39,17 +49,32 @@ test("secret scan detects synthetic fixtures with redacted file and line finding
     assert.deepEqual(
       findings.map((finding) => ({ line: finding.line, pattern: finding.pattern })),
       [
-        { line: 2, pattern: "OpenAI-compatible API key" },
+        { line: 2, pattern: "API key assignment" },
         { line: 4, pattern: "Telegram API hash" },
         { line: 6, pattern: "Telegram StringSession" },
         { line: 8, pattern: "Private key block" },
+        { line: 11, pattern: "Telegram bot token" },
+        { line: 12, pattern: "GitHub token" },
+        { line: 13, pattern: "AWS access key" },
+        { line: 14, pattern: "AWS secret key assignment" },
+        { line: 15, pattern: "Bearer or JWT assignment" },
       ],
     );
 
     const report = formatSecretFindings(findings);
-    assert.match(report, new RegExp(`${escapeRegExp(fixture)}:2 OpenAI-compatible API key`));
+    assert.match(report, new RegExp(`${escapeRegExp(fixture)}:2 API key assignment`));
     assert.match(report, new RegExp(`${escapeRegExp(fixture)}:4 Telegram API hash`));
-    for (const secret of [openAiKey, telegramHash, stringSession, privateKeyBegin]) {
+    for (const secret of [
+      openAiKey,
+      telegramHash,
+      stringSession,
+      privateKeyBegin,
+      botToken,
+      githubToken,
+      awsAccessKey,
+      awsSecret,
+      jwt,
+    ]) {
       assert.equal(report.includes(secret), false);
     }
   } finally {

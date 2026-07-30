@@ -4,16 +4,22 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { errors as telegramErrors } from "telegram";
 import { LogLevel } from "telegram/extensions/Logger.js";
 import type { AppConfig } from "../src/config.js";
-import { normalizeError } from "../src/errors.js";
+import { normalizeError, ToolError } from "../src/errors.js";
 import { MessageStore } from "../src/store.js";
 import {
+  assertExclusiveMtprotoOwner,
+  classifyDaemonErrors,
   computeDaemonDelayMs,
+  destroyTelegramBestEffort,
   disconnectTelegramBestEffort,
+  EmbeddingCadenceRunner,
+  indexEmbeddings,
   recordDaemonOutcome,
   shouldStopDaemonForErrors,
 } from "../src/sync-daemon.js";
 import { SendThrottler } from "../src/throttler.js";
 import { TelegramService, telegramClientOptions } from "../src/telegram-client.js";
+import type { VectorRag } from "../src/vector-rag.js";
 
 test("telegram client options include configured flood sleep threshold", () => {
   const options = telegramClientOptions(config({ floodWaitMaxSleepSec: 42 }));
@@ -146,12 +152,140 @@ test("transient network errors use exponential daemon backoff", () => {
   assert.equal(second.nextBackoffMs, 10_000);
 });
 
+test("embedding failures degrade daemon health without driving core backoff", async () => {
+  const report = await indexEmbeddings(
+    {
+      isConfigured: true,
+      estimateIndexCachedMessages: () => ({
+        requiresConfirmation: false,
+      }),
+      indexCachedMessages: async () => {
+        throw new ToolError({
+          category: "rate_limit",
+          retryable: true,
+          retryAfterSec: 17,
+          message: "embedding provider is throttling",
+        });
+      },
+    } as unknown as VectorRag,
+    "-1001",
+  );
+  assert.deepEqual(report?.failure, {
+    category: "rate_limit",
+    retryable: true,
+    retryAfterSec: 17,
+    message: "embedding provider is throttling",
+  });
+
+  const store = new MessageStore(":memory:");
+  store.recordDaemonTickStarted();
+  recordDaemonOutcome(store, [report!.failure!]);
+  assert.equal(store.getDaemonStatus()?.consecutiveFailures, 1);
+  const delay = computeDaemonDelayMs({
+    intervalMs: 5_000,
+    elapsedMs: 0,
+    errors: [],
+    previousBackoffMs: 0,
+    backoffInitialMs: 5_000,
+    backoffMaxMs: 60_000,
+  });
+  assert.equal(delay.reason, "interval");
+  assert.equal(delay.delayMs, 5_000);
+});
+
+test("embedding auth failures remain health-only and cannot stop the core owner", () => {
+  const embeddingFailure = new ToolError({
+    category: "auth",
+    retryable: false,
+    message: "embedding subscription expired",
+  }).normalized;
+  const policy = classifyDaemonErrors([], embeddingFailure);
+
+  assert.deepEqual(policy.healthErrors, [embeddingFailure]);
+  assert.deepEqual(policy.stopErrors, []);
+  assert.deepEqual(policy.delayErrors, []);
+  assert.equal(
+    shouldStopDaemonForErrors(policy.stopErrors),
+    false,
+  );
+});
+
+test("daemon retry-after is clamped to its configured maximum", () => {
+  const hostile = normalizeError(new Error("FLOOD_WAIT_86400"));
+  const delay = computeDaemonDelayMs({
+    intervalMs: 5_000,
+    elapsedMs: 0,
+    errors: [hostile],
+    previousBackoffMs: 0,
+    backoffInitialMs: 5_000,
+    backoffMaxMs: 60_000,
+  });
+
+  assert.equal(delay.reason, "retry_after");
+  assert.equal(delay.delayMs, 60_000);
+});
+
+test("embedding cadence is non-blocking, budgeted, and skips premature offers", async () => {
+  let indexCalls = 0;
+  const vectorRag = {
+    isConfigured: true,
+    estimateIndexCachedMessages: () => ({
+      requiresConfirmation: false,
+    }),
+    indexCachedMessages: async () => {
+      indexCalls += 1;
+      // Deliberately ignore AbortSignal. The cadence budget itself must
+      // settle even when a provider adapter misbehaves.
+      return await new Promise<never>(() => undefined);
+    },
+  } as unknown as VectorRag;
+  let now = 1_000;
+  const cadence = new EmbeddingCadenceRunner(vectorRag, {
+    intervalMs: 100,
+    budgetMs: 10,
+    retryMaxMs: 20,
+    now: () => now,
+  });
+
+  const started = Date.now();
+  const offered = cadence.offer("-1001");
+  assert.equal(Date.now() - started < 50, true);
+  assert.equal(offered.active, true);
+  assert.equal(indexCalls, 1);
+  await cadence.settle();
+  assert.equal(cadence.healthFailure()?.retryable, true);
+
+  cadence.offer("-1001");
+  assert.equal(indexCalls, 1);
+  now += 100;
+  cadence.offer("-1001");
+  assert.equal(indexCalls, 2);
+  await cadence.settle();
+});
+
 test("permanent auth errors stop the daemon", () => {
   const error = normalizeError(new Error("AUTH_KEY_UNREGISTERED"));
 
   assert.equal(error.category, "auth");
   assert.equal(error.retryable, false);
   assert.equal(shouldStopDaemonForErrors([error]), true);
+});
+
+test("sync daemon requires an explicit exclusive MTProto ownership assertion", () => {
+  assert.doesNotThrow(() =>
+    assertExclusiveMtprotoOwner({
+      PARILKA_MTPROTO_EXCLUSIVE_OWNER: "true",
+    }),
+  );
+  for (const value of [undefined, "", "TRUE", "1"]) {
+    assert.throws(
+      () =>
+        assertExclusiveMtprotoOwner({
+          PARILKA_MTPROTO_EXCLUSIVE_OWNER: value,
+        }),
+      /PARILKA_MTPROTO_EXCLUSIVE_OWNER/u,
+    );
+  }
 });
 
 test("disconnect failures are recorded and treated as retryable when normalized that way", async () => {
@@ -181,6 +315,32 @@ test("disconnect failures are recorded and treated as retryable when normalized 
   });
   assert.equal(delay.reason, "backoff");
   assert.equal(delay.delayMs, 5_000);
+});
+
+test("final Telegram destroy is bounded and reports a normalized timeout", async () => {
+  const started = Date.now();
+  const error = await destroyTelegramBestEffort(
+    {
+      destroy: () => new Promise<void>(() => undefined),
+    },
+    10,
+  );
+
+  assert.equal(error?.category, "internal");
+  assert.equal(error?.retryable, true);
+  assert.match(error?.message ?? "", /destroy timed out after 10ms/u);
+  assert.equal(Date.now() - started < 500, true);
+});
+
+test("successful Telegram destroy clears its shutdown timeout", async () => {
+  const error = await destroyTelegramBestEffort(
+    {
+      destroy: async () => undefined,
+    },
+    100,
+  );
+
+  assert.equal(error, undefined);
 });
 
 function config(sync?: Partial<AppConfig["sync"]>): AppConfig {
@@ -228,6 +388,9 @@ function config(sync?: Partial<AppConfig["sync"]>): AppConfig {
       requestTimeoutMs: 60_000,
       maxRetries: 2,
       retryInitialMs: 0,
+      retryMaxMs: 30_000,
+      tickIntervalMs: 60_000,
+      tickBudgetMs: 30_000,
       chunkMessages: 12,
       chunkOverlapMessages: 0,
       chunkMaxChars: 1600,

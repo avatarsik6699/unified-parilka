@@ -11,9 +11,22 @@ if [[ ! -f "$entrypoint" ]]; then
 fi
 
 stale_source="$(
-  find "$project_dir/src" "$project_dir/package.json" "$project_dir/tsconfig.json" \
-    -type f -newer "$entrypoint" -print -quit
+  find "$project_dir/src" -type f -name '*.ts' \
+    -newer "$entrypoint" -print -quit
 )"
+
+if [[ -z "$stale_source" ]]; then
+  for source_config in \
+    "$project_dir/package.json" \
+    "$project_dir/package-lock.json" \
+    "$project_dir/tsconfig.json"
+  do
+    if [[ -f "$source_config" && "$source_config" -nt "$entrypoint" ]]; then
+      stale_source="$source_config"
+      break
+    fi
+  done
+fi
 
 if [[ -n "$stale_source" ]]; then
   printf 'telegram-parilka-mcp: built entrypoint is stale: %s\n' "$entrypoint" >&2

@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import type { AppConfig } from "./config.js";
+import { fingerprintEmbeddingSource } from "./embedding-source.js";
 import { ToolError } from "./errors.js";
+import { providerIdentityUrl } from "./observability/redaction.js";
 
 export type EmbeddingChunkInput = {
   chatId: string;
@@ -29,8 +31,8 @@ type EmbeddingsResponse = {
   };
 };
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 export const EMBEDDING_NORMALIZATION_VERSION = "l2-v1";
+const MAX_EMBEDDING_RESPONSE_BYTES = 64 * 1024 * 1024;
 
 export class EmbeddingClient {
   constructor(private readonly config: AppConfig) {}
@@ -60,30 +62,45 @@ export class EmbeddingClient {
     }
   }
 
-  async embedTexts(texts: string[]): Promise<number[][]> {
+  async embedTexts(
+    texts: string[],
+    signal?: AbortSignal,
+  ): Promise<number[][]> {
     this.assertConfigured();
+    throwIfAborted(signal);
     if (texts.length === 0) {
       return [];
     }
 
     for (let attempt = 0; ; attempt += 1) {
       try {
-        return await this.embedTextsOnce(texts);
+        return await this.embedTextsOnce(texts, signal);
       } catch (error) {
+        throwIfAborted(signal);
         const normalized = error instanceof ToolError ? error.normalized : undefined;
         if (!normalized?.retryable || attempt >= this.config.embeddings.maxRetries) {
           throw error;
         }
-        const retryDelayMs =
+        const requestedRetryDelayMs =
           normalized.retryAfterSec != null
             ? normalized.retryAfterSec * 1000
             : this.config.embeddings.retryInitialMs * 2 ** attempt;
-        await sleep(retryDelayMs);
+        const retryDelayMs = Math.max(
+          0,
+          Math.min(
+            requestedRetryDelayMs,
+            this.config.embeddings.retryMaxMs,
+          ),
+        );
+        await abortableSleep(retryDelayMs, signal);
       }
     }
   }
 
-  private async embedTextsOnce(texts: string[]): Promise<number[][]> {
+  private async embedTextsOnce(
+    texts: string[],
+    externalSignal?: AbortSignal,
+  ): Promise<number[][]> {
     const body: Record<string, unknown> = {
       model: this.config.embeddings.model,
       input: texts,
@@ -94,20 +111,89 @@ export class EmbeddingClient {
     }
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.config.embeddings.requestTimeoutMs);
-    let response: Response;
+    let timedOut = false;
+    const onExternalAbort = () =>
+      controller.abort(externalSignal?.reason);
+    externalSignal?.addEventListener("abort", onExternalAbort, {
+      once: true,
+    });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort(
+        new DOMException("Embedding request timed out.", "TimeoutError"),
+      );
+    }, this.config.embeddings.requestTimeoutMs);
     try {
-      response = await fetch(`${this.config.embeddings.baseUrl.replace(/\/$/, "")}/embeddings`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${this.config.embeddings.apiKey}`,
-          "Content-Type": "application/json",
+      const response = await fetch(
+        embeddingEndpoint(this.config.embeddings.baseUrl),
+        {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${this.config.embeddings.apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+          // Never forward the bearer token or cached chat text to a location
+          // other than the operator-validated embeddings endpoint.
+          redirect: "error",
         },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
+      );
+      const source = await readBoundedEmbeddingBody(
+        response,
+        controller.signal,
+      );
+      const payload = parseEmbeddingPayload(source);
+
+      if (!response.ok) {
+        const authFailure =
+          response.status === 401 || response.status === 403;
+        const retryable =
+          response.status === 408 ||
+          response.status === 429 ||
+          response.status >= 500;
+        throw new ToolError({
+          category: authFailure
+            ? "auth"
+            : response.status === 429
+              ? "rate_limit"
+              : "internal",
+          retryable,
+          retryAfterSec: parseRetryAfterSec(
+            response.headers.get("retry-after"),
+          ),
+          message:
+            payload.error?.message ||
+            `Embedding API request failed with HTTP ${response.status}.`,
+        });
+      }
+
+      const vectors = validateEmbeddingVectors(
+        payload.data,
+        texts.length,
+      );
+      const expectedDimensions = this.config.embeddings.dimensions;
+      if (expectedDimensions != null) {
+        const mismatchIndex = vectors.findIndex(
+          (vector) => vector?.length !== expectedDimensions,
+        );
+        if (mismatchIndex >= 0) {
+          throw new ToolError({
+            category: "internal",
+            retryable: false,
+            message: `Embedding API returned ${vectors[mismatchIndex]?.length ?? 0} dimensions for input ${mismatchIndex}; expected TELEGRAM_EMBEDDINGS_DIMENSIONS=${expectedDimensions}.`,
+          });
+        }
+      }
+      return vectors;
     } catch (error) {
-      if (controller.signal.aborted || isAbortError(error)) {
+      if (error instanceof ToolError) {
+        throw error;
+      }
+      if (externalSignal?.aborted) {
+        throw abortReason(externalSignal);
+      }
+      if (timedOut || controller.signal.aborted || isAbortError(error)) {
         throw new ToolError({
           category: "internal",
           retryable: true,
@@ -121,49 +207,23 @@ export class EmbeddingClient {
       });
     } finally {
       clearTimeout(timer);
+      externalSignal?.removeEventListener("abort", onExternalAbort);
     }
-    const payload = (await response.json().catch(() => ({}))) as EmbeddingsResponse;
-
-    if (!response.ok) {
-      throw new ToolError({
-        category: response.status === 429 ? "rate_limit" : "internal",
-        retryable: response.status >= 500 || response.status === 429,
-        retryAfterSec: parseRetryAfterSec(response.headers.get("retry-after")),
-        message: payload.error?.message || `Embedding API request failed with HTTP ${response.status}.`,
-      });
-    }
-
-    const vectors = [...(payload.data ?? [])]
-      .sort((left, right) => Number(left.index ?? 0) - Number(right.index ?? 0))
-      .map((item) => item.embedding);
-    if (vectors.length !== texts.length || vectors.some((vector) => !Array.isArray(vector))) {
-      throw new ToolError({
-        category: "internal",
-        retryable: true,
-        message: "Embedding API returned an unexpected response shape.",
-      });
-    }
-    const expectedDimensions = this.config.embeddings.dimensions;
-    if (expectedDimensions != null) {
-      const mismatchIndex = vectors.findIndex((vector) => vector?.length !== expectedDimensions);
-      if (mismatchIndex >= 0) {
-        throw new ToolError({
-          category: "internal",
-          retryable: false,
-          message: `Embedding API returned ${vectors[mismatchIndex]?.length ?? 0} dimensions for input ${mismatchIndex}; expected TELEGRAM_EMBEDDINGS_DIMENSIONS=${expectedDimensions}.`,
-        });
-      }
-    }
-    return vectors as number[][];
   }
 
-  async embedQuery(query: string): Promise<number[]> {
-    const [embedding] = await this.embedTexts([query]);
+  async embedQuery(query: string, signal?: AbortSignal): Promise<number[]> {
+    const [embedding] = await this.embedTexts([query], signal);
     return normalizeVector(embedding);
   }
 
-  async embedChunks(chunks: EmbeddingChunkInput[]): Promise<EmbeddingChunkVector[]> {
-    const vectors = await this.embedTexts(chunks.map((chunk) => chunk.text));
+  async embedChunks(
+    chunks: EmbeddingChunkInput[],
+    signal?: AbortSignal,
+  ): Promise<EmbeddingChunkVector[]> {
+    const vectors = await this.embedTexts(
+      chunks.map((chunk) => chunk.text),
+      signal,
+    );
     return chunks.map((chunk, index) => {
       const normalized = normalizeVector(vectors[index]);
       return {
@@ -172,10 +232,71 @@ export class EmbeddingClient {
         model: this.config.embeddings.model,
         dimensions: normalized.length,
         embedding: vectorToBlob(normalized),
-        contentHash: hashText(chunk.text),
+        contentHash: fingerprintEmbeddingSource(chunk.text),
       };
     });
   }
+}
+
+function embeddingEndpoint(baseUrl: string): string {
+  const endpoint = new URL(baseUrl);
+  endpoint.pathname = `${endpoint.pathname.replace(/\/+$/u, "")}/embeddings`;
+  return endpoint.href;
+}
+
+function validateEmbeddingVectors(
+  data: EmbeddingsResponse["data"],
+  inputCount: number,
+): number[][] {
+  if (!Array.isArray(data) || data.length !== inputCount) {
+    throw unexpectedEmbeddingShape();
+  }
+  const vectors = new Array<number[]>(inputCount);
+  let dimensions: number | undefined;
+  for (const item of data) {
+    const index = item.index;
+    const embedding = item.embedding;
+    if (
+      !Number.isInteger(index) ||
+      index == null ||
+      index < 0 ||
+      index >= inputCount ||
+      vectors[index] != null ||
+      !Array.isArray(embedding) ||
+      embedding.length === 0 ||
+      embedding.some(
+        (component) =>
+          typeof component !== "number" ||
+          !Number.isFinite(component),
+      )
+    ) {
+      throw unexpectedEmbeddingShape();
+    }
+    if (
+      dimensions != null &&
+      embedding.length !== dimensions
+    ) {
+      throw unexpectedEmbeddingShape(
+        "Embedding API returned inconsistent vector dimensions.",
+      );
+    }
+    dimensions = embedding.length;
+    vectors[index] = embedding;
+  }
+  if (vectors.some((vector) => vector == null)) {
+    throw unexpectedEmbeddingShape();
+  }
+  return vectors;
+}
+
+function unexpectedEmbeddingShape(
+  message = "Embedding API returned an unexpected response shape.",
+): ToolError {
+  return new ToolError({
+    category: "internal",
+    retryable: true,
+    message,
+  });
 }
 
 export function embeddingNamespace(config: AppConfig): string {
@@ -199,14 +320,7 @@ function embeddingProviderKey(baseUrl: string): string {
 }
 
 function normalizeBaseUrl(baseUrl: string): string {
-  try {
-    const url = new URL(baseUrl);
-    url.hash = "";
-    url.pathname = url.pathname.replace(/\/+$/, "");
-    return url.toString();
-  } catch {
-    return baseUrl.replace(/\/+$/, "");
-  }
+  return providerIdentityUrl(baseUrl);
 }
 
 function parseRetryAfterSec(raw: string | null): number | undefined {
@@ -224,8 +338,108 @@ function parseRetryAfterSec(raw: string | null): number | undefined {
   return undefined;
 }
 
+function parseEmbeddingPayload(source: string): EmbeddingsResponse {
+  try {
+    const parsed = JSON.parse(source) as unknown;
+    return typeof parsed === "object" && parsed !== null
+      ? (parsed as EmbeddingsResponse)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+async function readBoundedEmbeddingBody(
+  response: Response,
+  signal: AbortSignal,
+): Promise<string> {
+  const contentLength = response.headers.get("content-length");
+  if (/^\d+$/u.test(contentLength ?? "")) {
+    const declared = Number(contentLength);
+    if (
+      !Number.isSafeInteger(declared) ||
+      declared > MAX_EMBEDDING_RESPONSE_BYTES
+    ) {
+      void response.body?.cancel().catch(() => undefined);
+      throw embeddingResponseTooLarge();
+    }
+  }
+  if (!response.body) {
+    return "";
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  const parts: string[] = [];
+  let bytes = 0;
+  const cancelOnAbort = (): void => {
+    void reader.cancel(signal.reason).catch(() => undefined);
+  };
+  signal.addEventListener("abort", cancelOnAbort, { once: true });
+  try {
+    for (;;) {
+      throwIfAborted(signal);
+      const chunk = await reader.read();
+      throwIfAborted(signal);
+      if (chunk.done) {
+        break;
+      }
+      bytes += chunk.value.byteLength;
+      if (bytes > MAX_EMBEDDING_RESPONSE_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw embeddingResponseTooLarge();
+      }
+      parts.push(decoder.decode(chunk.value, { stream: true }));
+    }
+    parts.push(decoder.decode());
+    return parts.join("");
+  } finally {
+    signal.removeEventListener("abort", cancelOnAbort);
+    reader.releaseLock();
+  }
+}
+
+function embeddingResponseTooLarge(): ToolError {
+  return new ToolError({
+    category: "internal",
+    retryable: false,
+    message:
+      "Embedding API response exceeded 64 MiB. Reduce the embedding batch size or dimensions.",
+  });
+}
+
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw abortReason(signal);
+  }
+}
+
+function abortReason(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new DOMException("Embedding request was aborted.", "AbortError");
+}
+
+function abortableSleep(
+  milliseconds: number,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  throwIfAborted(signal);
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(abortReason(signal!));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, milliseconds);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 export function vectorToBlob(vector: number[]): Buffer {
@@ -264,8 +478,4 @@ function normalizeVector(vector: number[]): number[] {
     return vector.map(() => 0);
   }
   return vector.map((value) => value / norm);
-}
-
-function hashText(text: string): string {
-  return createHash("sha256").update(text).digest("hex");
 }
