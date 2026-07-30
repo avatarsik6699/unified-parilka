@@ -13,7 +13,7 @@ import {
   shouldStopDaemonForErrors,
 } from "../src/sync-daemon.js";
 import { SendThrottler } from "../src/throttler.js";
-import { telegramClientOptions } from "../src/telegram-client.js";
+import { TelegramService, telegramClientOptions } from "../src/telegram-client.js";
 
 test("telegram client options include configured flood sleep threshold", () => {
   const options = telegramClientOptions(config({ floodWaitMaxSleepSec: 42 }));
@@ -21,6 +21,21 @@ test("telegram client options include configured flood sleep threshold", () => {
   assert.equal(options.connectionRetries, 3);
   assert.equal(options.floodSleepThreshold, 42);
   assert.equal((options.baseLogger as { logLevel: LogLevel }).logLevel, LogLevel.NONE);
+});
+
+test("telegram disconnect destroys the GramJS client exactly once", async () => {
+  const telegram = new TelegramService(config());
+  let destroyCalls = 0;
+  (telegram as unknown as { client: { destroy(): Promise<void> } }).client = {
+    destroy: async () => {
+      destroyCalls += 1;
+    },
+  };
+
+  await telegram.disconnect();
+  await telegram.disconnect();
+
+  assert.equal(destroyCalls, 1);
 });
 
 test("flood wait retry-after delays the next daemon tick", () => {
