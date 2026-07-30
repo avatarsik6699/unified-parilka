@@ -18,6 +18,10 @@ class FakeTelegram {
 
   constructor(private readonly ids: number[]) {}
 
+  get yieldedCount(): number {
+    return this.yieldedTotal;
+  }
+
   async resolveChat(): Promise<{ info: ChatInfo }> {
     return { info: CHAT };
   }
@@ -133,8 +137,85 @@ test("recent sync catches up all pages above the previous newest id", async () =
   );
   assert.deepEqual(
     telegram.requests.map((request) => request.waitTime),
-    [2, 2],
+    [undefined, undefined],
   );
+});
+
+test("history pacing waits in milliseconds before each 100-message chunk without forwarding GramJS waitTime", async () => {
+  for (const scenario of [
+    { mode: "recent" as const, ids: range(1001, 1250) },
+    { mode: "backfill" as const, ids: range(750, 999) },
+  ]) {
+    const store = seededStore(1000);
+    const telegram = new FakeTelegram(scenario.ids);
+    const sleeps: Array<{ delayMs: number; yielded: number }> = [];
+    const syncer = new HistorySyncer(
+      config({ historyWaitTimeSec: 2 }),
+      telegram as unknown as TelegramService,
+      store,
+      async (delayMs) => {
+        sleeps.push({ delayMs, yielded: telegram.yieldedCount });
+      },
+    );
+
+    const result = await syncer.syncDirection({
+      mode: scenario.mode,
+      limit: 300,
+      batchSize: 50,
+    });
+
+    assert.equal(result.status, "done", scenario.mode);
+    assert.equal(result.fetched, 250, scenario.mode);
+    assert.deepEqual(
+      sleeps,
+      [
+        { delayMs: 2000, yielded: 100 },
+        { delayMs: 2000, yielded: 200 },
+      ],
+      scenario.mode,
+    );
+    assert.equal(
+      telegram.requests.every((request) => request.waitTime === undefined),
+      true,
+      scenario.mode,
+    );
+  }
+});
+
+test("degenerate recent catch-up range completes without creating a GramJS iterator", async () => {
+  const store = seededStore(229_895);
+  store.upsertMessages(CHAT, [
+    { chatId: CHAT.chatId, messageId: 229_896, text: "already flushed cursor message" },
+    { chatId: CHAT.chatId, messageId: 229_897, text: "already flushed newest message" },
+  ]);
+  store.updateSyncState(CHAT, {
+    syncedCount: store.countMessages(CHAT.chatId),
+    mode: "manual",
+    error: null,
+    recentCatchup: {
+      minMessageId: 229_895,
+      nextOffsetId: 229_896,
+      newestMessageId: 229_897,
+    },
+  });
+  const telegram = new FakeTelegram(range(229_895, 229_897));
+  const syncer = new HistorySyncer(config(), telegram as unknown as TelegramService, store);
+
+  const result = await syncer.syncDirection({
+    mode: "recent",
+    limit: 300,
+    batchSize: 50,
+  });
+
+  assert.equal(result.status, "done");
+  assert.equal(result.fetched, 0);
+  assert.equal(result.catchup?.status, "complete");
+  assert.equal(telegram.requests.length, 0);
+  const state = store.getSyncState(CHAT.chatId);
+  assert.equal(state?.newestMessageId, 229_897);
+  assert.equal(state?.recentCatchupMinId, undefined);
+  assert.equal(state?.recentCatchupNextOffsetId, undefined);
+  assert.equal(state?.recentCatchupNewestId, undefined);
 });
 
 test("large recent catch-up progresses across ticks before advancing high-water", async () => {
@@ -547,7 +628,7 @@ function config(sync: Partial<AppConfig["sync"]> = {}): AppConfig {
       batchSize: 100,
       maxSyncLimit: 500_000,
       floodWaitMaxSleepSec: 10,
-      historyWaitTimeSec: 2,
+      historyWaitTimeSec: 0,
       historyOperationTimeoutMs: 120_000,
       intervalMs: 60_000,
       recentLimit: 300,

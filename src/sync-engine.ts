@@ -3,6 +3,8 @@ import { normalizeError, ToolError } from "./errors.js";
 import { gramMessageToStored, MessageStore, type StoredMessage } from "./store.js";
 import { type ChatInfo, TelegramService } from "./telegram-client.js";
 
+const TELEGRAM_HISTORY_CHUNK_SIZE = 100;
+
 export type SyncDirection = "recent" | "backfill";
 
 export type SyncResult = {
@@ -46,6 +48,7 @@ export class HistorySyncer {
     private readonly config: AppConfig,
     private readonly telegram: TelegramService,
     private readonly store: MessageStore,
+    private readonly historySleep: (delayMs: number) => Promise<void> = sleepMs,
   ) {}
 
   async syncOnce(params: {
@@ -169,6 +172,11 @@ export class HistorySyncer {
     let lastFlushedRecentOffsetId: number | undefined;
     let rows: StoredMessage[] = [];
     const seen = new Set<string>();
+    const historyPacing = {
+      chunkSize: TELEGRAM_HISTORY_CHUNK_SIZE,
+      delayMs: this.config.sync.historyWaitTimeSec * 1000,
+      sleep: this.historySleep,
+    };
 
     const flushRows = (): void => {
       if (rows.length === 0) {
@@ -192,6 +200,12 @@ export class HistorySyncer {
         if (params.mode === "recent") {
           let pageOffsetId = offsetId;
           while (true) {
+            if (pageOffsetId > 0 && minId != null && pageOffsetId - minId <= 1) {
+              // Telegram offsets and min_id are exclusive. No integer message
+              // ID can exist in this range, and GramJS 2.26.x throws
+              // "Request not set yet" instead of returning an empty iterator.
+              break;
+            }
             const remainingBudget = Math.max(0, this.config.sync.maxSyncLimit - fetched);
             if (remainingBudget <= 0) {
               catchupNextOffsetId = pageOffsetId > 0 ? pageOffsetId : undefined;
@@ -204,7 +218,6 @@ export class HistorySyncer {
                 limit: pageLimit,
                 offsetId: pageOffsetId,
                 minId,
-                waitTime: this.config.sync.historyWaitTimeSec,
               }),
               this.config.sync.historyOperationTimeoutMs,
               "Telegram recent history request",
@@ -216,6 +229,7 @@ export class HistorySyncer {
               stream.messages,
               this.config.sync.historyOperationTimeoutMs,
               "Telegram recent history iterator",
+              historyPacing,
             )) {
               fetched += 1;
               pageFetched += 1;
@@ -261,7 +275,6 @@ export class HistorySyncer {
               limit: target,
               offsetId,
               minId,
-              waitTime: this.config.sync.historyWaitTimeSec,
             }),
             this.config.sync.historyOperationTimeoutMs,
             "Telegram backfill history request",
@@ -271,6 +284,7 @@ export class HistorySyncer {
             stream.messages,
             this.config.sync.historyOperationTimeoutMs,
             "Telegram backfill history iterator",
+            historyPacing,
           )) {
             fetched += 1;
             const row = gramMessageToStored(stream.chat, message);
@@ -446,11 +460,23 @@ async function* iterateWithOperationTimeout<T>(
   iterable: AsyncIterable<T>,
   timeoutMs: number,
   operation: string,
+  pacing?: {
+    chunkSize: number;
+    delayMs: number;
+    sleep: (delayMs: number) => Promise<void>;
+  },
 ): AsyncIterable<T> {
   const iterator = iterable[Symbol.asyncIterator]();
+  let yielded = 0;
   while (true) {
     let result: IteratorResult<T>;
     try {
+      if (pacing && pacing.delayMs > 0 && yielded > 0 && yielded % pacing.chunkSize === 0) {
+        // GramJS 2.26.x forwards its seconds-based waitTime to a millisecond
+        // timer incorrectly. Pace before requesting the next internal
+        // 100-message chunk instead, outside the Telegram operation watchdog.
+        await pacing.sleep(pacing.delayMs);
+      }
       result = await withOperationTimeout(iterator.next(), timeoutMs, operation);
     } catch (error) {
       closeIteratorQuietly(iterator, operation);
@@ -459,8 +485,15 @@ async function* iterateWithOperationTimeout<T>(
     if (result.done) {
       return;
     }
+    yielded += 1;
     yield result.value;
   }
+}
+
+async function sleepMs(delayMs: number): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, Math.max(0, delayMs));
+  });
 }
 
 async function withOperationTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, operation: string): Promise<T> {

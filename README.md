@@ -36,6 +36,9 @@ Run this as a long-lived process to keep SQLite warm. It fetches recent messages
 npm run sync-daemon
 ```
 
+`TELEGRAM_HISTORY_WAIT_TIME_SEC` is enforced by the sync engine between 100-message history chunks; it is not forwarded
+to GramJS's broken seconds-to-milliseconds `waitTime` path.
+
 One-shot mode, useful for cron/systemd timers:
 
 ```bash

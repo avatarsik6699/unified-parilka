@@ -153,7 +153,6 @@ export class TelegramService {
     offsetId?: number;
     minId?: number;
     maxId?: number;
-    waitTime?: number;
   }): Promise<{ chat: ChatInfo; messages: AsyncIterable<any> }> {
     const resolved = await this.resolveChat(params.chat);
     const client = await this.getClient();
@@ -161,7 +160,6 @@ export class TelegramService {
     setIfDefined(options, "offsetId", params.offsetId);
     setIfDefined(options, "minId", params.minId);
     setIfDefined(options, "maxId", params.maxId);
-    setIfDefined(options, "waitTime", params.waitTime);
     const messages = client.iterMessages(resolved.input as never, options as never) as AsyncIterable<any>;
 
     return { chat: resolved.info, messages };
