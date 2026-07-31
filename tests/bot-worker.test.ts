@@ -14,6 +14,8 @@ import {
   range,
   stubTelemetry,
 } from "./support/bot-worker.js";
+import type { GuardedTelegramPublication } from "../src/bot/output-guards.js";
+import type { ToolProgressBotApiPort } from "../src/bot/tool-progress.js";
 
 test("live success uses bounded context/replay, guarded draft, and no raw streaming", async (t) => {
   const fixture = makeFixture(t);
@@ -30,7 +32,7 @@ test("live success uses bounded context/replay, guarded draft, and no raw stream
   const publisherCalls: Array<{
     chatId: string;
     replyToMessageId: number;
-    chunks: readonly string[];
+    publication: GuardedTelegramPublication;
   }> = [];
   const worker = fixture.worker({
     agent: async (request) => {
@@ -54,12 +56,12 @@ test("live success uses bounded context/replay, guarded draft, and no raw stream
       assert.equal(fixture.store.getBotTurn(fixture.turnId)?.status, "sending");
       assert.match(
         fixture.store.getBotTurn(fixture.turnId)?.draftText ?? "",
-        new RegExp(`^${finalText}\\n\\n──\\n`, "u"),
+        new RegExp(`^${finalText}\\n──\\n`, "u"),
       );
       publisherCalls.push(request);
       return {
         ok: true,
-        chunksSent: request.chunks.length,
+        chunksSent: 1,
         telegramMessageId: 9_001,
       };
     },
@@ -79,11 +81,18 @@ test("live success uses bounded context/replay, guarded draft, and no raw stream
   assert.equal(replayed, BOT_REPLAY_MESSAGES);
   assert.equal(publisherCalls.length, 1);
   assert.equal(publisherCalls[0]?.replyToMessageId, TRIGGER_ID);
-  assert.equal(publisherCalls[0]?.chunks.length, 1);
-  assert.match(publisherCalls[0]?.chunks[0]?.text ?? "", new RegExp(`^${finalText}\\n\\n──\\n`, "u"));
+  assert.equal(publisherCalls[0]?.publication.mode, "rich");
+  assert.match(
+    publisherCalls[0]?.publication.markdown ?? "",
+    new RegExp(`^${finalText}\\n\\n──\\n`, "u"),
+  );
+  assert.equal(
+    publisherCalls[0]?.publication.plainText,
+    fixture.store.getBotTurn(fixture.turnId)?.draftText,
+  );
   assert.match(
     fixture.store.getBotTurn(fixture.turnId)?.draftText ?? "",
-    new RegExp(`^${finalText}\\n\\n──\\n`, "u"),
+    new RegExp(`^${finalText}\\n──\\n`, "u"),
   );
   assert.equal(fixture.store.getBotTurn(fixture.turnId)?.status, "sent");
   const serializedLogs = JSON.stringify(fixture.logs);
@@ -112,9 +121,9 @@ test("durable replay is seeded even when live dedupe saw the message first", asy
         .messages.map(({ messageId }) => messageId);
       return final("Учёл уточнение");
     },
-    publisher: async (request) => ({
+    publisher: async () => ({
       ok: true,
-      chunksSent: request.chunks.length,
+      chunksSent: 1,
     }),
   });
 
@@ -147,18 +156,13 @@ test("exact SKIP is durably recorded and completes before publisher", async (t) 
 
 test("guard rejection is terminal before network and never stores unsafe raw output", async (t) => {
   const fixture = makeFixture(t);
-  const unsafe = "Алиса: «это достаточно длинная дословная цитата»";
+  const unsafe = "@mallory посмотри сюда";
   let publisherCalls = 0;
   const worker = fixture.worker({
     agent: async () => ({
       kind: "final",
       text: unsafe,
-      evidence: [
-        {
-          speaker: "Боб",
-          text: "это достаточно длинная дословная цитата",
-        },
-      ],
+      evidence: [],
       telemetry: stubTelemetry(),
     }),
     publisher: async () => {
@@ -173,13 +177,13 @@ test("guard rejection is terminal before network and never stores unsafe raw out
     status: "skipped",
     turnId: fixture.turnId,
     reason: "guard_rejected",
-    guardCode: "quote_speaker_mismatch",
+    guardCode: "unauthorized_mention",
   });
   assert.equal(publisherCalls, 0);
   const stored = fixture.store.getBotTurn(fixture.turnId);
   assert.equal(stored?.status, "skipped");
   assert.equal(stored?.draftText, undefined);
-  assert.doesNotMatch(JSON.stringify(fixture.logs), /дословная цитата/);
+  assert.doesNotMatch(JSON.stringify(fixture.logs), /mallory/);
 });
 
 test("shadow mode saves guarded draft and terminates without publisher", async (t) => {
@@ -204,7 +208,7 @@ test("shadow mode saves guarded draft and terminates without publisher", async (
   assert.equal(publisherCalls, 0);
   assert.match(
     fixture.store.getBotTurn(fixture.turnId)?.draftText ?? "",
-    /^Публичный ответ\n\n──\n/u,
+    /^Публичный ответ\n──\n/u,
   );
   assert.equal(fixture.store.getBotTurn(fixture.turnId)?.status, "skipped");
 });
@@ -234,4 +238,44 @@ test("provider failure before send is retryable through durable failed state", a
   assert.equal(publisherCalls, 0);
   assert.equal(fixture.store.getBotTurn(fixture.turnId)?.status, "failed");
   assert.doesNotMatch(JSON.stringify(fixture.logs), /SECRET_PROVIDER_TEXT/);
+});
+
+test("worker passes tool progress port and cleans up before durable final", async (t) => {
+  const fixture = makeFixture(t);
+  const portCalls: unknown[] = [];
+  const port: ToolProgressBotApiPort = {
+    async sendMessage(chatId, text, signal) {
+      portCalls.push({ kind: "send", chatId, text, signal });
+      return { ok: true, messageId: 42 };
+    },
+    async editMessageText() {
+      portCalls.push({ kind: "edit" });
+      return { ok: true };
+    },
+    async deleteMessage(chatId, messageId, signal) {
+      portCalls.push({ kind: "delete", chatId, messageId, signal });
+      return { ok: true };
+    },
+  };
+  let receivedPort: unknown;
+  const worker = fixture.worker({
+    agent: async (request) => {
+      receivedPort = request.toolProgressPort;
+      request.toolProgressPort?.onToolStarted({
+        toolName: "search_chat",
+        callId: "c1",
+      });
+      return final("done");
+    },
+    publisher: async () => ({ ok: true, chunksSent: 1 }),
+    toolProgressBotApiPort: port,
+  });
+
+  const result = await worker.runOnce();
+
+  assert.equal(result.status, "sent");
+  assert.ok(receivedPort, "agent must receive tool progress port");
+  assert.equal(portCalls.some((call) => call.kind === "send"), true);
+  const deleteCall = portCalls.find((call) => call.kind === "delete");
+  assert.ok(deleteCall, "progress message must be deleted before durable final");
 });

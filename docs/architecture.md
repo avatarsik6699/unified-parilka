@@ -8,7 +8,7 @@ group chat. Application shells только компонуют independently tes
 
 ```text
 Bot API ──► parilka-bot ───────────────┐
-                                       ├──► SQLite WAL v13 ◄── maintenance/digests
+                                       ├──► SQLite WAL v15 ◄── maintenance/digests
 MTProto ──► parilka-sync ──────────────┘
                  │
                  └──► HTTP 127.0.0.1:8766/mcp
@@ -29,14 +29,14 @@ MCP harness ──stdio──► thin proxy─┘
 | Lane | Path | Authority |
 | --- | --- | --- |
 | Process shells | `src/{index,bot-daemon,sync-daemon}.ts` | startup, composition, signals и graceful shutdown |
-| Bot | `src/bot/` | Bot API update ingest, turn FSM worker, bounded agent loop и guarded publish |
+| Bot | `src/bot/` | Bot API update ingest, turn FSM worker, bounded agent loop, five read-only tools, per-chat memory prompt injection, guarded rich/plain publication, typing/tool-progress presentation и telemetry rendering |
 | Storage | `src/storage/` + `src/store.ts` barrel | один connection/transaction kernel, schema и domain repositories |
 | Telegram/sync | `src/telegram/`, `src/sync/` | transport lifecycle, one-owner guard, recent/backfill reconciliation |
 | MCP | `src/mcp-tools/`, `src/mcp-loopback.ts` | 13 operator tools, loopback session transport и stdio proxy |
-| Digests | `src/digest/` | source planning/hash, sequential day/week generation и process lock |
+| Digests | `src/digest/` | source planning/hash, sequential day/week generation, process lock и offline dream memory consolidation |
 | Providers | `src/providers/` | validated roles/candidates, hardened HTTP, fallback classification |
 | Vector | `src/vector/`, `src/embeddings.ts` | opt-in index, atomic source recheck, search/fusion |
-| Operational CLI | `src/{python-import,digest-cli}/` | offline migration and digest command implementations compiled into `dist` |
+| Operational CLI | `src/{python-import,digest-cli}/` | offline migration, digest and dream command implementations compiled into `dist` |
 | Operations | `operations/`, `systemd/`, `bin/` | human-reviewed install, migration, retention и rollback procedures |
 | Long-lived handoff | `loop-develop/` | один active goal; closed/retired evidence в history |
 
@@ -65,7 +65,8 @@ operator MCP ──► Telegram gateway + storage + serialized sync
 
 - Storage не импортирует process shells, bot agent или MCP registry.
 - Bot model никогда не получает operator MCP write/sync tools; его registry
-  состоит из четырёх read-only tools.
+  состоит из пяти read-only tools (search_chat, day_digest, thread_context,
+  web_search, paper_search).
 - MCP stdio proxy не владеет Telegram credentials, SQLite или session.
 - Providers не владеют state и получают secrets только через env references.
 
@@ -112,3 +113,12 @@ Transport, systemd и migration slices добавляют свои offline smoke
 production CLI в `scripts/`, отдельный test ceiling — к `tests/`, чтобы
 эксплуатационные команды и regression suites не становились скрытыми
 монолитами.
+
+## Radar
+
+- **Native Telegram Rich Messages** (`sendRichMessage`) — принятый primary
+  path для финального ответа бота: Telegram сам рендерит headings, списки,
+  GFM-таблицы и LaTeX (`$...$`, `$$...$$`, fenced `math`). Локально остаётся
+  только bounded AST preflight (`unified` + `remark-*`), canonical plain
+  projection и classic plain fallback. Решение и safety/durability rationale:
+  [ADR 0002](adr/0002-native-telegram-rich-messages.md).

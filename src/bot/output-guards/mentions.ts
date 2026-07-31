@@ -1,69 +1,38 @@
-import {
-  rejectOutput,
-  type OutputGuardRejected,
-} from "./contracts.js";
+const TELEGRAM_MENTION_PATTERN = /@([A-Za-z0-9_]{3,32})/gu;
 
-const TELEGRAM_MENTION_PATTERN =
-  /(?<![\p{L}\p{N}_])@([A-Za-z][A-Za-z0-9_]{4,31})/gu;
-
-export type MentionValidation =
+export type VisibleMentionValidation =
   | { ok: true; mentions: string[] }
-  | OutputGuardRejected;
+  | {
+      ok: false;
+      code: "unauthorized_mention" | "mass_mentions";
+      count?: number;
+    };
 
-export function validateMentions(
+/**
+ * Validates mentions on the canonical visible plain text. This runs AFTER the
+ * Markdown projection to close the `@foo**bar**` → `@foobar` bypass where a
+ * mention only materialises once formatting is removed.
+ */
+export function validateVisibleMentions(
   text: string,
-  allowedMentions: readonly string[],
+  allowedUsernames: ReadonlySet<string>,
   maxMentions: number,
-): MentionValidation {
-  const allowed = new Set(
-    allowedMentions
-      .map(normalizeMention)
-      .filter((value) => value.length > 0),
-  );
-  // The publisher sends plain text without parse_mode. Backticks therefore
-  // do not suppress Telegram's server-side @username entity detection, so
-  // validation must cover the exact text crossing the publish boundary.
-  const mentions = [...text.matchAll(TELEGRAM_MENTION_PATTERN)].map(
-    (match) => match[1],
-  );
-  const unauthorized = mentions.filter(
-    (mention) => !allowed.has(normalizeMention(mention)),
-  );
-  if (unauthorized.length > 0) {
-    return rejectOutput(
-      "unauthorized_mention",
-      "The final output contains Telegram mentions not authorized for this turn.",
-      {
-        mentions: [
-          ...new Set(
-            unauthorized.map((mention) => `@${mention}`),
-          ),
-        ],
-      },
-    );
+): VisibleMentionValidation {
+  const seen = new Map<string, string>();
+  for (
+    let match = TELEGRAM_MENTION_PATTERN.exec(text);
+    match;
+    match = TELEGRAM_MENTION_PATTERN.exec(text)
+  ) {
+    const username = match[1]!;
+    const lower = username.toLowerCase();
+    if (!allowedUsernames.has(lower)) {
+      return { ok: false, code: "unauthorized_mention" };
+    }
+    seen.set(lower, `@${username}`);
   }
-  const uniqueMentions = [
-    ...new Map(
-      mentions.map((mention) => [
-        normalizeMention(mention),
-        `@${mention}`,
-      ]),
-    ).values(),
-  ];
-  if (uniqueMentions.length > maxMentions) {
-    return rejectOutput(
-      "mass_mentions",
-      "The final output exceeds the per-message Telegram mention budget.",
-      {
-        count: uniqueMentions.length,
-        maxMentions,
-        mentions: uniqueMentions,
-      },
-    );
+  if (seen.size > maxMentions) {
+    return { ok: false, code: "mass_mentions", count: seen.size };
   }
-  return { ok: true, mentions: uniqueMentions };
-}
-
-function normalizeMention(mention: string): string {
-  return mention.trim().replace(/^@/u, "").toLowerCase();
+  return { ok: true, mentions: [...seen.values()] };
 }

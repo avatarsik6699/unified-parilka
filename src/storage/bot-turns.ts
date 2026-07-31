@@ -5,6 +5,7 @@ import {
 } from "./mappers.js";
 import type {
   BotDurableStatus,
+  BotTurnProgressState,
   StoredBotTurn,
   StoredBotUpdate,
 } from "./types.js";
@@ -322,6 +323,59 @@ declare protected getBotUpdateLocked: (
     });
   }
 
+  saveBotTurnProgress(
+    turnId: number,
+    workerId: string,
+    progress: { messageId?: number; state?: BotTurnProgressState },
+    nowMs = Date.now(),
+  ): boolean {
+    assertBotTurnId(turnId);
+    assertTimestamp(nowMs, "nowMs");
+    const owner = workerId.trim();
+    if (!owner) {
+      throw new Error("workerId must not be empty.");
+    }
+    return this.immediateTransaction("saveBotTurnProgress", () => {
+      const result = this.db
+        .prepare(
+          `UPDATE bot_turns
+           SET progress_message_id = ?, progress_state = ?, updated_at_ms = ?
+           WHERE id = ? AND status IN ('running', 'drafted') AND lease_owner = ?
+             AND lease_expires_at_ms > ?`,
+        )
+        .run(
+          progress.messageId ?? null,
+          progress.state ?? null,
+          nowMs,
+          turnId,
+          owner,
+          nowMs,
+        );
+      if (result.changes > 0) {
+        this.syncBotUpdateFromTurnLocked(turnId, nowMs);
+      }
+      return result.changes > 0;
+    });
+  }
+
+  clearBotTurnProgress(turnId: number, nowMs = Date.now()): boolean {
+    assertBotTurnId(turnId);
+    assertTimestamp(nowMs, "nowMs");
+    return this.immediateTransaction("clearBotTurnProgress", () => {
+      const result = this.db
+        .prepare(
+          `UPDATE bot_turns
+           SET progress_message_id = NULL, progress_state = NULL, updated_at_ms = ?
+           WHERE id = ?`,
+        )
+        .run(nowMs, turnId);
+      if (result.changes > 0) {
+        this.syncBotUpdateFromTurnLocked(turnId, nowMs);
+      }
+      return result.changes > 0;
+    });
+  }
+
   getBotTurn(turnId: number): StoredBotTurn | undefined {
     assertBotTurnId(turnId);
     return this.getBotTurnLocked(turnId);
@@ -526,6 +580,8 @@ export type BotTurnApi = Pick<
   | "markBotTurnDispatchRejected"
   | "markBotTurnSkipped"
   | "markBotTurnFailed"
+  | "saveBotTurnProgress"
+  | "clearBotTurnProgress"
   | "getBotTurn"
   | "getBotTurnByTrigger"
   | "queryBotTurns"

@@ -159,6 +159,31 @@ git diff --check
    update, turn, tool/provider steps и publish outcome.
 8. Active record получает Final Status и переносится в `history/`.
 
+## Final Status
+
+**Completed:** 2026-07-31 (verified and updated after focused re-audit).
+
+**Done:**
+1. **Quote guard relaxed:** `validateQuotes` no longer rejects unattributed quotes; only `quote_speaker_mismatch` is terminal. Unicode/control/length/mass-mention/delivery guards remain fail-closed. Regression tests in `tests/output-guards.test.ts`.
+2. **Policy prompt updated:** `src/bot/prompt.ts` explicitly allows ordinary swearing/chat banter and lists four red lines (war/mobilization/violence, religion as propaganda/offense, ethnic/national hatred including Ukrainians, practical assistance in crimes). Provider `content_filter` is terminal for bot turns via `ModelContentFilterError` → `fallback: false` in `src/providers/model-router/fallback.ts`; regression test confirms backup candidate is not tried.
+3. **Typing + persisted tool-progress:** `src/bot/typing.ts` heartbeat starts immediately after claim; `src/bot/tool-progress.ts` sends one bounded progress message, edits it on tool start/complete/fail, persists `progress_message_id`/`progress_state` in `bot_turns`, recovers stale messages on retry, and deletes before durable final. `BotTurnWorker` quiesces the edit queue before `markBotTurnSending`. Focused tests in `tests/bot-tool-progress.test.ts` and `tests/bot-worker.test.ts`.
+4. **Rich Markdown renderer:** `src/bot/rich-text.ts` parses an allowlisted Markdown subset into explicit Telegram entities, strips raw HTML, rejects `tg://`/credential-bearing/non-HTTPS links, validates visible plain-text mentions (closing the `@foo**bar**` bypass), chunks by UTF-16, and disables link previews. `src/bot/grammy-publisher.ts` falls back to plain text exactly once only on unambiguous Telegram 400 entity-parse rejection; transport ambiguity and DB failures remain terminal. Tests in `tests/output-guards.test.ts` and `tests/grammy-publisher.test.ts`.
+5. **Telemetry footer:** `src/bot/telemetry.ts` accumulates usage across all completed model steps/provider attempts and renders `provider/model · reasoning:mode · in:X out:Y total:Z [· reported]`; missing values are `?`, incomplete usage is explicitly marked. Added `tests/bot-telemetry.test.ts`.
+6. **Decomposition + docs:** New modules stay within 150–500 line target (`typing.ts` 61, `tool-progress.ts` 220, `telemetry.ts` 146, `rich-text.ts` 445). Updated `src/bot/README.md` and `docs/architecture.md` (SQLite v14, bot presentation modules). No new runbook needed; operations path unchanged.
+
+**Verification (re-run after final edits):**
+- Focused tests: `tests/bot-*.test.ts`, `tests/ai-agent-*.test.ts`, `tests/grammy-publisher.test.ts`, `tests/output-guards.test.ts` — 63/63 pass.
+- Full gates: `npm run check`, `npm run check:shell`, `npm run check:architecture`, `npm run check:systemd`, `npm run build`, `npm test` (452/452), `npm run secret-scan`, `npm run smoke:mtcute-storage`, `git diff --check` — all green.
+- Production: `parilka-bot.service` active/enabled, `NRestarts=0`, journal clean, SQLite `PRAGMA quick_check` ok, `user_version=14`.
+- Live E2E: mention in `-1003179772905` → reply `230974` delivered with footer `qwen/qwen3.8-max-preview · reasoning:? · in:7.0k out:399 total:7.4k` and durably recorded in `bot_turns` as `sent|230974`.
+
+**Residual/limitations:**
+- Progress message is deleted before final rather than replaced by the first final chunk via `editMessageText`. This satisfies the hard requirement (tool status disappears before durable final), but the `edit-first-chunk` approach noted as preferred in the TODO was not implemented to avoid risk to the durable send fence.
+- Qwen OpenAI-compatible endpoint does not consistently report `reasoning_tokens`; footer shows `reasoning:?` when absent rather than inventing a value.
+- `parilka-sync.service` was not restarted; changes only affected the bot runtime.
+
+**Commit/push:** not authorized by this goal.
+
 ## Copy-Ready Goal Prompt
 
 ```text

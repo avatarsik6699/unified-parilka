@@ -19,7 +19,10 @@
 - `src/sync/`, `src/telegram/`: MTProto ownership, history sync и transports.
 - `src/mcp-tools/`, `src/mcp-loopback.ts`: operator MCP registry и loopback
   transport.
-- `src/digest/`: day/week planning, generation, hashing и process lock.
+- `src/digest/`: day/week planning, generation, hashing, process lock и offline
+  dream memory consolidation.
+- `src/dream/`: per-chat memory consolidator через router role "summary".
+- `src/digest-cli/`: `parilka-digests --apply` запускает digest-фазы и dream-проход.
 - `src/providers/`: model/provider config, hardened HTTP и fallback.
 - `src/vector/`, `src/embeddings.ts`: opt-in embedding index/search.
 

@@ -31,11 +31,11 @@ test("old fixture DB migrates once and rebuilds FTS for historical rows", (t) =>
 
   const store = new MessageStore(dbPath);
 
-  assert.equal(store.getSchemaVersion(), 13);
+  assert.equal(store.getSchemaVersion(), 15);
   assert.equal(store.search({ chatId: "-1001", query: "historical", limit: 10 }).length, 1);
 
   const reopened = new MessageStore(dbPath);
-  assert.equal(reopened.getSchemaVersion(), 13);
+  assert.equal(reopened.getSchemaVersion(), 15);
   assert.equal(reopened.search({ chatId: "-1001", query: "searchable", limit: 10 })[0]?.messageId, 1);
 });
 
@@ -162,7 +162,7 @@ test("version 5 fixture without send tables migrates send audit schema", (t) => 
 
   const store = new MessageStore(dbPath);
 
-  assert.equal(store.getSchemaVersion(), 13);
+  assert.equal(store.getSchemaVersion(), 15);
   assert.equal(store.search({ chatId: "-1001", query: "preexisting", limit: 10 })[0]?.messageId, 1);
   assert.equal(store.countMessages("-1001"), 1);
   const [legacyStats] = store.getEmbeddingStats("-1001");
@@ -238,7 +238,7 @@ test("stale managed FTS and trigger definitions are repaired", (t) => {
   db.close();
 
   const repaired = new MessageStore(dbPath);
-  assert.equal(repaired.getSchemaVersion(), 13);
+  assert.equal(repaired.getSchemaVersion(), 15);
   assert.equal(repaired.search({ chatId: "-1001", query: "repaired", limit: 10 })[0]?.messageId, 1);
   repaired.upsertMessages(
     { chatId: "-1001", requested: "-1001", kind: "Fake" },
@@ -342,7 +342,7 @@ test("large embedding membership migration is deferred with maintenance status",
   db.close();
 
   const migrated = new MessageStore(dbPath);
-  assert.equal(migrated.getSchemaVersion(), 13);
+  assert.equal(migrated.getSchemaVersion(), 15);
   const job = migrated.getMaintenanceJobs().find((item) => item.name === "embedding_chunk_membership_backfill");
   assert.equal(job?.status, "pending");
   assert.equal(job?.details?.chunkCount, 1001);
@@ -392,6 +392,51 @@ test("daemon status records last success and failure", () => {
   assert.equal(typeof recovered?.lastFailureAt, "string");
   assert.equal(recovered?.lastError, undefined);
   assert.equal(recovered?.consecutiveFailures, 0);
+});
+
+test("bot chat memory migrates and supports consolidation lifecycle", () => {
+  const store = new MessageStore(":memory:");
+
+  assert.equal(store.getChatMemory("-1001"), undefined);
+
+  store.upsertMessages(
+    { chatId: "-1001", requested: "-1001", kind: "supergroup" },
+    [
+      { chatId: "-1001", messageId: 1, senderName: "alice", text: "first" },
+      { chatId: "-1001", messageId: 2, senderName: "bob", text: "second" },
+    ],
+  );
+
+  assert.equal(store.countMessagesSince({ chatId: "-1001" }), 2);
+  assert.equal(
+    store.countMessagesSince({ chatId: "-1001", messageId: 1 }),
+    1,
+  );
+  assert.deepEqual(store.listChatsPendingDream(1), ["-1001"]);
+  assert.deepEqual(store.listChatsPendingDream(5), []);
+
+  const stored = store.upsertChatMemory({
+    chatId: "-1001",
+    memoryText: "Alice and Bob said hello.",
+    lastConsolidatedMessageId: 2,
+  });
+  assert.equal(stored.chatId, "-1001");
+  assert.equal(stored.memoryText, "Alice and Bob said hello.");
+  assert.equal(stored.lastConsolidatedMessageId, 2);
+  assert.equal(stored.revision, 1);
+  assert.ok(stored.updatedAtMs > 0);
+
+  const retrieved = store.getChatMemory("-1001");
+  assert.equal(retrieved?.memoryText, "Alice and Bob said hello.");
+  assert.equal(retrieved?.revision, 1);
+
+  const updated = store.upsertChatMemory({
+    chatId: "-1001",
+    memoryText: "Updated memory.",
+    lastConsolidatedMessageId: 3,
+  });
+  assert.equal(updated.revision, 2);
+  assert.equal(updated.lastConsolidatedMessageId, 3);
 });
 
 test("failed migration rolls back user_version", (t) => {

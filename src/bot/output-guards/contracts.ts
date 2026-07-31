@@ -30,8 +30,7 @@ export type OutputRejectionCode =
   | "unsafe_control_markup"
   | "unauthorized_mention"
   | "mass_mentions"
-  | "quote_speaker_mismatch"
-  | "unsafe_rich_text";
+  | "quote_speaker_mismatch";
 
 export interface OutputGuardRejection {
   code: OutputRejectionCode;
@@ -47,27 +46,39 @@ export interface OutputGuardReport {
 }
 
 /**
- * A single Telegram-ready chunk with pre-computed entities. The publisher
- * sends `text` + `entities` without any `parse_mode`.
+ * The narrow rich/plain publication contract that crosses the send boundary.
+ *
+ * - `rich` carries the safe, byte-for-byte original Markdown plus the
+ *   canonical visible plain text and the validated fallback split bound;
+ * - `plain` carries the canonical visible plain text and the validated split
+ *   bound for the classic fallback. Model HTML, media, blocks or raw entity
+ *   chunks never enter it.
  */
-export interface GuardedChunk {
-  text: string;
-  entities: readonly import("../rich-text.js").TelegramEntity[];
-}
+export type GuardedTelegramPublication =
+  | {
+      mode: "rich";
+      markdown: string;
+      plainText: string;
+      maxChunkUtf16: number;
+    }
+  | {
+      mode: "plain";
+      plainText: string;
+      maxChunkUtf16: number;
+    };
 
 export type OutputGuardResult =
   | {
       ok: true;
       disposition: "skip";
       text: "SKIP";
-      chunks: readonly [];
       report: OutputGuardReport;
     }
   | {
       ok: true;
       disposition: "send";
       text: string;
-      chunks: readonly GuardedChunk[];
+      publication: GuardedTelegramPublication;
       report: OutputGuardReport;
     }
   | OutputGuardRejected;

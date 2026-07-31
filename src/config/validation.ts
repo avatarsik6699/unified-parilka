@@ -106,6 +106,11 @@ export function validateConfig(config: AppConfig): void {
       "TELEGRAM_MTCUTE_AUTH_DB_PATH must be separate from TELEGRAM_DB_PATH.",
     );
   }
+  if (config.memory.dreamMaxMessages < config.memory.dreamEveryNMessages) {
+    throw new Error(
+      "PARILKA_DREAM_MAX_MESSAGES must be greater than or equal to PARILKA_DREAM_EVERY_N_MESSAGES.",
+    );
+  }
   validateEmbeddingBaseUrl(config.embeddings.baseUrl);
 }
 

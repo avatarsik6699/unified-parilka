@@ -3,6 +3,7 @@ import type { ChatInfo } from "../../telegram-client.js";
 import type { StoredMessage } from "../../store.js";
 import { GrammyBotTurnPublisher, type GrammyBotApiPort } from "../grammy-publisher.js";
 import type { BotRuntimeConfig } from "../runtime-config.js";
+import type { ToolProgressBotApiPort } from "../tool-progress.js";
 import type { OwnSendStore } from "./contracts.js";
 import type { BotApiLongPollerOptions, GrammyLongPollingApiPort } from "./long-poller.js";
 import { asRecord, botApiDate, BotRuntimeProtocolError, normalizeExpectedUsername, positiveSafeInteger, positiveTelegramId, stringifyUpdate, telegramId } from "./helpers.js";
@@ -41,12 +42,29 @@ export interface DurableGrammyPublisherOptions {
  * an automatic resend.
  */
 export function createDurableGrammyBotTurnPublisher(
-  api: Pick<Api, "sendMessage">,
+  api: Pick<Api, "sendRichMessage" | "sendMessage">,
   options: DurableGrammyPublisherOptions,
 ): GrammyBotTurnPublisher {
   const botId = positiveTelegramId(options.botId, "botId");
   const botUsername = normalizeExpectedUsername(options.botUsername);
   const port: GrammyBotApiPort = {
+    async sendRichMessage(input) {
+      const response = await api.sendRichMessage(
+        input.chatId,
+        input.richMessage as unknown as Parameters<Api["sendRichMessage"]>[1],
+        input.options as unknown as Parameters<Api["sendRichMessage"]>[2],
+        input.signal as unknown as Parameters<Api["sendRichMessage"]>[3],
+      );
+      recordOwnSend(options.store, {
+        response,
+        requestedChatId: input.chatId,
+        text: input.plainText,
+        replyToMessageId: input.options.reply_parameters.message_id,
+        botId,
+        botUsername,
+      });
+      return response;
+    },
     async sendMessage(chatId, text, sendOptions, signal) {
       const response = await api.sendMessage(
         chatId,
@@ -66,6 +84,58 @@ export function createDurableGrammyBotTurnPublisher(
     },
   };
   return new GrammyBotTurnPublisher(port);
+}
+
+/**
+ * Best-effort Bot API port for the ephemeral tool-progress message.
+ *
+ * Failures are surfaced as `{ ok: false }` so the publisher can keep durable
+ * turn state independent of Telegram presentation.
+ */
+export function createToolProgressGrammyBotApiPort(
+  api: Pick<Api, "sendMessage" | "editMessageText" | "deleteMessage">,
+): ToolProgressBotApiPort {
+  return {
+    async sendMessage(chatId, text, signal) {
+      try {
+        const message = await api.sendMessage(
+          chatId,
+          text,
+          undefined as unknown as Parameters<Api["sendMessage"]>[2],
+          signal as unknown as Parameters<Api["sendMessage"]>[3],
+        );
+        return { ok: true, messageId: message.message_id };
+      } catch {
+        return { ok: false };
+      }
+    },
+    async editMessageText(chatId, messageId, text, signal) {
+      try {
+        await api.editMessageText(
+          chatId,
+          messageId,
+          text,
+          undefined as unknown as Parameters<Api["editMessageText"]>[3],
+          signal as unknown as Parameters<Api["editMessageText"]>[4],
+        );
+        return { ok: true };
+      } catch {
+        return { ok: false };
+      }
+    },
+    async deleteMessage(chatId, messageId, signal) {
+      try {
+        await api.deleteMessage(
+          chatId,
+          messageId,
+          signal as unknown as Parameters<Api["deleteMessage"]>[2],
+        );
+        return { ok: true };
+      } catch {
+        return { ok: false };
+      }
+    },
+  };
 }
 
 export function botRuntimeOptionsFromConfig(

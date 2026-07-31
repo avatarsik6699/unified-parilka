@@ -6,7 +6,7 @@ import {
   createDurableGrammyBotTurnPublisher,
   type BotWorkerPort,
 } from "../src/bot/runtime.js";
-import type { GuardedChunk } from "../src/bot/output-guards.js";
+import type { GuardedTelegramPublication } from "../src/bot/output-guards.js";
 import {
   BOT_ID,
   BOT_USERNAME,
@@ -14,8 +14,8 @@ import {
   makeStore,
 } from "./support/bot-runtime.js";
 
-function plainChunks(texts: readonly string[]): GuardedChunk[] {
-  return texts.map((text) => ({ text, entities: [] }));
+function plainPublication(plainText: string): GuardedTelegramPublication {
+  return { mode: "plain", plainText, maxChunkUtf16: 4_096 };
 }
 
 test("worker pump never exceeds three concurrent runs and drains the durable hint", async () => {
@@ -133,13 +133,13 @@ test("durable publisher inserts every acknowledged own message before returning 
   const result = await publisher.publish({
     chatId: CHAT_ID,
     replyToMessageId: 777,
-    chunks: plainChunks(["первая часть", "вторая часть"]),
+    publication: plainPublication("первая часть\nвторая часть"),
     signal: new AbortController().signal,
   });
 
   assert.deepEqual(result, {
     ok: true,
-    chunksSent: 2,
+    chunksSent: 1,
     telegramMessageId: 901,
   });
   const stored = store
@@ -155,13 +155,7 @@ test("durable publisher inserts every acknowledged own message before returning 
     [
       {
         messageId: 901,
-        text: "первая часть",
-        replyToMessageId: 777,
-        senderName: BOT_USERNAME,
-      },
-      {
-        messageId: 902,
-        text: "вторая часть",
+        text: "первая часть\nвторая часть",
         replyToMessageId: 777,
         senderName: BOT_USERNAME,
       },
@@ -197,7 +191,7 @@ test("own-send recording failure stays ambiguous and cannot become a definitive 
   const result = await publisher.publish({
     chatId: CHAT_ID,
     replyToMessageId: 1,
-    chunks: plainChunks(["already dispatched"]),
+    publication: plainPublication("already dispatched"),
     signal: new AbortController().signal,
   });
 
@@ -207,4 +201,66 @@ test("own-send recording failure stays ambiguous and cannot become a definitive 
     chunksSent: 0,
     error: { kind: "unknown", code: "UNKNOWN_ERROR" },
   });
+});
+
+test("durable rich ACK records canonical plain text even without response.text", async (t) => {
+  const store = makeStore(t);
+  let richCalls = 0;
+  const api = {
+    async sendRichMessage(
+      chatId: string | number,
+      richMessage: { markdown: string; skip_entity_detection: boolean },
+    ) {
+      richCalls += 1;
+      assert.equal(richMessage.skip_entity_detection, true);
+      assert.equal(richMessage.markdown, "**жирный** и $E = mc^2$");
+      return {
+        message_id: 905,
+        date: 1_700_000_905,
+        chat: {
+          id: Number(chatId),
+          type: "supergroup",
+          title: "Парилка",
+        },
+        from: {
+          id: Number(BOT_ID),
+          is_bot: true,
+          username: BOT_USERNAME,
+        },
+        rich_message: { blocks: [] },
+      } as never;
+    },
+  } as unknown as Pick<Api, "sendRichMessage">;
+  const publisher = createDurableGrammyBotTurnPublisher(api, {
+    store,
+    botId: BOT_ID,
+    botUsername: BOT_USERNAME,
+  });
+
+  const result = await publisher.publish({
+    chatId: CHAT_ID,
+    replyToMessageId: 777,
+    publication: {
+      mode: "rich",
+      markdown: "**жирный** и $E = mc^2$",
+      plainText: "жирный и E = mc^2",
+      maxChunkUtf16: 4_096,
+    },
+    signal: new AbortController().signal,
+  });
+
+  assert.equal(richCalls, 1);
+  assert.deepEqual(result, {
+    ok: true,
+    chunksSent: 1,
+    telegramMessageId: 905,
+  });
+  const stored = store
+    .getHistory({ chatId: CHAT_ID, limit: 10, order: "asc" })
+    .filter((message) => message.senderId === BOT_ID);
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0]!.messageId, 905);
+  assert.equal(stored[0]!.text, "жирный и E = mc^2");
+  assert.equal(stored[0]!.replyToMessageId, 777);
+  assert.equal(stored[0]!.senderName, BOT_USERNAME);
 });

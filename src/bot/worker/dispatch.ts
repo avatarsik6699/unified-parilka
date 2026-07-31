@@ -1,5 +1,5 @@
 import type { MessageStore, StoredBotTurn, StoredMessage } from "../../store.js";
-import type { GuardedChunk } from "../output-guards.js";
+import type { GuardedTelegramPublication } from "../output-guards.js";
 import type {
   BotTurnPublisher,
   BotTurnWorkerResult,
@@ -28,7 +28,7 @@ export async function dispatchBotTurn(
   options: DispatchBotTurnOptions,
   turn: StoredBotTurn,
   trigger: StoredMessage,
-  chunks: readonly GuardedChunk[],
+  publication: GuardedTelegramPublication,
 ): Promise<BotTurnWorkerResult> {
   const {
     store,
@@ -81,7 +81,7 @@ export async function dispatchBotTurn(
         publisher.publish({
           chatId: turn.chatId,
           replyToMessageId: trigger.messageId,
-          chunks: Object.freeze([...chunks]),
+          publication: Object.freeze({ ...publication }),
           signal: controller.signal,
         }),
         timeout,
@@ -101,7 +101,7 @@ export async function dispatchBotTurn(
     }
 
     if (result.ok) {
-      if (result.chunksSent !== chunks.length) {
+      if (result.chunksSent < 1) {
         markLostAck(turn, "publisher_partial_success");
         return { status: "lost_ack", turnId: turn.id };
       }
@@ -122,7 +122,8 @@ export async function dispatchBotTurn(
       }
       log("info", "bot.turn.sent", {
         turnId: turn.id,
-        chunks: chunks.length,
+        mode: publication.mode,
+        messages: result.chunksSent,
         telegramMessageId: result.telegramMessageId,
       });
       return {

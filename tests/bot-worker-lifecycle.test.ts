@@ -22,7 +22,7 @@ test("lease heartbeat renews while agent runs and timers stop before publish", a
       assert.equal(fixture.scheduler.intervalCount, 0);
       assert.equal(fixture.scheduler.timeoutCount, 1);
       publisherCalls += 1;
-      return { ok: true, chunksSent: request.chunks.length };
+      return { ok: true, chunksSent: 1 };
     },
   });
 

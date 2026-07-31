@@ -3,7 +3,7 @@ export {
   DEFAULT_MIN_QUOTE_CHARACTERS,
   TELEGRAM_TEXT_LIMIT_UTF16,
   type FinalModelOutput,
-  type GuardedChunk,
+  type GuardedTelegramPublication,
   type OutputGuardPolicy,
   type OutputGuardRejection,
   type OutputGuardReport,

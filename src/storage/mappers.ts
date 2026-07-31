@@ -1,10 +1,11 @@
 import type { ChatInfo } from "../telegram/types.js";
 import { LEGACY_EMBEDDING_NAMESPACE } from "./constants.js";
 import type {
+  BotDurableStatus,
+  BotTurnProgressState,
   DaemonStatus,
   MaintenanceJob,
   MaintenanceJobStatus,
-  BotDurableStatus,
   SendOutboxStatus,
   StoredBotTurn,
   StoredBotUpdate,
@@ -193,6 +194,10 @@ export function rowToStoredBotTurn(row: Record<string, unknown>): StoredBotTurn 
         : Number(row.retry_not_before_ms),
     draftText: row.draft_text == null ? undefined : String(row.draft_text),
     telegramMessageId: row.telegram_message_id == null ? undefined : Number(row.telegram_message_id),
+    progressMessageId: row.progress_message_id == null ? undefined : Number(row.progress_message_id),
+    progressState: row.progress_state == null
+      ? undefined
+      : String(row.progress_state) as BotTurnProgressState,
     error: row.error == null ? undefined : String(row.error),
     createdAtMs: Number(row.created_at_ms),
     updatedAtMs: Number(row.updated_at_ms),

@@ -86,6 +86,7 @@ export function createProductionBotDaemon(
       store,
       api,
       router,
+      appConfig,
       ...(vector === undefined ? {} : { vector }),
       ...(webSearch === undefined ? {} : { webSearch }),
       logger: options.logger,

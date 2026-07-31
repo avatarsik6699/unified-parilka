@@ -14,6 +14,7 @@ import {
   type JsonEventLogger,
   type WorkerScheduler,
 } from "../../src/bot/worker.js";
+import type { ToolProgressBotApiPort } from "../../src/bot/tool-progress.js";
 import { MessageStore, type StoredMessage } from "../../src/store.js";
 import type { ChatInfo } from "../../src/telegram-client.js";
 
@@ -33,6 +34,7 @@ interface FixtureOptions {
 interface WorkerOverrides {
   agent: (request: BotAgentRequest) => Promise<BotAgentFinalResult>;
   publisher: BotTurnPublisher["publish"];
+  toolProgressBotApiPort?: ToolProgressBotApiPort;
 }
 
 export function makeFixture(
@@ -81,6 +83,7 @@ export function makeFixture(
         coordinator,
         agent,
         publisher,
+        toolProgressBotApiPort: overrides.toolProgressBotApiPort,
         logger,
         scheduler,
         now: () => clock.now,

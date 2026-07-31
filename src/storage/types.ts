@@ -192,11 +192,34 @@ export type StoredBotTurn = {
   retryNotBeforeMs?: number;
   draftText?: string;
   telegramMessageId?: number;
+  progressMessageId?: number;
+  progressState?: BotTurnProgressState;
   error?: string;
   createdAtMs: number;
   updatedAtMs: number;
   startedAtMs?: number;
   completedAtMs?: number;
+};
+
+export type BotTurnProgressState =
+  | "none"
+  | "dispatching"
+  | "active"
+  | "unknown";
+
+export type StoredChatMemory = {
+  chatId: string;
+  memoryText: string;
+  lastConsolidatedMessageId?: number;
+  revision: number;
+  updatedAtMs: number;
+};
+
+export type UpsertChatMemoryInput = Omit<
+  StoredChatMemory,
+  "revision" | "updatedAtMs"
+> & {
+  updatedAtMs?: number;
 };
 
 export type StoredDayDigest = {

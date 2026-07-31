@@ -31,8 +31,10 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
 
 declare protected applyBackfillExhaustedMigration: () => void;
   declare protected applyBaseSchema: () => void;
+  declare protected applyBotChatMemoryMigration: () => void;
   declare protected applyBotDurabilityMigration: () => void;
   declare protected applyBotRetryBackoffMigration: () => void;
+  declare protected applyBotToolProgressMigration: () => void;
   declare protected applyChatAliasMigration: () => void;
   declare protected applyDaemonStatusMigration: () => void;
   declare protected applyDigestCacheMigration: () => void;
@@ -109,6 +111,14 @@ declare protected applyBackfillExhaustedMigration: () => void;
         this.applyBotRetryBackoffMigration();
         this.db.exec("PRAGMA user_version = 13");
       }
+      if (currentVersion < 14) {
+        this.applyBotToolProgressMigration();
+        this.db.exec("PRAGMA user_version = 14");
+      }
+      if (currentVersion < 15) {
+        this.applyBotChatMemoryMigration();
+        this.db.exec("PRAGMA user_version = 15");
+      }
       // This is a backwards-compatible performance index, not a data-model
       // change. Reconcile it for every writable v13 open so databases created
       // by an earlier build do not make one full corpus scan per day.
@@ -129,6 +139,7 @@ declare protected applyBackfillExhaustedMigration: () => void;
       "send_throttle_state",
       "bot_updates",
       "bot_turns",
+      "bot_chat_memory",
       "chat_day_digests",
       "chat_digest_rollups",
       "schema_object_versions",
@@ -208,11 +219,20 @@ declare protected applyBackfillExhaustedMigration: () => void;
       "retry_not_before_ms",
       "draft_text",
       "telegram_message_id",
+      "progress_message_id",
+      "progress_state",
       "error",
       "created_at_ms",
       "updated_at_ms",
       "started_at_ms",
       "completed_at_ms",
+    ]);
+    this.assertColumns("bot_chat_memory", [
+      "chat_id",
+      "memory_text",
+      "last_consolidated_message_id",
+      "revision",
+      "updated_at_ms",
     ]);
     this.assertColumns("chat_day_digests", [
       "chat_id",

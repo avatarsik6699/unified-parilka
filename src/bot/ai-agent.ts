@@ -222,6 +222,9 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
             ...this.#prompt,
             modelLabel: candidate.reference,
             now,
+            memoryBlock:
+              request.memoryBlock ?? this.#prompt.memoryBlock,
+            memoryMaxChars: this.#prompt.memoryMaxChars,
           });
           let forceFinal = allowedExecutions >= BOT_AGENT_CONTRACT.maxToolCalls;
 
@@ -240,11 +243,19 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
               execute: async (input, options): Promise<BotReadToolResult> => {
                 const startedAt = Date.now();
                 startedExecutions += 1;
+                request.toolProgressPort?.onToolStarted({
+                  toolName: name,
+                  callId: options.toolCallId,
+                });
                 const signal = options.abortSignal ?? turnSignal;
                 const output = await this.#readTools.callTool(name, input, {
                   signal,
                 });
                 completedExecutions += 1;
+                request.toolProgressPort?.onToolCompleted(
+                  { toolName: name, callId: options.toolCallId },
+                  output.ok,
+                );
                 const sequence =
                   approvalOrder.get(options.toolCallId) ??
                   allowedExecutions + carriedTools.length + 1;
@@ -286,6 +297,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
             day_digest: makeTool("day_digest"),
             thread_context: makeTool("thread_context"),
             web_search: makeTool("web_search"),
+            paper_search: makeTool("paper_search"),
           } satisfies ToolSet;
 
           try {

@@ -224,6 +224,11 @@ function createSmokeConfig(
       vectorCandidateLimit: 20_000,
       searchLimit: 12,
     },
+    memory: {
+      dreamEveryNMessages: 50,
+      dreamMaxMessages: 200,
+      memoryMaxChars: 2_000,
+    },
     throttle: {
       userCooldownMs: 20_000,
       maxPendingPerUserPerChat: 1,

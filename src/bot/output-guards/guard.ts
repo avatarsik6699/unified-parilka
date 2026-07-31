@@ -4,7 +4,7 @@ import {
   TELEGRAM_TEXT_LIMIT_UTF16,
   rejectOutput,
   type FinalModelOutput,
-  type GuardedChunk,
+  type GuardedTelegramPublication,
   type OutputGuardPolicy,
   type OutputGuardRejected,
   type OutputGuardResult,
@@ -17,15 +17,10 @@ import {
 } from "./format.js";
 import {
   hasUnpairedSurrogate,
-  splitTelegramText,
 } from "./length.js";
-import { validateMentions } from "./mentions.js";
+import { validateVisibleMentions } from "./mentions.js";
 import { validateQuotes } from "./quotes.js";
-import {
-  chunkRichText,
-  renderRichTelegramText,
-  visibleTextHasMention,
-} from "../rich-text.js";
+import { preflightRichMarkdown } from "../rich-markdown.js";
 
 type ValidatedPolicy =
   | {
@@ -39,6 +34,8 @@ type ValidatedPolicy =
 /**
  * Pure final boundary between model generation and Telegram send. Recognized
  * control artifacts are removed; unsafe social claims reject the whole output.
+ * The safe original Markdown is either admitted unchanged as a native rich
+ * publication or the whole message degrades to canonical plain text.
  */
 export function guardFinalTelegramOutput(
   output: FinalModelOutput,
@@ -68,7 +65,6 @@ export function guardFinalTelegramOutput(
       ok: true,
       disposition: "skip",
       text: "SKIP",
-      chunks: [],
       report: {
         ...reportBase,
         verifiedQuotes: 0,
@@ -89,26 +85,25 @@ export function guardFinalTelegramOutput(
     );
   }
 
-  // Render Markdown into visible text + Telegram entities. Unsafe content
-  // (raw HTML, non-HTTP(S) links) falls back to plain stripped text.
-  const rendered = renderRichTelegramText(text);
-  const visibleText = rendered.ok ? rendered.text : rendered.plainText;
-  const entities = rendered.ok ? rendered.entities : [];
+  // The preflight never rewrites safe Markdown: rich mode keeps the original
+  // bytes and the visible plain projection is built from the bounded AST.
+  const preflight = preflightRichMarkdown(text);
+  const visibleText = preflight.plainText;
 
   if (!visibleText.trim()) {
     return rejectOutput(
       "empty_after_sanitization",
-      "The final output contained no visible text after Markdown rendering.",
+      "The final output contained no visible text after Markdown projection.",
     );
   }
 
   // Validate mentions on the VISIBLE text (after Markdown stripping) to close
-  // the @foo**bar** → @foobar bypass. Code regions are excluded by checking
-  // only non-code entity spans.
+  // the @foo**bar** → @foobar bypass where a mention only materialises after
+  // formatting is removed.
   const allowedSet = new Set(
     (policy.allowedMentions ?? []).map((m) => m.toLowerCase()),
   );
-  const mentionCheck = visibleTextHasMention(
+  const mentionCheck = validateVisibleMentions(
     visibleText,
     allowedSet,
     validated.maxMentions,
@@ -134,17 +129,24 @@ export function guardFinalTelegramOutput(
     return quoteCheck;
   }
 
-  const chunks: GuardedChunk[] = rendered.ok
-    ? chunkRichText(visibleText, entities, validated.maxChunkUtf16)
-    : splitTelegramText(visibleText, validated.maxChunkUtf16).map(
-        (chunkText) => ({ text: chunkText, entities: [] }),
-      );
+  const publication: GuardedTelegramPublication = preflight.ok
+    ? {
+        mode: "rich",
+        markdown: preflight.markdown,
+        plainText: visibleText,
+        maxChunkUtf16: validated.maxChunkUtf16,
+      }
+    : {
+        mode: "plain",
+        plainText: visibleText,
+        maxChunkUtf16: validated.maxChunkUtf16,
+      };
 
   return {
     ok: true,
     disposition: "send",
     text: visibleText,
-    chunks,
+    publication,
     report: {
       ...reportBase,
       verifiedQuotes: quoteCheck.verified,
