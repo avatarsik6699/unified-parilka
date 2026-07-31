@@ -10,8 +10,11 @@ import type {
 } from "../bot/read-cache.js";
 import type {
   BotReadTools,
+  ResearchGatewayProvider,
   WebSearchProvider,
 } from "../bot/read-tools.js";
+import type { BotMemoryTools } from "../bot/memory-tools.js";
+import type { BotMediaTools } from "../bot/media-tools.js";
 import type {
   BotApiLongPoller,
   BotApiRuntime,
@@ -21,6 +24,7 @@ import type {
 } from "../bot/runtime.js";
 import type {
   BotRuntimeConfig,
+  BotResearchGatewayRuntimeConfig,
   BotWebSearchRuntimeConfig,
 } from "../bot/runtime-config.js";
 import type { TurnCoordinator } from "../bot/turn-coordinator.js";
@@ -35,6 +39,7 @@ export type BotDaemonApi = Pick<
   | "getMe"
   | "deleteWebhook"
   | "getUpdates"
+  | "getFile"
   | "sendMessage"
   | "sendRichMessage"
   | "sendChatAction"
@@ -49,6 +54,7 @@ export interface ComposeBotDaemonOptions {
   router: TurnModelRouter;
   vector?: BotVectorSearchPort;
   webSearch?: WebSearchProvider;
+  researchGateway?: ResearchGatewayProvider;
   appConfig?: Readonly<AppConfig>;
   logger?: JsonEventLogger;
   workerIdPrefix?: string;
@@ -63,6 +69,8 @@ export interface BotDaemonComposition {
   coordinator: TurnCoordinator;
   cache: CanonicalBotReadCache;
   readTools: BotReadTools;
+  mediaTools: BotMediaTools;
+  memoryTools: BotMemoryTools;
   agent: AiSdkBotTurnAgent;
 }
 
@@ -80,6 +88,9 @@ export interface ProductionBotDaemonFactories {
   createWebSearch(
     config: Readonly<BotWebSearchRuntimeConfig>,
   ): WebSearchProvider;
+  createResearchGateway(
+    config: Readonly<BotResearchGatewayRuntimeConfig>,
+  ): ResearchGatewayProvider;
 }
 
 export interface CreateProductionBotDaemonOptions {
@@ -97,6 +108,7 @@ export interface ProductionBotDaemon extends BotDaemonComposition {
   logger?: JsonEventLogger;
   vectorEnabled: boolean;
   webSearchEnabled: boolean;
+  researchGatewayEnabled: boolean;
   activeWorkerCount(): number;
   close(): void;
 }

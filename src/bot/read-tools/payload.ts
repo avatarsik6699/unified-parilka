@@ -125,9 +125,11 @@ export function deduplicateEvidence(
     const key =
       item.source === "chat_message"
         ? `chat:${item.chat?.id}:${item.message?.id}`
-        : item.source === "web"
-          ? `web:${item.url}:${item.text}`
-          : `digest:${item.chat?.id}:${item.range?.dayFrom}:${item.range?.dayTo}:${item.text}`;
+        : item.source === "web" || item.source === "paper"
+          ? `${item.source}:${item.url}:${item.text}`
+          : item.source === "research"
+            ? `research:${item.date}:${item.text}`
+            : `digest:${item.chat?.id}:${item.range?.dayFrom}:${item.range?.dayTo}:${item.text}`;
     if (seen.has(key)) {
       return false;
     }
@@ -310,10 +312,7 @@ function longestStringSlot(
 
 export class ReadToolExecutionError extends Error {
   constructor(
-    readonly code: Exclude<
-      ReadToolErrorCode,
-      "invalid_arguments" | "unknown_tool"
-    >,
+    readonly code: Exclude<ReadToolErrorCode, "unknown_tool">,
     readonly retryable: boolean,
     message: string,
   ) {

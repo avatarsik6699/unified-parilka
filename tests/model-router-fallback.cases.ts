@@ -68,6 +68,14 @@ test("fallback classifier permits provider-local availability failures but not b
       expected: { fallback: false, reason: "abort" },
     },
     {
+      name: "candidate timeout wrapped around provider abort",
+      error: Object.assign(new Error("candidate timed out"), {
+        code: "ETIMEDOUT",
+        cause: Object.assign(new Error("aborted"), { name: "AbortError" }),
+      }),
+      expected: { fallback: true, reason: "transport" },
+    },
+    {
       name: "request timeout",
       error: apiError(408, true),
       expected: { fallback: true, reason: "transport" },

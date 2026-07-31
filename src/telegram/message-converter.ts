@@ -20,6 +20,7 @@ export function telegramMessageToStored(
     senderName:
       message.sender?.username || message.sender?.displayName || undefined,
     text: message.text,
+    ...(message.textAvailable === false ? { textAvailable: false } : {}),
     replyToMessageId: positiveInteger(message.replyToMessageId),
     topicId: positiveInteger(message.topicId),
     rawJson: JSON.stringify({

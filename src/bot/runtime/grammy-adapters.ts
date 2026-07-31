@@ -4,6 +4,8 @@ import type { StoredMessage } from "../../store.js";
 import { GrammyBotTurnPublisher, type GrammyBotApiPort } from "../grammy-publisher.js";
 import type { BotRuntimeConfig } from "../runtime-config.js";
 import type { ToolProgressBotApiPort } from "../tool-progress.js";
+import { BotMediaError } from "../media/contracts.js";
+import { TelegramMediaDownloader } from "../media/telegram-downloader.js";
 import type { OwnSendStore } from "./contracts.js";
 import type { BotApiLongPollerOptions, GrammyLongPollingApiPort } from "./long-poller.js";
 import { asRecord, botApiDate, BotRuntimeProtocolError, normalizeExpectedUsername, positiveSafeInteger, positiveTelegramId, stringifyUpdate, telegramId } from "./helpers.js";
@@ -136,6 +138,43 @@ export function createToolProgressGrammyBotApiPort(
       }
     },
   };
+}
+
+/**
+ * Builds the only component that can turn a Bot API file reference into bytes.
+ * The authenticated URL is constructed here, after the downloader has
+ * validated Telegram's file path, and never crosses into an agent/model
+ * prompt, result, or log record.
+ */
+export function createGrammyTelegramMediaDownloader(
+  api: Pick<Api, "getFile">,
+  botToken: string,
+): TelegramMediaDownloader {
+  if (!/^\d{1,16}:[A-Za-z0-9_-]{20,}$/u.test(botToken)) {
+    throw new TypeError("Bot token has an invalid shape.");
+  }
+  return new TelegramMediaDownloader({
+    async getFile(fileId, signal) {
+      const file = await api.getFile(
+        fileId,
+        signal as unknown as Parameters<Api["getFile"]>[1],
+      );
+      if (typeof file.file_path !== "string") {
+        throw new BotMediaError(
+          "invalid_media",
+          "Telegram returned an invalid media descriptor.",
+        );
+      }
+      return {
+        filePath: file.file_path,
+        ...(typeof file.file_size === "number"
+          ? { fileSize: file.file_size }
+          : {}),
+      };
+    },
+    fileUrl: (filePath) =>
+      `https://api.telegram.org/file/bot${botToken}/${filePath}`,
+  });
 }
 
 export function botRuntimeOptionsFromConfig(

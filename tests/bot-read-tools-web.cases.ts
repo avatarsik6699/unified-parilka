@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   BotReadTools,
+  PublicWebFetchProvider,
+  type WebFetchProvider,
   type WebSearchProvider,
 } from "../src/bot/read-tools.js";
 import {
@@ -123,4 +125,244 @@ test("web_search enforces timeout and caller abort even when provider hangs", as
   );
   assert.equal(externalTimeout.error.code, "timeout");
   assert.equal(externalTimeout.error.retryable, true);
+});
+
+test("web_fetch exposes bounded page text, source evidence, and an AbortSignal", async () => {
+  let observedUrl: string | undefined;
+  let observedMaxChars: number | undefined;
+  let observedSignal: AbortSignal | undefined;
+  const provider: WebFetchProvider = {
+    async fetch({ url, maxChars, signal }) {
+      observedUrl = url;
+      observedMaxChars = maxChars;
+      observedSignal = signal;
+      return {
+        url,
+        status: 200,
+        statusText: "OK",
+        contentType: "text/html",
+        byteLength: 123,
+        title: "Release notes",
+        text: "Version 2.0 was released.",
+      };
+    },
+  };
+  const tools = new BotReadTools({
+    chatId: CHAT.chatId,
+    cache: emptyCache(),
+    webFetch: provider,
+  });
+
+  const result = await tools.callTool("web_fetch", {
+    url: "  https://example.com/release  ",
+    max_chars: 800,
+  });
+
+  assert.equal(observedUrl, "https://example.com/release");
+  assert.equal(observedMaxChars, 800);
+  assert.ok(observedSignal);
+  assert.equal(observedSignal?.aborted, false);
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    return;
+  }
+  assert.equal(result.status, "done");
+  assert.deepEqual(result.result, {
+    url: "https://example.com/release",
+    status: 200,
+    statusText: "OK",
+    contentType: "text/html",
+    byteLength: 123,
+    title: "Release notes",
+    text: "Version 2.0 was released.",
+  });
+  assert.deepEqual(result.evidence, [{
+    source: "web",
+    chat: null,
+    message: null,
+    speaker: { id: null, name: null },
+    date: null,
+    text: "Release notes",
+    url: "https://example.com/release",
+    title: "Release notes",
+  }]);
+});
+
+test("web_fetch clamps an injected provider to the requested visible-text budget", async () => {
+  const provider: WebFetchProvider = {
+    async fetch({ url }) {
+      return {
+        url,
+        status: 200,
+        contentType: "text/plain",
+        byteLength: 3_000,
+        text: "x".repeat(3_000),
+      };
+    },
+  };
+  const tools = new BotReadTools({
+    chatId: CHAT.chatId,
+    cache: emptyCache(),
+    webFetch: provider,
+  });
+
+  const result = await tools.callTool("web_fetch", {
+    url: "https://example.com/article",
+    max_chars: 500,
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    return;
+  }
+  assert.equal(String(result.result.text).length, 500);
+  assert.match(String(result.result.text), /…$/u);
+});
+
+test("web_fetch enforces timeout and caller abort even when the page provider hangs", async () => {
+  let timeoutSignalObserved = false;
+  const hangingProvider: WebFetchProvider = {
+    async fetch({ signal }) {
+      return await new Promise((_resolve, reject) => {
+        signal.addEventListener(
+          "abort",
+          () => {
+            timeoutSignalObserved = true;
+            reject(signal.reason);
+          },
+          { once: true },
+        );
+      });
+    },
+  };
+  const tools = new BotReadTools({
+    chatId: CHAT.chatId,
+    cache: emptyCache(),
+    webFetch: hangingProvider,
+    webFetchTimeoutMs: 10,
+  });
+
+  const timeout = asFailure(
+    await tools.callTool("web_fetch", { url: "https://example.com" }),
+  );
+  assert.equal(timeout.error.code, "timeout");
+  assert.equal(timeout.error.retryable, true);
+  assert.equal(timeoutSignalObserved, true);
+
+  const controller = new AbortController();
+  controller.abort(new Error("turn ended"));
+  const aborted = asFailure(
+    await tools.callTool(
+      "web_fetch",
+      { url: "https://example.com" },
+      { signal: controller.signal },
+    ),
+  );
+  assert.equal(aborted.error.code, "aborted");
+  assert.equal(aborted.error.retryable, false);
+});
+
+test("built-in web_fetch DNS-pins public HTTPS pages, strips HTML, and never follows redirects", async () => {
+  let transportCalls = 0;
+  const provider = new PublicWebFetchProvider({
+    lookup: async (hostname) => {
+      assert.equal(hostname, "example.com");
+      return [{ address: "93.184.216.34", family: 4 }];
+    },
+    transport: async ({ url, address }) => {
+      transportCalls += 1;
+      assert.equal(url.hostname, "example.com");
+      assert.deepEqual(address, { address: "93.184.216.34", family: 4 });
+      return {
+        status: 200,
+        statusText: "OK",
+        headers: { "content-type": "text/html; charset=utf-8" },
+        body: Buffer.from(
+          "<html><head><title>Good &amp; useful</title><style>HIDDEN_STYLE</style></head><body><h1>Heading</h1><p>Visible&nbsp;text</p><script>DO_NOT_LEAK</script></body></html>",
+        ),
+      };
+    },
+  });
+  const tools = new BotReadTools({
+    chatId: CHAT.chatId,
+    cache: emptyCache(),
+    webFetch: provider,
+  });
+
+  const page = await tools.callTool("web_fetch", {
+    url: "https://example.com/article",
+    max_chars: 500,
+  });
+
+  assert.equal(page.ok, true);
+  if (!page.ok) {
+    return;
+  }
+  assert.equal(transportCalls, 1);
+  assert.equal(page.result.title, "Good & useful");
+  assert.match(String(page.result.text), /Heading[\s\S]+Visible text/u);
+  assert.doesNotMatch(String(page.result.text), /HIDDEN_STYLE|DO_NOT_LEAK/u);
+
+  const redirectProvider = new PublicWebFetchProvider({
+    lookup: async () => [{ address: "93.184.216.34", family: 4 }],
+    transport: async () => {
+      transportCalls += 1;
+      return {
+        status: 302,
+        headers: { location: "https://www.example.com/next" },
+        body: Buffer.alloc(0),
+      };
+    },
+  });
+  const redirectTools = new BotReadTools({
+    chatId: CHAT.chatId,
+    cache: emptyCache(),
+    webFetch: redirectProvider,
+  });
+  const redirect = await redirectTools.callTool("web_fetch", {
+    url: "https://example.com/article",
+  });
+
+  assert.equal(redirect.ok, true);
+  if (!redirect.ok) {
+    return;
+  }
+  assert.equal(redirect.status, "empty");
+  assert.equal(redirect.result.redirectUrl, "https://www.example.com/next");
+  assert.equal(transportCalls, 2);
+});
+
+test("built-in web_fetch rejects literal and DNS-resolved private targets before transport", async () => {
+  let transported = false;
+  const provider = new PublicWebFetchProvider({
+    lookup: async () => [{ address: "127.0.0.1", family: 4 }],
+    transport: async () => {
+      transported = true;
+      throw new Error("must not connect");
+    },
+  });
+  const tools = new BotReadTools({
+    chatId: CHAT.chatId,
+    cache: emptyCache(),
+    webFetch: provider,
+  });
+
+  const resolvedPrivate = asFailure(
+    await tools.callTool("web_fetch", { url: "https://example.com" }),
+  );
+  assert.equal(resolvedPrivate.error.code, "unsafe_url");
+  assert.equal(resolvedPrivate.error.retryable, false);
+  assert.equal(transported, false);
+
+  const literalPrivate = asFailure(
+    await tools.callTool("web_fetch", { url: "https://127.0.0.1" }),
+  );
+  assert.equal(literalPrivate.error.code, "unsafe_url");
+  assert.equal(transported, false);
+
+  const literalIpv6Private = asFailure(
+    await tools.callTool("web_fetch", { url: "https://[::1]" }),
+  );
+  assert.equal(literalIpv6Private.error.code, "unsafe_url");
+  assert.equal(transported, false);
 });

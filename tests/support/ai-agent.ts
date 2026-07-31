@@ -13,6 +13,9 @@ import {
   BotReadTools,
   type BotReadToolCache,
 } from "../../src/bot/read-tools.js";
+import { BotMemoryTools } from "../../src/bot/memory-tools.js";
+import type { BotMediaToolsPort } from "../../src/bot/media-tools.js";
+import type { ToolProgressPort } from "../../src/bot/tool-progress.js";
 import type {
   FoldBatch,
   TurnBoundary,
@@ -52,6 +55,8 @@ export function makeAgent(
   candidates: ResolvedModelCandidate[],
   options: {
     searchResults?: readonly StoredMessage[];
+    mediaTools?: BotMediaToolsPort;
+    memoryTools?: BotMemoryTools;
     agentOptions?: {
       contextCharLimit?: number;
       totalTimeoutMs?: number;
@@ -86,6 +91,12 @@ export function makeAgent(
         chatId: CHAT_ID,
         cache,
       }),
+      ...(options.mediaTools === undefined
+        ? {}
+        : { mediaTools: options.mediaTools }),
+      ...(options.memoryTools === undefined
+        ? {}
+        : { memoryTools: options.memoryTools }),
       prompt: {
         botUsername: "parilka_bot",
         botName: "Парилка",
@@ -151,6 +162,7 @@ export function candidate(
   reference: `${string}:${string}`,
   model: LanguageModel,
   providerOptions?: ResolvedModelCandidate["providerOptions"],
+  capabilities: ResolvedModelCandidate["capabilities"] = { vision: false },
 ): ResolvedModelCandidate {
   const separator = reference.indexOf(":");
   return {
@@ -158,6 +170,7 @@ export function candidate(
     providerId: reference.slice(0, separator),
     modelId: reference.slice(separator + 1),
     model,
+    capabilities,
     ...(providerOptions === undefined ? {} : { providerOptions }),
   };
 }
@@ -220,8 +233,10 @@ export function request(
   overrides: {
     signal?: AbortSignal;
     trigger?: StoredMessage;
+    replyTarget?: StoredMessage;
     context?: readonly StoredMessage[];
     drainFold?: (boundary: TurnBoundary) => FoldBatch;
+    toolProgressPort?: ToolProgressPort;
   } = {},
 ): BotAgentRequest {
   const trigger =
@@ -241,6 +256,9 @@ export function request(
   return {
     turn,
     trigger,
+    ...(overrides.replyTarget === undefined
+      ? {}
+      : { replyTarget: overrides.replyTarget }),
     context:
       overrides.context ??
       [
@@ -252,6 +270,9 @@ export function request(
     drainFold:
       overrides.drainFold ??
       ((boundary) => emptyFold(boundary)),
+    ...(overrides.toolProgressPort === undefined
+      ? {}
+      : { toolProgressPort: overrides.toolProgressPort }),
   };
 }
 

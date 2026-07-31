@@ -25,12 +25,26 @@ indirection, inspection redaction, URL policy, and error classification. Do
 not add a framework merely to register another endpoint using an existing
 protocol.
 
+`modelCapabilities` is the model manifest, declared per exact
+`provider:model` reference. At runtime callers receive the resolved capability
+with every candidate and never manually flip Vision for a turn; an omitted or
+new model is fail-closed (`vision: false`). This is intentionally not guessed
+from model-name spelling and not discovered by probing a user's image. A
+fallback/subagent must use its own resolved capability, so a text-only model
+does not receive image bytes or attempt a nonexistent Vision tool.
+
 `protocol: "openai"` means the compatible Chat Completions wire format
 (`/chat/completions`), not the OpenAI Responses API. `protocol: "deepseek"`
 uses the official DeepSeek adapter and defaults `thinkingMode` to `disabled`,
 which keeps bounded bot/tool turns from silently spending the output budget on
 reasoning. It can be explicitly enabled in provider config. A Responses adapter
 should be added as a separate protocol only when a real deployment needs it.
+
+An OpenAI-compatible provider profile may declare a validated
+`reasoningEffort` (`none` through `max`). It is forwarded as the compatible
+Chat Completions `reasoning_effort` field. Profiles may share an endpoint and
+credential while roles choose different latency/quality budgets; this is still
+one external provider, not a fallback chain.
 
 ## Security invariants
 

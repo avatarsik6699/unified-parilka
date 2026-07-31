@@ -164,6 +164,19 @@ ADC, без API-ключа и без rulesync MCP). Выбор — через
 `PARILKA_BOT_WEB_SEARCH_PROVIDER`. Отключённый в rulesync `gemini-search` не
 является зависимостью Parilka и не должен восстанавливаться этим решением.
 
+### Addendum 2026-07-31: turn deadline and layered memory
+
+Default total deadline бота увеличен до 600 секунд. Отдельного искусственного
+model-step deadline больше нет: AI SDK loop останавливается естественно после
+финального ответа, а не по числу шагов. Whole-turn `AbortSignal` остаётся
+непреодолимой границей; каждый tool call по-прежнему ограничен 15 секундами,
+а tool execution budget — четырьмя для обычного и восемью для исследовательского
+хода.
+
+Память и единственный разрешённый stateful model-tool contract определены в
+[ADR 0003](0003-layered-chat-memory.md). Они не дают модели доступа к operator
+MCP write/sync tools и не меняют durable send semantics.
+
 ## Storage
 
 Один SQLite store работает в WAL и мигрируется до schema v13. Он содержит:

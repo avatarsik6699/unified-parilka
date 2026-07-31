@@ -84,6 +84,27 @@ export function absolutePath(value: string, name: string): string {
   return isAbsolute(expanded) ? resolve(expanded) : resolve(expanded);
 }
 
+export function absoluteSocketPath(value: string, name: string): string {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.includes("\u0000")) {
+    throw new Error(`${name} must be a non-empty filesystem path.`);
+  }
+  const expanded =
+    trimmed === "~"
+      ? homedir()
+      : trimmed.startsWith("~/")
+        ? resolve(homedir(), trimmed.slice(2))
+        : trimmed;
+  if (!isAbsolute(expanded)) {
+    throw new Error(`${name} must be an absolute Unix socket path.`);
+  }
+  const path = resolve(expanded);
+  if (path.length > 1_024) {
+    throw new Error(`${name} is too long.`);
+  }
+  return path;
+}
+
 export function existingAbsoluteFile(
   value: string,
   name: string,

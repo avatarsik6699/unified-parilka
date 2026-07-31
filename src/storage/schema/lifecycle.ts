@@ -29,9 +29,10 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
     this.migrate();
   }
 
-declare protected applyBackfillExhaustedMigration: () => void;
+  declare protected applyBackfillExhaustedMigration: () => void;
   declare protected applyBaseSchema: () => void;
   declare protected applyBotChatMemoryMigration: () => void;
+  declare protected applyBotChatKnowledgeMigration: () => void;
   declare protected applyBotDurabilityMigration: () => void;
   declare protected applyBotRetryBackoffMigration: () => void;
   declare protected applyBotToolProgressMigration: () => void;
@@ -119,9 +120,13 @@ declare protected applyBackfillExhaustedMigration: () => void;
         this.applyBotChatMemoryMigration();
         this.db.exec("PRAGMA user_version = 15");
       }
+      if (currentVersion < 16) {
+        this.applyBotChatKnowledgeMigration();
+        this.db.exec("PRAGMA user_version = 16");
+      }
       // This is a backwards-compatible performance index, not a data-model
-      // change. Reconcile it for every writable v13 open so databases created
-      // by an earlier build do not make one full corpus scan per day.
+      // change. Reconcile it for every writable compatible open so databases
+      // created by an earlier build do not make one full corpus scan per day.
       this.applyDigestQueryIndex();
       this.validateSchema();
     });
@@ -140,6 +145,9 @@ declare protected applyBackfillExhaustedMigration: () => void;
       "bot_updates",
       "bot_turns",
       "bot_chat_memory",
+      "bot_chat_fast_memory",
+      "bot_chat_lessons",
+      "bot_chat_skills",
       "chat_day_digests",
       "chat_digest_rollups",
       "schema_object_versions",
@@ -163,6 +171,9 @@ declare protected applyBackfillExhaustedMigration: () => void;
       "idx_bot_updates_status",
       "idx_bot_turns_claim",
       "idx_bot_turns_chat_status",
+      "idx_bot_chat_fast_memory_recent",
+      "idx_bot_chat_lessons_recent",
+      "idx_bot_chat_skills_recent",
       "idx_chat_day_digests_range",
       "idx_chat_digest_rollups_range",
     ]) {
@@ -232,6 +243,36 @@ declare protected applyBackfillExhaustedMigration: () => void;
       "memory_text",
       "last_consolidated_message_id",
       "revision",
+      "updated_at_ms",
+    ]);
+    this.assertColumns("bot_chat_fast_memory", [
+      "chat_id",
+      "memory_key",
+      "title",
+      "note",
+      "source_message_id",
+      "created_at_ms",
+      "updated_at_ms",
+    ]);
+    this.assertColumns("bot_chat_lessons", [
+      "chat_id",
+      "lesson_key",
+      "title",
+      "problem",
+      "solution",
+      "when_to_apply",
+      "source_message_id",
+      "created_at_ms",
+      "updated_at_ms",
+    ]);
+    this.assertColumns("bot_chat_skills", [
+      "chat_id",
+      "skill_key",
+      "name",
+      "description",
+      "instructions",
+      "source_message_id",
+      "created_at_ms",
       "updated_at_ms",
     ]);
     this.assertColumns("chat_day_digests", [

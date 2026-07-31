@@ -182,6 +182,8 @@ export function stubTelemetry(): TurnTelemetry {
     totalInputTokens: 10,
     totalOutputTokens: 5,
     totalTokens: 15,
+    toolCalls: 0,
+    durationMs: 0,
     incomplete: false,
   });
 }

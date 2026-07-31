@@ -11,7 +11,10 @@ export {
   type OutputRejectionCode,
   type QuoteEvidence,
 } from "./output-guards/contracts.js";
-export { guardFinalTelegramOutput } from "./output-guards/guard.js";
+export {
+  guardApplicationPlainTelegramOutput,
+  guardFinalTelegramOutput,
+} from "./output-guards/guard.js";
 export {
   splitTelegramText,
   utf16Length,

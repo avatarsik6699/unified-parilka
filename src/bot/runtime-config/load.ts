@@ -15,6 +15,8 @@ import {
   sameConfiguredFile,
   telegramId,
 } from "./env-rules.js";
+import { optionalResearchGatewayConfig } from "./research-gateway.js";
+import { audioTranscribeConfig } from "./audio-transcribe.js";
 import {
   assertBotTokenShape,
   assertExclusivePoller,
@@ -114,6 +116,8 @@ export function parseBotRuntimeConfig(
       "PARILKA_BOT_MODEL_CONFIG_PATH",
     ),
     ...optionalWebSearchConfig(env),
+    ...optionalResearchGatewayConfig(env),
+    audioTranscribe: audioTranscribeConfig(env),
     mode,
     workerConcurrency: integer(
       env.PARILKA_BOT_WORKERS,
@@ -178,7 +182,7 @@ export function parseBotRuntimeConfig(
     turnTimeoutMs: integer(
       env.PARILKA_BOT_TURN_TIMEOUT_MS,
       "PARILKA_BOT_TURN_TIMEOUT_MS",
-      120_000,
+      600_000,
       1_000,
       15 * 60_000,
     ),
@@ -192,7 +196,7 @@ export function parseBotRuntimeConfig(
     shutdownTimeoutMs: integer(
       env.PARILKA_BOT_SHUTDOWN_TIMEOUT_MS,
       "PARILKA_BOT_SHUTDOWN_TIMEOUT_MS",
-      180_000,
+      660_000,
       1_000,
       15 * 60_000,
     ),

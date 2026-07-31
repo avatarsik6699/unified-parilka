@@ -4,6 +4,7 @@ import type {
 } from "./contracts.js";
 
 const SHUTDOWN_CLOSE_GRACE_MS = 5_000;
+const POST_AUDIO_RESPONSE_RESERVE_MS = 10_000;
 
 export function assertBotTokenShape(token: string): void {
   if (!/^\d{1,16}:[A-Za-z0-9_-]{20,}$/u.test(token)) {
@@ -39,6 +40,15 @@ export function validateBotRuntimeRelationships(
   ) {
     throw new Error(
       "PARILKA_BOT_SHUTDOWN_TIMEOUT_MS must cover PARILKA_BOT_TURN_TIMEOUT_MS + PARILKA_BOT_PUBLISH_TIMEOUT_MS + 5000ms close grace.",
+    );
+  }
+  const maxAudioTimeoutMs =
+    config.turnTimeoutMs -
+    config.publishTimeoutMs -
+    POST_AUDIO_RESPONSE_RESERVE_MS;
+  if (config.audioTranscribe.timeoutMs > maxAudioTimeoutMs) {
+    throw new Error(
+      "PARILKA_BOT_AUDIO_TRANSCRIBE_TIMEOUT_MS must leave PARILKA_BOT_PUBLISH_TIMEOUT_MS + 10000ms within PARILKA_BOT_TURN_TIMEOUT_MS.",
     );
   }
 }

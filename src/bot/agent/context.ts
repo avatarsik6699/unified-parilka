@@ -137,6 +137,38 @@ export function userMessage(content: string): ModelMessage {
   return { role: "user", content };
 }
 
+/**
+ * Replaces the application-owned context user message with its multimodal
+ * equivalent. Only an already-downloaded in-memory image can cross this
+ * boundary: Telegram file IDs, Bot API paths and authenticated URLs never do.
+ */
+export function withImageAttachment(
+  messages: readonly ModelMessage[],
+  attachment: {
+    data: Uint8Array;
+    mediaType: "image/jpeg" | "image/png" | "image/webp";
+  },
+): ModelMessage[] {
+  const [first, ...rest] = messages;
+  if (!first || first.role !== "user" || typeof first.content !== "string") {
+    throw new Error("The base bot context must begin with one text user message.");
+  }
+  return [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: first.content },
+        {
+          type: "file",
+          data: attachment.data,
+          mediaType: attachment.mediaType,
+        },
+      ],
+    },
+    ...rest,
+  ];
+}
+
 
 function messageKey(message: Readonly<StoredMessage>): string {
   return `${message.chatId}:${message.messageId}`;

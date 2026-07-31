@@ -29,6 +29,12 @@ test("strict schemas reject malformed, coerced, and extra arguments as data", as
       "before",
     ],
     ["web_search", { query: "релиз", extra: 1 }, "extra"],
+    ["web_fetch", { url: "http://example.com" }, "url"],
+    ["web_fetch", { url: "https://example.com", max_chars: 499 }, "max_chars"],
+    ["web_fetch", { url: "https://example.com", extra: true }, "extra"],
+    ["research_lookup", { query: "", limit: 1 }, "query"],
+    ["research_lookup", { query: "рынок", limit: 6 }, "limit"],
+    ["research_lookup", { query: "рынок", unknown: true }, "unknown"],
   ];
 
   for (const [name, args, field] of cases) {

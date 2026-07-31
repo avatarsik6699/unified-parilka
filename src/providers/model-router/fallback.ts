@@ -30,6 +30,13 @@ const TRANSPORT_CODES = new Set([
 export function classifyModelFallback(error: unknown): ModelFallbackDecision {
   const chain = errorChain(unwrapRetryError(error));
 
+  // A candidate deadline intentionally wraps the provider's AbortError in an
+  // explicit ETIMEDOUT. Preserve that operational meaning: otherwise the
+  // nested AbortError would be mistaken for an operator cancellation and make
+  // a retryable provider timeout terminal.
+  if (chain.some(isExplicitTimeoutError)) {
+    return { fallback: true, reason: "transport" };
+  }
   if (chain.some(isAbortError)) {
     return { fallback: false, reason: "abort" };
   }
@@ -111,6 +118,12 @@ function errorChain(error: unknown): unknown[] {
 function isAbortError(error: unknown): boolean {
   const candidate = asErrorRecord(error);
   return candidate?.name === "AbortError" || candidate?.code === "ABORT_ERR";
+}
+
+function isExplicitTimeoutError(error: unknown): boolean {
+  const candidate = asErrorRecord(error);
+  return typeof candidate?.code === "string" &&
+    candidate.code.toUpperCase() === "ETIMEDOUT";
 }
 
 function isAuthError(error: unknown): boolean {

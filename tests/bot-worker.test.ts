@@ -56,7 +56,7 @@ test("live success uses bounded context/replay, guarded draft, and no raw stream
       assert.equal(fixture.store.getBotTurn(fixture.turnId)?.status, "sending");
       assert.match(
         fixture.store.getBotTurn(fixture.turnId)?.draftText ?? "",
-        new RegExp(`^${finalText}\\n──\\n`, "u"),
+        new RegExp(`^${finalText}\\ntest-model 🧠 · 10/5 · 0 tool calls · 0с$`, "u"),
       );
       publisherCalls.push(request);
       return {
@@ -84,7 +84,7 @@ test("live success uses bounded context/replay, guarded draft, and no raw stream
   assert.equal(publisherCalls[0]?.publication.mode, "rich");
   assert.match(
     publisherCalls[0]?.publication.markdown ?? "",
-    new RegExp(`^${finalText}\\n\\n──\\n`, "u"),
+    new RegExp(`^${finalText}\\n\\ntest-model 🧠 · 10/5 · 0 tool calls · 0с$`, "u"),
   );
   assert.equal(
     publisherCalls[0]?.publication.plainText,
@@ -92,7 +92,7 @@ test("live success uses bounded context/replay, guarded draft, and no raw stream
   );
   assert.match(
     fixture.store.getBotTurn(fixture.turnId)?.draftText ?? "",
-    new RegExp(`^${finalText}\\n──\\n`, "u"),
+    new RegExp(`^${finalText}\\ntest-model 🧠 · 10/5 · 0 tool calls · 0с$`, "u"),
   );
   assert.equal(fixture.store.getBotTurn(fixture.turnId)?.status, "sent");
   const serializedLogs = JSON.stringify(fixture.logs);
@@ -154,10 +154,10 @@ test("exact SKIP is durably recorded and completes before publisher", async (t) 
   assert.equal(fixture.store.getBotTurn(fixture.turnId)?.draftText, "SKIP");
 });
 
-test("guard rejection is terminal before network and never stores unsafe raw output", async (t) => {
+test("guard rejection publishes one safe notice and never stores unsafe raw output", async (t) => {
   const fixture = makeFixture(t);
   const unsafe = "@mallory посмотри сюда";
-  let publisherCalls = 0;
+  const publisherCalls: GuardedTelegramPublication[] = [];
   const worker = fixture.worker({
     agent: async () => ({
       kind: "final",
@@ -165,25 +165,126 @@ test("guard rejection is terminal before network and never stores unsafe raw out
       evidence: [],
       telemetry: stubTelemetry(),
     }),
-    publisher: async () => {
-      publisherCalls += 1;
-      throw new Error("must not publish rejected output");
+    publisher: async ({ publication }) => {
+      publisherCalls.push(publication);
+      return { ok: true, chunksSent: 1, telegramMessageId: 9_002 };
     },
   });
 
   const result = await worker.runOnce();
 
   assert.deepEqual(result, {
-    status: "skipped",
+    status: "sent",
     turnId: fixture.turnId,
-    reason: "guard_rejected",
-    guardCode: "unauthorized_mention",
+    telegramMessageId: 9_002,
   });
-  assert.equal(publisherCalls, 0);
+  assert.equal(publisherCalls.length, 1);
+  assert.match(
+    publisherCalls[0]?.plainText ?? "",
+    /Ответ не отправлен/u,
+  );
+  assert.doesNotMatch(JSON.stringify(publisherCalls), /mallory/u);
   const stored = fixture.store.getBotTurn(fixture.turnId);
-  assert.equal(stored?.status, "skipped");
-  assert.equal(stored?.draftText, undefined);
+  assert.equal(stored?.status, "sent");
+  assert.match(stored?.draftText ?? "", /внутреннюю проверку безопасности/u);
+  assert.doesNotMatch(stored?.draftText ?? "", /mallory/u);
   assert.doesNotMatch(JSON.stringify(fixture.logs), /mallory/);
+  assert.match(JSON.stringify(fixture.logs), /guard_rejected/);
+});
+
+test("a local audio transcript bypasses model Markdown guards but remains a plain publication", async (t) => {
+  const fixture = makeFixture(t);
+  const transcript = `Коля: «дословный текст из голосового, а не модельная цитата»\n@someone ${"x".repeat(4_500)}`;
+  let observed: GuardedTelegramPublication | undefined;
+  const worker = fixture.worker({
+    agent: async () => ({
+      kind: "final",
+      text: transcript,
+      evidence: [],
+      telemetry: stubTelemetry(),
+      responseOrigin: "local_audio",
+    }),
+    publisher: async ({ publication }) => {
+      observed = publication;
+      return { ok: true, chunksSent: 2, telegramMessageId: 9_100 };
+    },
+  });
+
+  const result = await worker.runOnce();
+
+  assert.equal(result.status, "sent");
+  assert.equal(observed?.mode, "plain");
+  assert.match(observed?.plainText ?? "", /@\u2060someone/u);
+  assert.match(observed?.plainText ?? "", /дословный текст/u);
+  assert.doesNotMatch(
+    fixture.store.getBotTurn(fixture.turnId)?.draftText ?? "",
+    /Ответ не отправлен/u,
+  );
+});
+
+test("guard rejection clears the tool-progress message", async (t) => {
+  const fixture = makeFixture(t);
+  const calls: string[] = [];
+  const port: ToolProgressBotApiPort = {
+    async sendMessage() {
+      calls.push("send");
+      return { ok: true, messageId: 42 };
+    },
+    async editMessageText() {
+      calls.push("edit");
+      return { ok: true };
+    },
+    async deleteMessage() {
+      calls.push("delete");
+      return { ok: true };
+    },
+  };
+  const worker = fixture.worker({
+    agent: async (request) => {
+      request.toolProgressPort?.onToolStarted({
+        toolName: "web_fetch",
+        callId: "guard-progress",
+        input: { url: "https://example.com" },
+      });
+      return final("Алиса: «это достаточно длинная дословная цитата»");
+    },
+    publisher: async ({ publication }) => {
+      assert.match(publication.plainText, /Ответ не отправлен/u);
+      return { ok: true, chunksSent: 1 };
+    },
+    toolProgressBotApiPort: port,
+  });
+
+  const result = await worker.runOnce();
+
+  assert.deepEqual(result, {
+    status: "sent",
+    turnId: fixture.turnId,
+  });
+  assert.deepEqual(calls, ["send", "delete"]);
+});
+
+test("failed guard-rejection notice stays an unknown-delivery fence", async (t) => {
+  const fixture = makeFixture(t);
+  let publisherCalls = 0;
+  const worker = fixture.worker({
+    agent: async () => final("@mallory unsafe final"),
+    publisher: async ({ publication }) => {
+      publisherCalls += 1;
+      assert.match(publication.plainText, /Ответ не отправлен/u);
+      return {
+        ok: false,
+        chunksSent: 0,
+        error: { kind: "network", code: "ECONNRESET" },
+      };
+    },
+  });
+
+  const result = await worker.runOnce();
+
+  assert.deepEqual(result, { status: "lost_ack", turnId: fixture.turnId });
+  assert.equal(publisherCalls, 1);
+  assert.equal(fixture.store.getBotTurn(fixture.turnId)?.status, "lost_ack");
 });
 
 test("shadow mode saves guarded draft and terminates without publisher", async (t) => {
@@ -208,7 +309,7 @@ test("shadow mode saves guarded draft and terminates without publisher", async (
   assert.equal(publisherCalls, 0);
   assert.match(
     fixture.store.getBotTurn(fixture.turnId)?.draftText ?? "",
-    /^Публичный ответ\n──\n/u,
+    /^Публичный ответ\ntest-model 🧠 · 10\/5 · 0 tool calls · 0с$/u,
   );
   assert.equal(fixture.store.getBotTurn(fixture.turnId)?.status, "skipped");
 });

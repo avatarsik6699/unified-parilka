@@ -213,7 +213,7 @@ test("version 11 databases receive digest tables in one atomic migration", (t) =
   raw.close();
 
   const migrated = new MessageStore(path);
-  assert.equal(migrated.getSchemaVersion(), 15);
+  assert.equal(migrated.getSchemaVersion(), 16);
   assert.deepEqual(
     migrated.getDayDigests({
       chatId: "-1001",

@@ -9,11 +9,18 @@ export function safeBotRuntimeConfig(
   const {
     token: _token,
     webSearch,
+    researchGateway,
+    audioTranscribe,
     ...safe
   } = config;
   return {
     ...safe,
     tokenConfigured: true,
+    audioTranscribe: {
+      endpoint: audioTranscribe.endpoint,
+      timeoutMs: audioTranscribe.timeoutMs,
+      bearerTokenConfigured: audioTranscribe.bearerToken !== undefined,
+    },
     ...(webSearch === undefined
       ? {}
       : webSearch.kind === "http"
@@ -36,5 +43,13 @@ export function safeBotRuntimeConfig(
                 webSearch.gcloudPath !== undefined,
             },
           }),
+    ...(researchGateway === undefined
+      ? {}
+      : {
+          researchGateway: {
+            configured: true,
+            timeoutMs: researchGateway.timeoutMs,
+          },
+        }),
   };
 }

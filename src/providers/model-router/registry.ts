@@ -7,6 +7,7 @@ import {
 } from "ai";
 import {
   REDACTED,
+  type ModelCapabilities,
   type ModelRouterEnvironment,
   type ModelRouterInspection,
   type ModelRouterOptions,
@@ -102,21 +103,28 @@ export class ModelProviderResolver {
       const provider = this.#config.providers.find(
         ({ id }) => id === parts.providerId,
       );
+      const providerOptions =
+        provider?.protocol === "deepseek"
+          ? {
+              deepseek: {
+                thinking: {
+                  type: provider.thinkingMode ?? "disabled",
+                },
+              },
+            }
+          : provider?.reasoningEffort
+            ? {
+                openai: {
+                  reasoningEffort: provider.reasoningEffort,
+                },
+              }
+            : undefined;
       return {
         reference: result.data,
         ...parts,
         model: this.registry.languageModel(result.data as `${string}:${string}`),
-        ...(provider?.protocol === "deepseek"
-          ? {
-              providerOptions: {
-                deepseek: {
-                  thinking: {
-                    type: provider.thinkingMode ?? "disabled",
-                  },
-                },
-              },
-            }
-          : {}),
+        capabilities: this.capabilitiesFor(result.data),
+        ...(providerOptions === undefined ? {} : { providerOptions }),
       };
     } catch (error) {
       throw new ModelRouterResolutionError(
@@ -146,6 +154,9 @@ export class ModelProviderResolver {
         ...(provider.protocol === "deepseek"
           ? { thinkingMode: provider.thinkingMode ?? "disabled" }
           : {}),
+        ...(provider.protocol === "openai" && provider.reasoningEffort
+          ? { reasoningEffort: provider.reasoningEffort }
+          : {}),
         apiKey: {
           env: provider.apiKeyEnv,
           value: REDACTED,
@@ -164,7 +175,17 @@ export class ModelProviderResolver {
         turn: [...this.#config.roles.turn],
         summary: [...this.#config.roles.summary],
       },
+      modelCapabilities: Object.fromEntries(
+        Object.entries(this.#config.modelCapabilities).map(
+          ([reference, capabilities]) => [reference, { ...capabilities }],
+        ),
+      ),
     };
+  }
+
+  private capabilitiesFor(reference: string): ModelCapabilities {
+    const configured = this.#config.modelCapabilities[reference];
+    return configured ? { ...configured } : { vision: false };
   }
 }
 

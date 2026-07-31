@@ -14,3 +14,5 @@ ADR, небольшое уточнение — датированным addendum
 - [ADR 0002](0002-native-telegram-rich-messages.md): нативные Telegram Rich
   Messages (`sendRichMessage` + `markdown`) как primary path финального
   ответа бота, bounded AST preflight и classic plain fallback.
+- [ADR 0003](0003-layered-chat-memory.md): bounded per-chat fast/long memory
+  и progressive skills с явным user-gated обновлением.

@@ -47,9 +47,33 @@ function fakeRouter(text: string): DigestModelRouter {
         providerId: "provider",
         modelId: "model",
         model: {} as ResolvedModelCandidate["model"],
+        capabilities: { vision: false },
       };
       return {
         value: text as T,
+        candidate,
+        attempt: 1,
+        failures: [],
+      };
+    },
+  };
+}
+
+function invokingRouter(): DigestModelRouter {
+  return {
+    async executeWithFallback<T>(
+      _role: string,
+      attempt: (candidate: ResolvedModelCandidate) => Promise<T>,
+    ) {
+      const candidate = {
+        reference: "provider/model",
+        providerId: "provider",
+        modelId: "model",
+        model: {} as ResolvedModelCandidate["model"],
+        capabilities: { vision: false },
+      };
+      return {
+        value: await attempt(candidate),
         candidate,
         attempt: 1,
         failures: [],
@@ -135,6 +159,33 @@ test("dream consolidates messages and advances watermark", async () => {
   }
 });
 
+test("dream keeps its compact default output budget separate from day and week digests", async () => {
+  const { store, cleanup } = fixtureStore();
+  try {
+    seedMessages(store, 10);
+    let observedMaxOutputTokens: number | undefined;
+    const consolidator = new DreamConsolidator({
+      router: invokingRouter(),
+      maxOutputChars: 1_000,
+      generate: async ({ maxOutputTokens }) => {
+        observedMaxOutputTokens = maxOutputTokens;
+        return { text: "compact memory", finishReason: "stop" };
+      },
+    });
+
+    const result = await consolidator.run(store, {
+      chatId: CHAT_ID,
+      threshold: 10,
+      maxMessages: 20,
+    });
+
+    assert.equal(result.status, "success");
+    assert.equal(observedMaxOutputTokens, 1_024);
+  } finally {
+    cleanup();
+  }
+});
+
 test("dream clamps oversized output after retry", async () => {
   const { store, cleanup } = fixtureStore();
   try {
@@ -150,6 +201,7 @@ test("dream clamps oversized output after retry", async () => {
           providerId: "provider",
           modelId: "model",
           model: {} as ResolvedModelCandidate["model"],
+          capabilities: { vision: false },
         };
         calls += 1;
         const text =
@@ -207,6 +259,82 @@ test("dream fail-closed preserves old block and watermark", async () => {
     const memory = store.getChatMemory(CHAT_ID);
     assert.equal(memory?.memoryText, "existing memory");
     assert.equal(memory?.lastConsolidatedMessageId, 2);
+  } finally {
+    cleanup();
+  }
+});
+
+test("dream reports a candidate timeout without mutating memory", async () => {
+  const { store, cleanup } = fixtureStore();
+  try {
+    seedMessages(store, 10);
+    const consolidator = new DreamConsolidator({
+      router: invokingRouter(),
+      maxOutputChars: 1_000,
+      totalTimeoutMs: 1_500,
+      candidateTimeoutMs: 500,
+      generate: ({ signal }) =>
+        new Promise<never>((_resolve, reject) => {
+          if (signal.aborted) {
+            reject(signal.reason);
+            return;
+          }
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        }),
+    });
+    const result = await consolidator.run(store, {
+      chatId: CHAT_ID,
+      threshold: 10,
+      maxMessages: 20,
+    });
+    assert.equal(result.status, "failed");
+    if (result.status === "failed") {
+      assert.equal(result.error, "ETIMEDOUT");
+      assert.equal(result.preservedRevision, 0);
+    }
+    assert.equal(store.getChatMemory(CHAT_ID), undefined);
+  } finally {
+    cleanup();
+  }
+});
+
+test("dream retries one timed-out Qwen candidate within its total deadline", async () => {
+  const { store, cleanup } = fixtureStore();
+  try {
+    seedMessages(store, 10);
+    let calls = 0;
+    const consolidator = new DreamConsolidator({
+      router: invokingRouter(),
+      maxOutputChars: 1_000,
+      totalTimeoutMs: 1_500,
+      candidateTimeoutMs: 500,
+      generate: ({ signal }) => {
+        calls += 1;
+        if (calls === 1) {
+          return new Promise<never>((_resolve, reject) => {
+            signal.addEventListener("abort", () => reject(signal.reason), {
+              once: true,
+            });
+          });
+        }
+        return Promise.resolve({
+          text: "recovered memory",
+          finishReason: "stop",
+        });
+      },
+    });
+
+    const result = await consolidator.run(store, {
+      chatId: CHAT_ID,
+      threshold: 10,
+      maxMessages: 20,
+    });
+
+    assert.equal(result.status, "success");
+    assert.equal(calls, 2);
+    assert.equal(store.getChatMemory(CHAT_ID)?.memoryText, "recovered memory");
   } finally {
     cleanup();
   }

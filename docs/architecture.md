@@ -8,7 +8,7 @@ group chat. Application shells только компонуют independently tes
 
 ```text
 Bot API ──► parilka-bot ───────────────┐
-                                       ├──► SQLite WAL v15 ◄── maintenance/digests
+                                       ├──► SQLite WAL v16 ◄── maintenance/digests
 MTProto ──► parilka-sync ──────────────┘
                  │
                  └──► HTTP 127.0.0.1:8766/mcp
@@ -29,7 +29,7 @@ MCP harness ──stdio──► thin proxy─┘
 | Lane | Path | Authority |
 | --- | --- | --- |
 | Process shells | `src/{index,bot-daemon,sync-daemon}.ts` | startup, composition, signals и graceful shutdown |
-| Bot | `src/bot/` | Bot API update ingest, turn FSM worker, bounded agent loop, five read-only tools, per-chat memory prompt injection, guarded rich/plain publication, typing/tool-progress presentation и telemetry rendering |
+| Bot | `src/bot/` | Bot API update ingest, turn FSM worker, bounded agent loop, evidence/search tools, chat-scoped memory reads and direct-gated memory writes, guarded rich/plain publication, typing/tool-progress presentation и telemetry rendering |
 | Storage | `src/storage/` + `src/store.ts` barrel | один connection/transaction kernel, schema и domain repositories |
 | Telegram/sync | `src/telegram/`, `src/sync/` | transport lifecycle, one-owner guard, recent/backfill reconciliation |
 | MCP | `src/mcp-tools/`, `src/mcp-loopback.ts` | 13 operator tools, loopback session transport и stdio proxy |
@@ -59,14 +59,17 @@ process shells
   ├── digests ────┤
   └── vector ─────┘
 
-bot agent ──► read-only bot tools ──► storage/vector/web-search ports
+bot agent ──► read-only bot tools ──► storage/vector/search/public-web-fetch ports
 operator MCP ──► Telegram gateway + storage + serialized sync
 ```
 
 - Storage не импортирует process shells, bot agent или MCP registry.
-- Bot model никогда не получает operator MCP write/sync tools; его registry
-  состоит из пяти read-only tools (search_chat, day_digest, thread_context,
-  web_search, paper_search).
+- Bot model никогда не получает operator MCP write/sync tools. Его обычный
+  registry состоит из шести evidence/search tools (`search_chat`, `day_digest`,
+  `thread_context`, `web_search`, `web_fetch`, `paper_search`) и двух bounded
+  memory reads.
+  Три memory-write tool появляются только для адресного trigger с прямой
+  просьбой сохранить/обновить память; это не даёт доступ к MCP writes.
 - MCP stdio proxy не владеет Telegram credentials, SQLite или session.
 - Providers не владеют state и получают secrets только через env references.
 
@@ -81,6 +84,9 @@ operator MCP ──► Telegram gateway + storage + serialized sync
   delivery.
 - Embedding result коммитится только после atomic повторной проверки exact
   source IDs и canonical rendered text.
+- Fast notes, durable lessons и skills строго chat-scoped, bounded и
+  source-attributed; их upsert/pruning выполняется в том же SQLite transaction
+  kernel. Их содержимое всегда остаётся недоверенными данными для модели.
 - Digest append threshold применяется только к доказанному pure append;
   edit/delete исторического prefix инвалидирует cache немедленно.
 
@@ -90,6 +96,9 @@ operator MCP ──► Telegram gateway + storage + serialized sync
   — fail-closed defaults.
 - Network endpoints валидируются; credentials, redirects и oversized bodies
   не проходят provider boundary.
+- `web_fetch` не использует Chrome/CDP/MCP или браузерный профиль: только
+  public HTTPS, DNS pinning до соединения, без cookies, JavaScript и
+  автоматических redirect; ответ ограничен 1 MiB и 3 000 видимыми символами.
 - Model/tool/Telegram content недоверенно; logs не содержат message bodies,
   secrets или raw provider payloads.
 - Pino пишет structured JSON в stderr, systemd направляет его в journald.
@@ -120,5 +129,8 @@ production CLI в `scripts/`, отдельный test ceiling — к `tests/`, �
   path для финального ответа бота: Telegram сам рендерит headings, списки,
   GFM-таблицы и LaTeX (`$...$`, `$$...$$`, fenced `math`). Локально остаётся
   только bounded AST preflight (`unified` + `remark-*`), canonical plain
-  projection и classic plain fallback. Решение и safety/durability rationale:
+  projection и classic plain fallback. Bot API ACK records that projection
+  before MTProto reconciliation; an mtcute rich-message placeholder cannot
+  subsequently overwrite it with empty `text`. Решение и safety/durability
+  rationale:
   [ADR 0002](adr/0002-native-telegram-rich-messages.md).

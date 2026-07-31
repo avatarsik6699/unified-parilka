@@ -416,4 +416,63 @@ declare protected applyMaintenanceSchema: () => void;
       );
     `);
   }
+
+  protected applyBotChatKnowledgeMigration(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS bot_chat_fast_memory (
+        chat_id TEXT NOT NULL,
+        memory_key TEXT NOT NULL,
+        title TEXT NOT NULL,
+        note TEXT NOT NULL,
+        source_message_id INTEGER,
+        created_at_ms INTEGER NOT NULL,
+        updated_at_ms INTEGER NOT NULL,
+        PRIMARY KEY(chat_id, memory_key),
+        CHECK(length(trim(memory_key)) > 0),
+        CHECK(length(trim(title)) > 0),
+        CHECK(length(trim(note)) > 0)
+      );
+
+      CREATE TABLE IF NOT EXISTS bot_chat_lessons (
+        chat_id TEXT NOT NULL,
+        lesson_key TEXT NOT NULL,
+        title TEXT NOT NULL,
+        problem TEXT NOT NULL,
+        solution TEXT NOT NULL,
+        when_to_apply TEXT NOT NULL,
+        source_message_id INTEGER,
+        created_at_ms INTEGER NOT NULL,
+        updated_at_ms INTEGER NOT NULL,
+        PRIMARY KEY(chat_id, lesson_key),
+        CHECK(length(trim(lesson_key)) > 0),
+        CHECK(length(trim(title)) > 0),
+        CHECK(length(trim(problem)) > 0),
+        CHECK(length(trim(solution)) > 0),
+        CHECK(length(trim(when_to_apply)) > 0)
+      );
+
+      CREATE TABLE IF NOT EXISTS bot_chat_skills (
+        chat_id TEXT NOT NULL,
+        skill_key TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        instructions TEXT NOT NULL,
+        source_message_id INTEGER,
+        created_at_ms INTEGER NOT NULL,
+        updated_at_ms INTEGER NOT NULL,
+        PRIMARY KEY(chat_id, skill_key),
+        CHECK(length(trim(skill_key)) > 0),
+        CHECK(length(trim(name)) > 0),
+        CHECK(length(trim(description)) > 0),
+        CHECK(length(trim(instructions)) > 0)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_bot_chat_fast_memory_recent
+        ON bot_chat_fast_memory(chat_id, updated_at_ms DESC);
+      CREATE INDEX IF NOT EXISTS idx_bot_chat_lessons_recent
+        ON bot_chat_lessons(chat_id, updated_at_ms DESC);
+      CREATE INDEX IF NOT EXISTS idx_bot_chat_skills_recent
+        ON bot_chat_skills(chat_id, updated_at_ms DESC);
+    `);
+  }
 }

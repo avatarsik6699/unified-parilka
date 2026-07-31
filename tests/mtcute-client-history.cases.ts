@@ -111,6 +111,23 @@ test("history pagination uses mtcute offsets and emits provider-neutral messages
   assert.equal(typeof messages[0]?.sentAt, "string");
 });
 
+test("native rich history content is marked as lacking a text projection", async () => {
+  const fake = new FakeMtcuteClient();
+  const { service } = harness(fake);
+  fake.directMessagesHandler = async () => [
+    message(9, {
+      text: "",
+      richMessage: { blocks: [] },
+      isOutgoing: true,
+    }),
+  ];
+
+  const result = await service.getMessages({ limit: 1, ids: 9 });
+
+  assert.equal(result.messages[0]?.text, "");
+  assert.equal(result.messages[0]?.textAvailable, false);
+});
+
 test("history follows next after mtcute filters an otherwise partial page", async () => {
   const fake = new FakeMtcuteClient();
   const { service } = harness(fake, { historyPageSize: 3 });

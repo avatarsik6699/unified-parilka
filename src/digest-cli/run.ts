@@ -89,6 +89,8 @@ export async function runDigestCli(
         dreamMaxMessages: options.dreamMaxMessages,
         memoryMaxChars: options.memoryMaxChars,
         modelConfigPath: options.modelConfigPath,
+        modelTotalTimeoutMs: options.modelTotalTimeoutMs,
+        modelCandidateTimeoutMs: options.modelCandidateTimeoutMs,
       },
       router,
     );
@@ -112,7 +114,7 @@ export async function runDigestCli(
         options.summaryOnly ? undefined : 2,
       )}\n`,
     );
-    return report.days.failed > 0 || report.weeks.failed > 0
+    return report.days.failed > 0 || report.weeks.failed > 0 || dream.status === "failed"
       ? 1
       : 0;
   } catch (error) {

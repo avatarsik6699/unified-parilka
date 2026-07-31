@@ -117,7 +117,11 @@ function attributedSpeaker(
   );
   const candidate =
     spokenPrefix?.[1] ?? plainPrefix?.[1] ?? suffixMatch?.[1];
-  if (candidate) {
+  if (
+    candidate &&
+    (knownSpeakers.has(normalizeSpeaker(candidate)) ||
+      looksLikeHumanSpeaker(candidate))
+  ) {
     return {
       display: candidate.trim(),
       normalized: normalizeSpeaker(candidate),
@@ -133,6 +137,22 @@ function attributedSpeaker(
     }
   }
   return undefined;
+}
+
+/**
+ * A plain `Name: "quote"` shape is ambiguous with common answer labels such
+ * as `Заголовок страницы:`. Unknown attributions are guarded only when they
+ * look like a human name or an explicit @username; known chat speakers remain
+ * guarded regardless of spelling.
+ */
+function looksLikeHumanSpeaker(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed.startsWith("@")) {
+    return /^@[\p{L}\p{N}_.-]{1,64}$/u.test(trimmed);
+  }
+  const words = trimmed.split(/[ \t]+/u);
+  return words.length >= 1 && words.length <= 3 &&
+    words.every((word) => /^\p{Lu}[\p{Ll}\p{M}'’-]*$/u.test(word));
 }
 
 function normalizeText(text: string): string {

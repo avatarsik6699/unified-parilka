@@ -1,4 +1,11 @@
-import type { MessageStore, StoredBotTurn, StoredMessage } from "../../store.js";
+import type {
+  MessageStore,
+  StoredBotTurn,
+  StoredChatLesson,
+  StoredChatSkill,
+  StoredFastChatMemory,
+  StoredMessage,
+} from "../../store.js";
 import type { FoldBatch, TurnBoundary, TurnCoordinator } from "../turn-coordinator.js";
 import type { GuardedTelegramPublication, OutputGuardPolicy, QuoteEvidence } from "../output-guards.js";
 import type {
@@ -13,7 +20,7 @@ export const BOT_REPLAY_MESSAGES = 100;
 
 export const DEFAULT_LEASE_MS = 30_000;
 export const DEFAULT_HEARTBEAT_MS = 10_000;
-export const DEFAULT_TURN_TIMEOUT_MS = 120_000;
+export const DEFAULT_TURN_TIMEOUT_MS = 600_000;
 export const DEFAULT_PUBLISH_TIMEOUT_MS = 30_000;
 export const MAX_AGENT_EVIDENCE_ITEMS = 1_000;
 
@@ -22,16 +29,31 @@ export interface BotAgentFinalResult {
   text: string;
   evidence: readonly QuoteEvidence[];
   telemetry: TurnTelemetry;
+  /**
+   * An explicit local Flov transcription is sent as bounded plain text rather
+   * than being reparsed as model Markdown or routed through model-only social
+   * guards. It is still subjected to application plain-output validation.
+   */
+  responseOrigin?: "local_audio";
 }
 
 export interface BotAgentRequest {
   turn: Readonly<StoredBotTurn>;
   trigger: Readonly<StoredMessage>;
+  /**
+   * The exact message explicitly replied to by the trigger, if it is present
+   * in the same durable chat. This is deliberately not general history: media
+   * handling may inspect only the addressed message.
+   */
+  replyTarget?: Readonly<StoredMessage>;
   context: readonly Readonly<StoredMessage>[];
   signal: AbortSignal;
   drainFold: (boundary: TurnBoundary) => FoldBatch;
   toolProgressPort?: ToolProgressPort;
   memoryBlock?: string;
+  fastMemory?: readonly StoredFastChatMemory[];
+  longTermLessons?: readonly StoredChatLesson[];
+  chatSkills?: readonly StoredChatSkill[];
 }
 
 export interface BotTurnAgent {

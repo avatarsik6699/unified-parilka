@@ -6,6 +6,13 @@ export type StoredMessage = {
   senderId?: string;
   senderName?: string;
   text: string;
+  /**
+   * False means the transport deliberately has no plain-text projection for
+   * this message (currently Telegram native rich content). It is transient
+   * upsert input, not a persisted message property: a reconciliation must not
+   * replace an already-recorded canonical projection with an empty placeholder.
+   */
+  textAvailable?: boolean;
   replyToMessageId?: number;
   topicId?: number;
   rawJson?: string;
@@ -218,6 +225,69 @@ export type StoredChatMemory = {
 export type UpsertChatMemoryInput = Omit<
   StoredChatMemory,
   "revision" | "updatedAtMs"
+> & {
+  updatedAtMs?: number;
+};
+
+/**
+ * Small, explicit notes that should affect the next turns immediately. They
+ * are intentionally capped by storage and replace themselves by title.
+ */
+export type StoredFastChatMemory = {
+  chatId: string;
+  key: string;
+  title: string;
+  note: string;
+  sourceMessageId?: number;
+  createdAtMs: number;
+  updatedAtMs: number;
+};
+
+export type UpsertFastChatMemoryInput = Omit<
+  StoredFastChatMemory,
+  "key" | "createdAtMs" | "updatedAtMs"
+> & {
+  updatedAtMs?: number;
+};
+
+/** A durable, structured "problem → solution → when to use it" lesson. */
+export type StoredChatLesson = {
+  chatId: string;
+  key: string;
+  title: string;
+  problem: string;
+  solution: string;
+  whenToApply: string;
+  sourceMessageId?: number;
+  createdAtMs: number;
+  updatedAtMs: number;
+};
+
+export type UpsertChatLessonInput = Omit<
+  StoredChatLesson,
+  "key" | "createdAtMs" | "updatedAtMs"
+> & {
+  updatedAtMs?: number;
+};
+
+/**
+ * A chat-local reusable playbook. The description is the compact index; the
+ * instructions are loaded only through the dedicated read tool when needed.
+ */
+export type StoredChatSkill = {
+  chatId: string;
+  key: string;
+  name: string;
+  description: string;
+  instructions: string;
+  sourceMessageId?: number;
+  createdAtMs: number;
+  updatedAtMs: number;
+};
+
+export type UpsertChatSkillInput = Omit<
+  StoredChatSkill,
+  "key" | "createdAtMs" | "updatedAtMs"
 > & {
   updatedAtMs?: number;
 };

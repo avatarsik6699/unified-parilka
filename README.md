@@ -2,13 +2,13 @@
 
 Parilka — единый TypeScript-проект для Telegram-бота, синхронизации истории
 через MTProto и локального MCP-сервера. Проект рассчитан на один хост и один
-versioned SQLite store (текущая схема — v13).
+versioned SQLite store (текущая схема — v16).
 
 Текущая топология:
 
 ```text
 Bot API ──► parilka-bot ───────────────┐
-                                       ├──► SQLite WAL v13 ◄── maintain + digests
+                                       ├──► SQLite WAL v16 ◄── maintain + digests
 MTProto ──► parilka-sync ──────────────┘
                  │
                  └── HTTP 127.0.0.1:8766/mcp
@@ -204,16 +204,18 @@ Provider POST не следует HTTP redirects, а тело ответа ог�
 
 DeepSeek adapter принимает `thinkingMode=enabled|disabled`; default —
 `disabled`, чтобы reasoning не съедал bounded output/tool budget. Поставляемый
-[production router](config/model-router.production.json) использует
-`deepseek-v4-flash` без literal credentials. Alibaba Token Plan намеренно не
-включён в production: его актуальная policy разрешает coding/OpenClaw tools,
-но запрещает custom application backends.
+[production router](config/model-router.production.json) использует только
+Qwen `qwen3.8-max-preview` через international Token Plan endpoint, без
+fallback-провайдера. Роль `summary` использует второй логический профиль того
+же Qwen endpoint/key с `reasoningEffort=low`: это не другой провайдер, а
+отдельный budget для day/week и dream-консолидации.
 
 Bot turn использует роль `turn`; `parilka-digests` использует роль `summary`.
-Оба пути получают один и тот же ordered provider fallback из router config.
-Автоматически строятся day и ISO-weekly digests. Month rows можно импортировать
-и хранить через низкоуровневый store, но текущий bot read tool их не читает и
-автоматически не генерирует.
+В production обе роли содержат ровно один Qwen candidate: это покрывает ответы
+агента, day/ISO-weekly summaries и dream-консолидацию памяти; `turn` сохраняет
+high-effort профиль, `summary` использует low-effort профиль. Month rows можно
+импортировать и хранить через низкоуровневый store, но текущий bot read tool
+их не читает и автоматически не генерирует.
 
 ### Опциональный web search
 
@@ -245,6 +247,35 @@ Web search выбирается через `PARILKA_BOT_WEB_SEARCH_PROVIDER` (`a
 `PARILKA_VERTEX_PROJECT`, иначе поиск выключен. Ни один бэкенд не является
 частью rulesync. Отключённый там `gemini-search` восстанавливать для Parilka не
 нужно.
+
+### Встроенный web fetch
+
+`web_fetch` не зависит от browser MCP, Chrome/Brave-профиля или Lightpanda и
+не требует отдельной настройки. Он открывает одну публичную HTTPS-страницу
+только через DNS-pinned соединение, не передаёт cookies или логины, не исполняет
+JavaScript и не следует redirect автоматически. Ответ ограничен 1 MiB входного
+тела и 3 000 видимыми символами; переход по redirect модель запрашивает
+отдельным вызовом и тот снова проходит проверку адреса.
+
+### Опциональный HH research gateway
+
+`research_lookup` не читает файлы HH из этого репозитория и не знает их
+структуру. Это клиент к owner-only Unix socket отдельного read-only сервиса,
+который владеет закрытым исследовательским корпусом. При заданном
+`PARILKA_BOT_RESEARCH_GATEWAY_SOCKET` в private bot env клиент передаёт только
+короткий запрос и получает строго ограниченный обезличенный конверт; путь к
+HH-репозиторию, manifest, БД, credential и raw record не входят в контракт.
+В env указывается уже развёрнутый абсолютный путь, например
+`/run/user/<UID>/hh-research-gateway/gateway.sock`; `%t` применим только внутри
+systemd unit.
+
+Шлюз делает первый технический privacy-filter, а bot дополнительно отбрасывает
+опасный query до обращения к сокету, отбрасывает неожиданные идентификаторы и
+обязан обобщать результат в финальном ответе. Он не предназначен для поиска
+людей, конкретных резюме/профилей, вакансий или построения досье; агрегированные
+вопросы о повторяющихся темах подготовки разрешены.
+Оставьте переменную пустой, чтобы gateway не использовать; устанавливать или
+перезапускать отдельный HH service следует только по явному operator-действию.
 
 ## Локальный запуск
 
@@ -364,7 +395,7 @@ systemctl --user enable --now parilka-bot.service
 ```
 
 Сначала отдельно проверьте dry-run maintenance и digest plan; второй не
-вызывает модель и требует уже мигрированную schema v13. Если в shell уже
+вызывает модель и требует уже мигрированную schema v16. Если в shell уже
 экспортированы production DB/allowlist, снимите их для изолированного snapshot,
 иначе fail-closed identity check правильно отклонит другой файл:
 
@@ -502,7 +533,7 @@ Backup/restore остаются внешней операторской проц
 границ транзакций — в
 [src/maintenance/README.md](src/maintenance/README.md).
 
-Digest CLI тоже dry-run по умолчанию. Он читает только schema v13, планирует
+Digest CLI тоже dry-run по умолчанию. Он читает только schema v16, планирует
 недостающие Moscow-calendar days и ISO weeks и не вызывает модель:
 
 ```bash
@@ -629,7 +660,8 @@ embedding/model вызовы не выполняются.
 - edit/delete исторического дня пересчитывается сразу; порог в 25 сообщений
   применяется только к append-only дополнению после сохранённого конца дня;
 - web search — generic HTTP JSON adapter или bot-owned native Vertex Gemini
-  grounding через gcloud ADC; оба опциональны и вне rulesync;
+  grounding через gcloud ADC; оба опциональны и вне rulesync; `web_fetch` —
+  отдельный встроенный публичный HTTPS-fetcher без browser state;
 - отдельной human-approval policy нет; MCP `approval_id` — self-issued
   payload capability;
 - Python outbox/drafts/events не мигрируют в новый live state;

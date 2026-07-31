@@ -2,6 +2,7 @@ export {
   BOT_READ_TOOL_NAMES,
   BOT_READ_TOOL_DEFINITIONS,
   MAX_BOT_READ_TOOL_OUTPUT_CHARS,
+  MAX_WEB_FETCH_TEXT_CHARS,
   type BotReadToolName,
   type BotReadToolDefinition,
   type ReadToolEvidence,
@@ -19,9 +20,18 @@ export {
   type WebSearchSource,
   type WebSearchResponse,
   type WebSearchProvider,
+  type WebFetchResponse,
+  type WebFetchProvider,
+  type ResearchGatewayFinding,
+  type ResearchGatewayResponse,
+  type ResearchGatewayProvider,
   type BotReadToolsOptions,
   type BotReadToolCallOptions,
 } from "./read-tools/contracts.js";
 export { BotReadTools } from "./read-tools/executor.js";
+export { PublicWebFetchProvider } from "./read-tools/web-fetch-executor.js";
+export {
+  UnixSocketResearchGatewayProvider,
+  type UnixSocketResearchGatewayProviderOptions,
+} from "./read-tools/research-gateway.js";
 export { calendarDayRange } from "./read-tools/calendar.js";
-

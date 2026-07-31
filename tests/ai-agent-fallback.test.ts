@@ -50,7 +50,7 @@ test("an empty successful provider response falls back as invalid candidate outp
   assert.equal(backup.doGenerateCalls.length, 1);
 });
 
-test("provider fallback keeps bounded tool data and shares one four-call budget", async () => {
+test("provider fallback keeps bounded tool data and shares one six-call budget", async () => {
   const first = mockModel([
     toolResponse([
       toolCall("first-1", "search_chat", {
@@ -73,6 +73,12 @@ test("provider fallback keeps bounded tool data and shares one four-call budget"
         query: "second-two",
       }),
       toolCall("second-3", "search_chat", {
+        query: "second-three",
+      }),
+      toolCall("second-4", "search_chat", {
+        query: "second-four",
+      }),
+      toolCall("second-5", "search_chat", {
         query: "second-denied",
       }),
     ]),
@@ -89,10 +95,10 @@ test("provider fallback keeps bounded tool data and shares one four-call budget"
   const result = await fixture.agent.run(request());
 
   assert.equal(result.text, "собранный финал");
-  assert.equal(fixture.searchCalls, 4);
+  assert.equal(fixture.searchCalls, 6);
   assert.match(
     JSON.stringify(second.doGenerateCalls[0]?.prompt),
-    /Результат уже выполненного инструмента из предыдущей попытки/,
+    /Результат уже выполненного инструмента из предыдущего раунда/,
   );
   assert.match(
     JSON.stringify(second.doGenerateCalls[0]?.prompt),

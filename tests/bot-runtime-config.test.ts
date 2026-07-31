@@ -32,9 +32,89 @@ test("bot runtime config is strict, bounded, and defaults to safe shadow mode", 
   assert.equal(config.initialOffset, undefined);
   assert.equal(config.pollLimit, 100);
   assert.equal(config.pollTimeoutSec, 30);
-  assert.equal(config.turnTimeoutMs, 120_000);
+  assert.equal(config.turnTimeoutMs, 600_000);
   assert.equal(config.publishTimeoutMs, 30_000);
-  assert.equal(config.shutdownTimeoutMs, 180_000);
+  assert.equal(config.shutdownTimeoutMs, 660_000);
+  assert.deepEqual(config.audioTranscribe, {
+    endpoint: "http://127.0.0.1:17432",
+    timeoutMs: 300_000,
+  });
+});
+
+test("audio transcription stays on a bounded local Flov endpoint", () => {
+  const config = parseBotRuntimeConfig({
+    ...VALID_ENV,
+    PARILKA_BOT_AUDIO_TRANSCRIBE_ENDPOINT: "http://[::1]:17432",
+    PARILKA_BOT_AUDIO_TRANSCRIBE_TIMEOUT_MS: "420000",
+  });
+  assert.deepEqual(config.audioTranscribe, {
+    endpoint: "http://[::1]:17432",
+    timeoutMs: 420_000,
+  });
+  assert.equal(
+    parseBotRuntimeConfig({
+      ...VALID_ENV,
+      PARILKA_BOT_AUDIO_TRANSCRIBE_ENDPOINT: "http://flov.localhost:17432",
+    }).audioTranscribe.endpoint,
+    "http://flov.localhost:17432",
+  );
+  assert.throws(
+    () =>
+      parseBotRuntimeConfig({
+        ...VALID_ENV,
+        PARILKA_BOT_AUDIO_TRANSCRIBE_ENDPOINT:
+          "http://flov.example.test:17432",
+      }),
+    /loopback/u,
+  );
+  assert.throws(
+    () =>
+      parseBotRuntimeConfig({
+        ...VALID_ENV,
+        PARILKA_BOT_AUDIO_TRANSCRIBE_TIMEOUT_MS: "600001",
+      }),
+    /PARILKA_BOT_AUDIO_TRANSCRIBE_TIMEOUT_MS/u,
+  );
+  assert.throws(
+    () =>
+      parseBotRuntimeConfig({
+        ...VALID_ENV,
+        PARILKA_BOT_TURN_TIMEOUT_MS: "120000",
+      }),
+    /AUDIO_TRANSCRIBE_TIMEOUT_MS.*TURN_TIMEOUT_MS/u,
+  );
+  assert.throws(
+    () =>
+      parseBotRuntimeConfig({
+        ...VALID_ENV,
+        PARILKA_BOT_AUDIO_TRANSCRIBE_TIMEOUT_MS: "560001",
+      }),
+    /leave.*PUBLISH_TIMEOUT_MS/u,
+  );
+});
+
+test("Flov bearer credentials remain secret while safe inspection exposes configuration", () => {
+  const secret = "private-flov-bearer-token";
+  const config = parseBotRuntimeConfig({
+    ...VALID_ENV,
+    PARILKA_BOT_AUDIO_TRANSCRIBE_BEARER_TOKEN: secret,
+  });
+  const safe = safeBotRuntimeConfig(config);
+
+  assert.equal(config.audioTranscribe.bearerToken, secret);
+  assert.deepEqual(safe.audioTranscribe, {
+    endpoint: "http://127.0.0.1:17432",
+    timeoutMs: 300_000,
+    bearerTokenConfigured: true,
+  });
+  assert.doesNotMatch(JSON.stringify(safe), new RegExp(secret, "u"));
+  assert.throws(
+    () => parseBotRuntimeConfig({
+      ...VALID_ENV,
+      PARILKA_BOT_AUDIO_TRANSCRIBE_BEARER_TOKEN: "bad\nheader",
+    }),
+    /AUDIO_TRANSCRIBE_BEARER_TOKEN/u,
+  );
 });
 
 test("a migration offset is explicit, bounded, and visible in safe config", () => {
@@ -189,6 +269,34 @@ test("auto web search stays disabled without endpoint or vertex project", () => 
 
   assert.equal(config.webSearch, undefined);
   assert.equal(safe.webSearch, undefined);
+});
+
+test("private research gateway exposes only enablement and timeout in safe config", () => {
+  const config = parseBotRuntimeConfig({
+    ...VALID_ENV,
+    PARILKA_BOT_RESEARCH_GATEWAY_SOCKET:
+      "/run/user/1000/hh-research-gateway/gateway.sock",
+    PARILKA_BOT_RESEARCH_GATEWAY_TIMEOUT_MS: "23000",
+  });
+  const safe = safeBotRuntimeConfig(config);
+
+  assert.equal(
+    config.researchGateway?.socketPath,
+    "/run/user/1000/hh-research-gateway/gateway.sock",
+  );
+  assert.deepEqual(safe.researchGateway, {
+    configured: true,
+    timeoutMs: 23_000,
+  });
+  assert.doesNotMatch(JSON.stringify(safe), /hh-research-gateway\/gateway\.sock/u);
+  assert.throws(
+    () =>
+      parseBotRuntimeConfig({
+        ...VALID_ENV,
+        PARILKA_BOT_RESEARCH_GATEWAY_SOCKET: "relative.sock",
+      }),
+    /absolute Unix socket path/u,
+  );
 });
 
 test("explicit http provider without endpoint is rejected", () => {

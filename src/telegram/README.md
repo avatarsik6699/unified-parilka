@@ -30,6 +30,10 @@ The mtcute implementation keeps its compatibility exports in
 - Peer cache hits never replace the pre-resolution and post-resolution
   allowlist checks.
 - Updates stay disabled; bot updates are owned by the Bot API runtime.
+- Native Telegram rich messages are mutually exclusive with mtcute's `text`.
+  The normalizer marks that empty value as unavailable rather than as a real
+  empty-text edit, so shared-storage reconciliation retains the canonical
+  plain projection recorded from the Bot API ACK.
 - The daemon owns `SIGINT`/`SIGTERM`; mtcute receives only a natural
   `beforeExit` hook. Its storage/caches are flushed before transport destroy,
   avoiding the default synchronous signal hook racing SQLite shutdown.

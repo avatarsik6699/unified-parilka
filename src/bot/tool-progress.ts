@@ -10,9 +10,25 @@
 export interface ToolProgressEvent {
   readonly toolName: string;
   readonly callId: string;
+  /** Raw model input is projected through an allowlist before presentation. */
+  readonly input?: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * A presentation-only model-step marker. It deliberately has no text payload:
+ * the UI may show that a model step is in progress, never its private
+ * reasoning or draft response.
+ */
+export interface ThinkingProgressEvent {
+  readonly callId: string;
 }
 
 export interface ToolProgressPort {
+  onThinkingStarted?(event: ThinkingProgressEvent): void | Promise<void>;
+  onThinkingCompleted?(
+    event: ThinkingProgressEvent,
+    ok: boolean,
+  ): void | Promise<void>;
   onToolStarted(event: ToolProgressEvent): void | Promise<void>;
   onToolCompleted(event: ToolProgressEvent, ok: boolean): void | Promise<void>;
 }
@@ -65,14 +81,19 @@ export interface ToolProgressPublisherOptions {
 }
 
 interface ToolCallStatus {
+  readonly kind: "thinking" | "tool";
   readonly toolName: string;
   readonly state: "running" | "ok" | "error";
+  readonly inputPreview?: string;
 }
 
-const DEFAULT_MAX_TEXT_LENGTH = 180;
+const DEFAULT_MAX_TEXT_LENGTH = 3_500;
+const MAX_QUERY_PREVIEW_LINES = 3;
+const MAX_QUERY_PREVIEW_LINE_CHARS = 96;
 
 /**
- * Publishes a single Telegram progress message during read-tool execution.
+ * Publishes a single Telegram progress message during model steps and read-tool
+ * execution. Thinking is a status marker, never a model-output channel.
  *
  * All Bot API calls are best-effort: failures are swallowed so they can never
  * alter durable turn state. The publisher still persists the message ID and
@@ -91,6 +112,7 @@ export class ToolProgressPublisher implements ToolProgressPort {
   #state: ToolProgressState = "none";
   #pending = new Map<string, ToolCallStatus>();
   #dispatchPromise: Promise<void> = Promise.resolve();
+  #lastRenderedText: string | undefined;
 
   constructor(options: ToolProgressPublisherOptions) {
     this.#turnId = options.turnId;
@@ -121,29 +143,58 @@ export class ToolProgressPublisher implements ToolProgressPort {
       await this.#botApi.deleteMessage(this.#chatId, this.#messageId, signal);
       this.#messageId = undefined;
       this.#state = "none";
+      this.#lastRenderedText = undefined;
       this.#store.clearBotTurnProgress(this.#turnId, this.#now());
     }
   }
 
-  onToolStarted(event: ToolProgressEvent): void {
+  onThinkingStarted(event: ThinkingProgressEvent): void {
     this.#pending.set(event.callId, {
-      toolName: event.toolName,
+      kind: "thinking",
+      toolName: "thinking",
       state: "running",
     });
     this.#dispatch();
   }
 
-  onToolCompleted(event: ToolProgressEvent, ok: boolean): void {
+  onThinkingCompleted(event: ThinkingProgressEvent, ok: boolean): void {
+    const previous = this.#pending.get(event.callId);
+    if (!previous) {
+      return;
+    }
     this.#pending.set(event.callId, {
-      toolName: event.toolName,
+      ...previous,
       state: ok ? "ok" : "error",
     });
     this.#dispatch();
   }
 
+  onToolStarted(event: ToolProgressEvent): void {
+    this.#pending.set(event.callId, {
+      kind: "tool",
+      toolName: event.toolName,
+      state: "running",
+      inputPreview: toolInputPreview(event.toolName, event.input),
+    });
+    this.#dispatch();
+  }
+
+  onToolCompleted(event: ToolProgressEvent, ok: boolean): void {
+    const previous = this.#pending.get(event.callId);
+    this.#pending.set(event.callId, {
+      kind: previous?.kind ?? "tool",
+      toolName: event.toolName,
+      state: ok ? "ok" : "error",
+      inputPreview:
+        previous?.inputPreview ?? toolInputPreview(event.toolName, event.input),
+    });
+    this.#dispatch();
+  }
+
   /**
-   * Finishes the progress presentation: deletes the progress message before
-   * the durable final answer is published. Waits for any in-flight edit.
+   * Finishes the progress presentation once the agent has a terminal result.
+   * Deletes the message before publication, guard rejection, SKIP, or shadow
+   * completion, and waits for any in-flight edit.
    */
   async finish(signal: AbortSignal): Promise<void> {
     await this.#dispatchPromise;
@@ -174,17 +225,24 @@ export class ToolProgressPublisher implements ToolProgressPort {
       if (result.ok) {
         this.#messageId = result.messageId;
         this.#state = "active";
+        this.#lastRenderedText = text;
       } else {
         this.#state = "unknown";
       }
     } else {
+      if (this.#lastRenderedText === text) {
+        return;
+      }
       this.#state = "active";
-      await this.#botApi.editMessageText(
+      const result = await this.#botApi.editMessageText(
         this.#chatId,
         this.#messageId,
         text,
         this.#signal,
       );
+      if (result.ok) {
+        this.#lastRenderedText = text;
+      }
     }
     this.#persist();
   }
@@ -209,12 +267,141 @@ export function renderProgressText(
   const lines: string[] = [];
   for (const [, status] of pending) {
     const icon =
-      status.state === "running" ? "⏳" : status.state === "ok" ? "✓" : "✗";
+      status.kind === "thinking" && status.state === "running"
+        ? "🧠"
+        : status.state === "running" ? "⏳" : status.state === "ok" ? "✓" : "✗";
     lines.push(`${icon} ${status.toolName}`);
+    if (status.inputPreview) {
+      lines.push(
+        ...status.inputPreview.split("\n").map((line) => `  ${line}`),
+      );
+    }
   }
   const text = lines.join("\n");
   if (text.length <= maxLength) {
     return text;
   }
   return text.slice(0, Math.max(1, maxLength - 1)) + "…";
+}
+
+/**
+ * Progress is visible to the chat, so expose only a compact allowlist of tool
+ * selectors. Never serialize a full tool argument object or a tool result.
+ */
+function toolInputPreview(
+  toolName: string,
+  input: Readonly<Record<string, unknown>> | undefined,
+): string | undefined {
+  if (!input) {
+    return undefined;
+  }
+  // The request itself can contain a private person's name or other sensitive
+  // clue. Unlike a public web query, never echo it into the chat timeline.
+  if (toolName === "research_lookup") {
+    return "корпус: обезличенные HH-исследования";
+  }
+  if (toolName === "audio_transcribe") {
+    // The media selector is application-owned. Show its tiny safe projection,
+    // never an attachment name, file id, path, URL, or transcript.
+    return input.source === "reply"
+      ? "аудио: прямой реплай"
+      : "аудио: текущее сообщение";
+  }
+  const query = textField(input, "query");
+  if (query) {
+    return queryPreview(query);
+  }
+  if (toolName === "web_fetch") {
+    const url = textField(input, "url");
+    if (url) {
+      return urlPreview(url);
+    }
+  }
+  if (
+    toolName === "remember_fast" ||
+    toolName === "remember_lesson" ||
+    toolName === "save_chat_skill" ||
+    toolName === "load_chat_skill"
+  ) {
+    const title = textField(input, "title") ?? textField(input, "name");
+    if (title) {
+      return `запись: ${queryPreviewText(title)}`;
+    }
+  }
+  if (toolName === "day_digest") {
+    const dayFrom = textField(input, "day_from");
+    const dayTo = textField(input, "day_to");
+    if (dayFrom) {
+      return `период: ${dayFrom}${dayTo ? ` — ${dayTo}` : ""}`;
+    }
+  }
+  if (toolName === "thread_context") {
+    const messageId = integerField(input, "message_id");
+    if (messageId !== undefined) {
+      return `сообщение: #${messageId}`;
+    }
+  }
+  return undefined;
+}
+
+function queryPreview(query: string): string {
+  return `запрос: ${queryPreviewText(query)}`;
+}
+
+function urlPreview(value: string): string {
+  try {
+    const url = new URL(value);
+    // Query strings often carry signed or user-specific values. The chat only
+    // needs to see which public page is being opened.
+    return `страница: ${queryPreviewText(`${url.protocol}//${url.host}${url.pathname}`)}`;
+  } catch {
+    return `страница: ${queryPreviewText(value)}`;
+  }
+}
+
+function queryPreviewText(query: string): string {
+  const normalized = query.replace(/\s+/gu, " ").trim();
+  if (normalized.length === 0) {
+    return "";
+  }
+  const characters = Array.from(normalized);
+  const capacity =
+    MAX_QUERY_PREVIEW_LINES * MAX_QUERY_PREVIEW_LINE_CHARS;
+  const truncated = characters.length > capacity;
+  const visible = truncated
+    ? characters.slice(0, capacity - 1)
+    : characters;
+  const rows: string[] = [];
+  for (let index = 0; index < visible.length; index += MAX_QUERY_PREVIEW_LINE_CHARS) {
+    rows.push(
+      visible.slice(index, index + MAX_QUERY_PREVIEW_LINE_CHARS).join(""),
+    );
+  }
+  if (truncated) {
+    const last = rows.length - 1;
+    rows[last] = `${rows[last] ?? ""}…`;
+  }
+  return rows
+    .map((row, index) => index === 0 ? row : `        ${row}`)
+    .join("\n");
+}
+
+function textField(
+  input: Readonly<Record<string, unknown>>,
+  field: string,
+): string | undefined {
+  const value = input[field];
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : undefined;
+}
+
+function integerField(
+  input: Readonly<Record<string, unknown>>,
+  field: string,
+): number | undefined {
+  const value = input[field];
+  return typeof value === "number" && Number.isSafeInteger(value)
+    ? value
+    : undefined;
 }

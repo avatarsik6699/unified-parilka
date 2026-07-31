@@ -8,6 +8,7 @@ import {
   mtcuteTransportConfigFromAppConfig,
 } from "../src/telegram/gateway-factory.js";
 import { telegramMessageToStored } from "../src/telegram/message-converter.js";
+import { MessageStore } from "../src/store.js";
 import { MtcuteTransportError } from "../src/telegram/mtcute-client.js";
 import type {
   ChatInfo,
@@ -71,6 +72,65 @@ test("provider-neutral message converter maps stable DTO fields only", () => {
     telegramMessageToStored(CHAT, { ...message, messageId: 0 }),
     undefined,
   );
+});
+
+test("rich reconciliation retains an existing canonical plain-text projection", () => {
+  const store = new MessageStore(":memory:");
+  const canonical: TelegramHistoryMessage = {
+    messageId: 42,
+    text: "Example Domain",
+    sentAt: "2026-07-30T10:00:00.000Z",
+    isTopicMessage: false,
+    isOutgoing: true,
+    isService: false,
+    isChannelPost: false,
+  };
+  const richPlaceholder: TelegramHistoryMessage = {
+    ...canonical,
+    text: "",
+    textAvailable: false,
+  };
+  const initial = telegramMessageToStored(CHAT, canonical);
+  const reconciled = telegramMessageToStored(CHAT, richPlaceholder);
+  assert.ok(initial);
+  assert.ok(reconciled);
+
+  store.upsertMessages(CHAT, [initial]);
+  store.upsertMessages(CHAT, [reconciled]);
+
+  const [stored] = store.getHistory({
+    chatId: CHAT.chatId,
+    limit: 1,
+    order: "asc",
+  });
+  assert.equal(stored?.text, "Example Domain");
+});
+
+test("an ordinary empty-text edit still replaces cached content", () => {
+  const store = new MessageStore(":memory:");
+  const original: TelegramHistoryMessage = {
+    messageId: 42,
+    text: "stale content",
+    isTopicMessage: false,
+    isOutgoing: false,
+    isService: false,
+    isChannelPost: false,
+  };
+  const edited = { ...original, text: "" };
+  const initial = telegramMessageToStored(CHAT, original);
+  const replacement = telegramMessageToStored(CHAT, edited);
+  assert.ok(initial);
+  assert.ok(replacement);
+
+  store.upsertMessages(CHAT, [initial]);
+  store.upsertMessages(CHAT, [replacement]);
+
+  const [stored] = store.getHistory({
+    chatId: CHAT.chatId,
+    limit: 1,
+    order: "asc",
+  });
+  assert.equal(stored?.text, "");
 });
 
 test("GramJS adapter normalizes transport classes before they reach the application", () => {

@@ -69,7 +69,7 @@ declare protected assertMaintenanceJobReady: (
            date = excluded.date,
            sender_id = excluded.sender_id,
            sender_name = excluded.sender_name,
-           text = excluded.text,
+           text = CASE WHEN ? THEN excluded.text ELSE messages.text END,
            reply_to_message_id = excluded.reply_to_message_id,
            topic_id = excluded.topic_id,
            raw_json = excluded.raw_json,
@@ -78,6 +78,7 @@ declare protected assertMaintenanceJobReady: (
       );
       for (const row of messages) {
         const previous = this.getMessageForDirtyCheck(row.chatId, row.messageId);
+        const textAvailable = row.textAvailable !== false;
         stmt.run(
           row.chatId,
           row.messageId,
@@ -89,10 +90,15 @@ declare protected assertMaintenanceJobReady: (
           row.topicId ?? null,
           row.rawJson ?? null,
           row.deletedAt ?? null,
+          textAvailable ? 1 : 0,
         );
+        const effectiveRow =
+          !textAvailable && previous
+            ? { ...row, text: previous.text }
+            : row;
         if (
           previous &&
-          embeddingMessageSourceChanged(previous, row)
+          embeddingMessageSourceChanged(previous, effectiveRow)
         ) {
           this.markEmbeddingChunksDirtyForMessagesLocked(row.chatId, [row.messageId]);
         }

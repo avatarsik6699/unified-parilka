@@ -69,10 +69,45 @@ test("endpoints, subscriptions, and ordered role models swap through config only
     "openai_primary:gpt-5.6-terra",
   );
   assert.equal(resolvedModel.modelId, "gpt-5.6-terra");
+  assert.deepEqual(resolvedModel.capabilities, { vision: false });
   assert.equal(
     (resolvedModel.model as { provider?: string }).provider,
     "openai_primary.chat",
   );
+});
+
+test("capabilities are validated per exact model reference and default fail-closed", () => {
+  const router = new ModelRouter(config(), { env: ENV });
+
+  assert.deepEqual(
+    router.resolveCandidate("openai_primary:gpt-5.6").capabilities,
+    { vision: true },
+  );
+  assert.deepEqual(
+    router.resolveCandidate("openai_primary:not-declared").capabilities,
+    { vision: false },
+  );
+  assert.deepEqual(router.inspectConfig().modelCapabilities, {
+    "openai_primary:gpt-5.6": { vision: true },
+    "openai_primary:gpt-5.6-mini": { vision: false },
+    "anthropic_backup:claude-sonnet-4-6": { vision: true },
+  });
+
+  const unknownProvider = config();
+  unknownProvider.modelCapabilities["missing:model"] = { vision: true };
+  expectInvalidConfig(unknownProvider, /Unknown provider "missing"/);
+
+  const malformedReference = config();
+  Object.assign(malformedReference.modelCapabilities, {
+    "not a model reference": { vision: true },
+  });
+  expectInvalidConfig(malformedReference, /Invalid key in record/);
+
+  const unknownCapability = config();
+  Object.assign(unknownCapability.modelCapabilities, {
+    "openai_primary:gpt-vision": { vision: true, audio: true },
+  });
+  expectInvalidConfig(unknownCapability, /Unrecognized key: "audio"/);
 });
 
 test("JSON files use the same schema and do not perform provider requests", () => {
@@ -103,6 +138,9 @@ test("DeepSeek uses its native adapter and disables thinking by default", () => 
         apiKeyEnv: "DEEPSEEK_SUBSCRIPTION",
       },
     ],
+    modelCapabilities: {
+      "deepseek_primary:deepseek-v4-flash": { vision: false },
+    },
     roles: {
       turn: ["deepseek_primary:deepseek-v4-flash"],
       summary: ["deepseek_primary:deepseek-v4-flash"],
@@ -130,6 +168,20 @@ test("DeepSeek uses its native adapter and disables thinking by default", () => 
     router.inspectConfig().providers[0]?.thinkingMode,
     "disabled",
   );
+});
+
+test("OpenAI-compatible provider profiles may lower reasoning effort per role", () => {
+  const input = config();
+  input.providers[0]!.reasoningEffort = "low";
+  const router = new ModelRouter(input, { env: ENV });
+  const candidate = router.resolveCandidate("openai_primary:gpt-5.6-mini");
+
+  assert.deepEqual(candidate.providerOptions, {
+    openai: {
+      reasoningEffort: "low",
+    },
+  });
+  assert.equal(router.inspectConfig().providers[0]?.reasoningEffort, "low");
 });
 
 test("inspect output redacts every resolved secret while retaining env references", () => {
@@ -210,5 +262,12 @@ test("provider URLs require HTTPS except explicitly enabled loopback HTTP", () =
   expectInvalidConfig(
     unsupportedThinking,
     /thinkingMode is supported only by the deepseek protocol/,
+  );
+
+  const unsupportedReasoning = config();
+  unsupportedReasoning.providers[1]!.reasoningEffort = "low";
+  expectInvalidConfig(
+    unsupportedReasoning,
+    /reasoningEffort is supported only by the openai protocol/,
   );
 });

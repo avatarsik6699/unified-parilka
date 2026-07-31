@@ -14,6 +14,14 @@
       "apiKeyEnv": "PARILKA_ANTHROPIC_API_KEY"
     }
   ],
+  "modelCapabilities": {
+    "openai_primary:your-openai-model-id": {
+      "vision": true
+    },
+    "anthropic_fallback:your-anthropic-model-id": {
+      "vision": true
+    }
+  },
   "roles": {
     "turn": [
       "openai_primary:your-openai-model-id",

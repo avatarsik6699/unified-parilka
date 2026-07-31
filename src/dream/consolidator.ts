@@ -11,9 +11,27 @@ import type {
 } from "../store.js";
 import type { JsonEventLogger } from "../bot/worker.js";
 
-const DEFAULT_MAX_OUTPUT_TOKENS = 2_048;
+// A memory block is capped at 4,000 characters (2,000 in production), so it
+// does not need the much larger day/week digest budget. Keeping this small is
+// especially important for reasoning-first models, where a larger generation
+// allowance needlessly stretches a background task that has a compact target.
+const DEFAULT_MAX_OUTPUT_TOKENS = 1_024;
 const DEFAULT_TOTAL_TIMEOUT_MS = 120_000;
 const DEFAULT_CANDIDATE_TIMEOUT_MS = 45_000;
+const DEFAULT_MAX_CANDIDATE_ATTEMPTS = 2;
+
+type DreamModelOutput = {
+  text: string;
+  finishReason: string;
+};
+
+type DreamModelGenerate = (params: {
+  candidate: ResolvedModelCandidate;
+  instructions: string;
+  prompt: string;
+  maxOutputTokens: number;
+  signal: AbortSignal;
+}) => Promise<DreamModelOutput>;
 
 export interface DreamConsolidatorStore {
   getChatMemory(chatId: string): StoredChatMemory | undefined;
@@ -37,6 +55,8 @@ export interface DreamConsolidatorOptions {
   maxOutputTokens?: number;
   totalTimeoutMs?: number;
   candidateTimeoutMs?: number;
+  maxCandidateAttempts?: number;
+  generate?: DreamModelGenerate;
   logger?: JsonEventLogger;
   now?: () => Date;
 }
@@ -77,6 +97,8 @@ export class DreamConsolidator {
   readonly #maxOutputTokens: number;
   readonly #totalTimeoutMs: number;
   readonly #candidateTimeoutMs: number;
+  readonly #maxCandidateAttempts: number;
+  readonly #modelGenerate: DreamModelGenerate;
   readonly #logger: JsonEventLogger | undefined;
   readonly #now: () => Date;
 
@@ -110,6 +132,13 @@ export class DreamConsolidator {
       this.#totalTimeoutMs,
       "candidateTimeoutMs",
     );
+    this.#maxCandidateAttempts = boundedInteger(
+      options.maxCandidateAttempts ?? DEFAULT_MAX_CANDIDATE_ATTEMPTS,
+      1,
+      3,
+      "maxCandidateAttempts",
+    );
+    this.#modelGenerate = options.generate ?? generateDreamWithAiSdk;
     this.#logger = options.logger;
     this.#now = options.now ?? (() => new Date());
   }
@@ -242,49 +271,65 @@ export class DreamConsolidator {
     prompt: string,
     signal: AbortSignal,
   ): Promise<string> {
-    const candidateController = new AbortController();
-    const timer = setTimeout(
-      () => candidateController.abort(),
-      this.#candidateTimeoutMs,
-    );
-    timer.unref?.();
-    try {
-      const result = await generateText({
-        model: candidate.model,
-        providerOptions: candidate.providerOptions,
-        instructions,
-        prompt,
-        maxRetries: 0,
-        maxOutputTokens: this.#maxOutputTokens,
-        abortSignal: AbortSignal.any([signal, candidateController.signal]),
-        include: {
-          requestBody: false,
-          requestMessages: false,
-          responseBody: false,
-        },
-      });
-      if (result.finishReason === "content-filter") {
-        throw new ModelContentFilterError(
-          "Provider blocked the dream response.",
-        );
-      }
-      if (result.finishReason !== "stop") {
-        throw Object.assign(
-          new Error("Dream model did not finish normally."),
-          { code: "incomplete_dream", modelFallback: true },
-        );
-      }
-      const text = result.text.trim();
-      if (text.length === 0) {
-        throw Object.assign(new Error("Dream output is empty."), {
-          code: "empty_dream",
-          modelFallback: true,
+    for (
+      let attempt = 1;
+      attempt <= this.#maxCandidateAttempts;
+      attempt += 1
+    ) {
+      const candidateController = new AbortController();
+      const timer = setTimeout(
+        () => candidateController.abort(),
+        this.#candidateTimeoutMs,
+      );
+      timer.unref?.();
+      try {
+        const result = await this.#modelGenerate({
+          candidate,
+          instructions,
+          prompt,
+          maxOutputTokens: this.#maxOutputTokens,
+          signal: AbortSignal.any([signal, candidateController.signal]),
         });
+        if (result.finishReason === "content-filter") {
+          throw new ModelContentFilterError(
+            "Provider blocked the dream response.",
+          );
+        }
+        if (result.finishReason !== "stop") {
+          throw Object.assign(
+            new Error("Dream model did not finish normally."),
+            { code: "incomplete_dream", modelFallback: true },
+          );
+        }
+        const text = result.text.trim();
+        if (text.length === 0) {
+          throw Object.assign(new Error("Dream output is empty."), {
+            code: "empty_dream",
+            modelFallback: true,
+          });
+        }
+        return text;
+      } catch (error) {
+        if (signal.aborted) {
+          throw abortError("Dream was aborted.");
+        }
+        if (candidateController.signal.aborted) {
+          const timeout = Object.assign(
+            new Error("Dream model candidate timed out.", { cause: error }),
+            { code: "ETIMEDOUT" },
+          );
+          if (attempt < this.#maxCandidateAttempts) {
+            continue;
+          }
+          throw timeout;
+        }
+        throw error;
+      } finally {
+        clearTimeout(timer);
       }
-      return text;
-    } finally {
-      clearTimeout(timer);
     }
+
+    throw new Error("Dream candidate retry loop ended unexpectedly.");
   }
 
   async #retryShorter(
@@ -325,6 +370,33 @@ export class DreamConsolidator {
       // Observability is best-effort.
     }
   }
+}
+
+async function generateDreamWithAiSdk(params: {
+  candidate: ResolvedModelCandidate;
+  instructions: string;
+  prompt: string;
+  maxOutputTokens: number;
+  signal: AbortSignal;
+}): Promise<DreamModelOutput> {
+  const result = await generateText({
+    model: params.candidate.model,
+    providerOptions: params.candidate.providerOptions,
+    instructions: params.instructions,
+    prompt: params.prompt,
+    maxRetries: 0,
+    maxOutputTokens: params.maxOutputTokens,
+    abortSignal: params.signal,
+    include: {
+      requestBody: false,
+      requestMessages: false,
+      responseBody: false,
+    },
+  });
+  return {
+    text: result.text,
+    finishReason: result.finishReason,
+  };
 }
 
 function buildInstructions(maxOutputChars: number): string {
@@ -422,9 +494,13 @@ function safeErrorCode(error: unknown): string {
 
 function throwIfAborted(signal: AbortSignal): void {
   if (signal.aborted) {
-    throw Object.assign(new Error("Dream was aborted."), {
-      name: "AbortError",
-      code: "ABORT_ERR",
-    });
+    throw abortError("Dream was aborted.");
   }
+}
+
+function abortError(message: string): Error {
+  return Object.assign(new Error(message), {
+    name: "AbortError",
+    code: "ABORT_ERR",
+  });
 }

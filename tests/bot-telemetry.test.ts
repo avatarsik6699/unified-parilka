@@ -5,29 +5,30 @@ import {
   buildTelemetryFooter,
 } from "../src/bot/telemetry.js";
 
-test("footer shows provider/model, reasoning mode and complete tokens", () => {
+test("footer shows only model, compact input/output, tool calls and duration", () => {
   const telemetry = Object.freeze({
     finalProviderId: "qwen",
-    finalModelId: "qwen3.8-max-preview",
+    finalModelId: "qwen/qwen3.8-max-preview",
     reasoningMode: "on",
     steps: Object.freeze([]),
     totalInputTokens: 7_400,
     totalOutputTokens: 219,
     totalTokens: 7_600,
+    toolCalls: 6,
+    durationMs: 81_200,
     incomplete: false,
   });
 
   const footer = buildTelemetryFooter(telemetry);
 
-  assert.match(footer, /qwen\/qwen3\.8-max-preview/u);
-  assert.match(footer, /reasoning:on/u);
-  assert.match(footer, /in:7\.4k/u);
-  assert.match(footer, /out:219/u);
-  assert.match(footer, /total:7\.6k/u);
-  assert.doesNotMatch(footer, /reported/u);
+  assert.match(footer, /qwen3\.8-max-preview 🧠/u);
+  assert.match(footer, /7\.4k\/219/u);
+  assert.match(footer, /6 tool calls/u);
+  assert.match(footer, /1м 21с/u);
+  assert.doesNotMatch(footer, /reasoning|qwen\/|total:|reported|──/u);
 });
 
-test("footer marks unknown reasoning and incomplete usage", () => {
+test("footer keeps compact unknown token fields without a reasoning marker", () => {
   const telemetry = Object.freeze({
     finalProviderId: "deepseek",
     finalModelId: "deepseek-v4-flash",
@@ -36,15 +37,16 @@ test("footer marks unknown reasoning and incomplete usage", () => {
     totalInputTokens: 100,
     totalOutputTokens: undefined,
     totalTokens: undefined,
+    toolCalls: 0,
+    durationMs: 0,
     incomplete: true,
   });
 
   const footer = buildTelemetryFooter(telemetry);
 
-  assert.match(footer, /reasoning:\?/u);
-  assert.match(footer, /out:\?/u);
-  assert.match(footer, /total:\?/u);
-  assert.match(footer, /reported/u);
+  assert.match(footer, /100\/\?/u);
+  assert.match(footer, /0 tool calls · 0с/u);
+  assert.doesNotMatch(footer, /reasoning|total:|reported|──/u);
 });
 
 test("accumulator sums steps and marks incomplete when usage missing", () => {
@@ -64,6 +66,7 @@ test("accumulator sums steps and marks incomplete when usage missing", () => {
     totalTokens: 25,
   });
   acc.setFinalModel("m-final", "p-final");
+  acc.setExecutionStats({ toolCalls: 2, durationMs: 3_000 });
 
   const telemetry = acc.build();
 
@@ -73,4 +76,6 @@ test("accumulator sums steps and marks incomplete when usage missing", () => {
   assert.equal(telemetry.incomplete, true);
   assert.equal(telemetry.finalModelId, "m-final");
   assert.equal(telemetry.finalProviderId, "p-final");
+  assert.equal(telemetry.toolCalls, 2);
+  assert.equal(telemetry.durationMs, 3_000);
 });

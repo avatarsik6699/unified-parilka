@@ -11,7 +11,7 @@ rollback не выполнялся; сохранённый rollback bundle и т
 ## Текущее production disposition
 
 - canonical state:
-  `/home/billy/.telegram-parilka-mcp/messages-v13.sqlite`, schema v13,
+  `/home/billy/.telegram-parilka-mcp/messages-v13.sqlite`, schema v16,
   mode `0600`;
 - auth state:
   `/home/billy/.telegram-parilka-mcp/mtcute-auth.sqlite`, mode `0600`;
@@ -22,6 +22,11 @@ rollback не выполнялся; сохранённый rollback bundle и т
   `http://127.0.0.1:8765/mcp`;
 - MCP send policy: `TELEGRAM_SEND_ENABLED=false`,
   `TELEGRAM_DRY_RUN_DEFAULT=true`.
+
+Имя canonical файла осталось историческим; additive v16 migration с
+chat-scoped fast/long memory и skills применена на startup 2026-07-31.
+Исходная import rehearsal ниже по-прежнему документирует её зафиксированный
+v10 → v13 baseline, а не текущую версию schema.
 
 Следующие разделы остаются канонической процедурой для новой migration или
 rollback. Они не означают, что текущий production снова находится в shadow.

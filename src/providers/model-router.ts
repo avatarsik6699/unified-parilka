@@ -2,6 +2,7 @@ export {
   MODEL_ROLES,
   MAX_MODEL_CANDIDATES_PER_ROLE,
   type ModelRole,
+  type ModelCapabilities,
   type ModelRouterEnvironment,
   type ModelFallbackReason,
   type ModelFallbackDecision,
@@ -33,4 +34,3 @@ export {
 } from "./model-router/hardened-fetch.js";
 export { classifyModelFallback } from "./model-router/fallback.js";
 export { ModelRouter } from "./model-router/router.js";
-

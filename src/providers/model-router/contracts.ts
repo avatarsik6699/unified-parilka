@@ -6,6 +6,14 @@ export const REDACTED = "[REDACTED]" as const;
 
 export type ModelRole = (typeof MODEL_ROLES)[number];
 export type ModelRouterEnvironment = Readonly<Record<string, string | undefined>>;
+export type ModelReasoningEffort =
+  | "none"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
 
 export type ModelFallbackReason =
   | "abort"
@@ -24,16 +32,29 @@ export interface ModelFallbackDecision {
   reason: ModelFallbackReason;
 }
 
+/**
+ * Explicit model features that callers may rely on. Capabilities are declared
+ * per exact `provider:model` reference, rather than inferred from provider or
+ * model names. An undeclared model is deliberately featureless.
+ */
+export interface ModelCapabilities {
+  vision: boolean;
+}
+
 export interface ResolvedModelCandidate {
   reference: string;
   providerId: string;
   modelId: string;
   model: LanguageModel;
+  capabilities: ModelCapabilities;
   providerOptions?: {
-    deepseek: {
+    deepseek?: {
       thinking: {
         type: "enabled" | "disabled";
       };
+    };
+    openai?: {
+      reasoningEffort: ModelReasoningEffort;
     };
   };
 }
@@ -54,6 +75,7 @@ export interface ModelRouterInspection {
     protocol: "anthropic" | "openai" | "deepseek";
     baseUrl: string;
     thinkingMode?: "enabled" | "disabled";
+    reasoningEffort?: ModelReasoningEffort;
     apiKey: {
       env: string;
       value: typeof REDACTED;
@@ -67,6 +89,7 @@ export interface ModelRouterInspection {
     >;
   }>;
   roles: Record<ModelRole, string[]>;
+  modelCapabilities: Record<string, ModelCapabilities>;
 }
 
 export interface ModelExecutionResult<T> {

@@ -15,7 +15,7 @@ import {
   storeCache,
 } from "./support/bot-read-tools.js";
 
-test("the direct registry preserves the five useful Python contracts", () => {
+test("the direct registry preserves the seven useful read-tool contracts", () => {
   assert.deepEqual(
     BOT_READ_TOOL_DEFINITIONS.map(({ name }) => name),
     [
@@ -23,7 +23,9 @@ test("the direct registry preserves the five useful Python contracts", () => {
       "day_digest",
       "thread_context",
       "web_search",
+      "web_fetch",
       "paper_search",
+      "research_lookup",
     ],
   );
   for (const definition of BOT_READ_TOOL_DEFINITIONS) {

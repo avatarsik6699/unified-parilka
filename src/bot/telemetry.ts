@@ -23,6 +23,10 @@ export interface TurnTelemetry {
   readonly totalInputTokens: number | undefined;
   readonly totalOutputTokens: number | undefined;
   readonly totalTokens: number | undefined;
+  /** Number of tool executions that actually started during this turn. */
+  readonly toolCalls: number;
+  /** Wall-clock duration of the model/agent request, excluding publication. */
+  readonly durationMs: number;
   /** True when at least one completed step did not report usage. */
   readonly incomplete: boolean;
 }
@@ -32,6 +36,8 @@ export class TurnUsageAccumulator {
   #finalModelId = "";
   #finalProviderId = "";
   #reasoningMode: string | undefined;
+  #toolCalls = 0;
+  #durationMs = 0;
 
   recordStep(record: {
     modelId: string;
@@ -60,6 +66,14 @@ export class TurnUsageAccumulator {
   setFinalModel(modelId: string, providerId: string): void {
     this.#finalModelId = boundedString(modelId, 128);
     this.#finalProviderId = boundedString(providerId, 64);
+  }
+
+  setExecutionStats(input: {
+    toolCalls: number;
+    durationMs: number;
+  }): void {
+    this.#toolCalls = safeNonNegativeInteger(input.toolCalls) ?? 0;
+    this.#durationMs = safeNonNegativeInteger(input.durationMs) ?? 0;
   }
 
   build(): TurnTelemetry {
@@ -94,6 +108,8 @@ export class TurnUsageAccumulator {
       totalInputTokens: totalInput,
       totalOutputTokens: totalOutput,
       totalTokens: totalAll,
+      toolCalls: this.#toolCalls,
+      durationMs: this.#durationMs,
       incomplete,
     });
   }
@@ -102,21 +118,58 @@ export class TurnUsageAccumulator {
 /**
  * Renders a compact, unobtrusive telemetry footer for the final answer.
  *
- * Format: `──\nmodel · reasoning · in/out/total tok [· incomplete]`
+ * Format: `model 🧠 · input/output · tool calls · duration`
  *
  * Missing values are shown as `?` rather than invented. The footer is plain
  * text and must pass through the same output guards as the rest of the answer.
  */
 export function buildTelemetryFooter(telemetry: TurnTelemetry): string {
-  const provider = telemetry.finalProviderId || "unknown";
-  const model = telemetry.finalModelId || "unknown";
-  const reasoning = telemetry.reasoningMode ?? "?";
+  const model = displayModelName(
+    telemetry.finalModelId,
+    telemetry.finalProviderId,
+  );
   const input = formatTokens(telemetry.totalInputTokens);
   const output = formatTokens(telemetry.totalOutputTokens);
-  const total = formatTokens(telemetry.totalTokens);
-  const suffix = telemetry.incomplete ? " · reported" : "";
 
-  return `──\n${provider}/${model} · reasoning:${reasoning} · in:${input} out:${output} total:${total}${suffix}`;
+  return `${model} 🧠 · ${input}/${output} · ${telemetry.toolCalls} tool calls · ${formatDuration(telemetry.durationMs)}`;
+}
+
+/** Extracts optional provider reasoning usage without trusting response shape. */
+export function extractReasoningTokens(usage: unknown): number | undefined {
+  if (typeof usage !== "object" || usage === null) {
+    return undefined;
+  }
+  const record = usage as Record<string, unknown>;
+  const direct = safeTokenCount(record.reasoningTokens);
+  if (direct !== undefined) {
+    return direct;
+  }
+  const outputTokens = record.outputTokens;
+  return typeof outputTokens === "object" && outputTokens !== null
+    ? safeTokenCount((outputTokens as Record<string, unknown>).reasoning)
+    : undefined;
+}
+
+/** Returns the internal telemetry flag; it is deliberately not user-visible. */
+export function extractReasoningMode(step: unknown): string | undefined {
+  if (typeof step !== "object" || step === null) {
+    return undefined;
+  }
+  const usage = (step as Record<string, unknown>).usage;
+  const reasoningTokens = extractReasoningTokens(usage);
+  return reasoningTokens !== undefined && reasoningTokens > 0
+    ? "on"
+    : undefined;
+}
+
+function displayModelName(modelId: string, providerId: string): string {
+  const model = modelId.trim() || "unknown";
+  const providerPrefix = providerId.trim()
+    ? `${providerId.trim()}/`
+    : "";
+  return providerPrefix && model.startsWith(providerPrefix)
+    ? model.slice(providerPrefix.length) || "unknown"
+    : model;
 }
 
 function formatTokens(value: number | undefined): string {
@@ -132,7 +185,29 @@ function formatTokens(value: number | undefined): string {
   return String(value);
 }
 
+function formatDuration(durationMs: number): string {
+  const totalSeconds = Math.max(0, Math.round(durationMs / 1_000));
+  if (totalSeconds < 60) {
+    return `${totalSeconds}с`;
+  }
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) {
+    return `${minutes}м ${seconds}с`;
+  }
+  const hours = Math.floor(minutes / 60);
+  return `${hours}ч ${minutes % 60}м`;
+}
+
 function safeTokenCount(value: unknown): number | undefined {
+  return typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 0
+    ? value
+    : undefined;
+}
+
+function safeNonNegativeInteger(value: unknown): number | undefined {
   return typeof value === "number" &&
     Number.isSafeInteger(value) &&
     value >= 0

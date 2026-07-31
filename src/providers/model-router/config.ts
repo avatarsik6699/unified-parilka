@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   MAX_MODEL_CANDIDATES_PER_ROLE,
   MODEL_ROLES,
+  type ModelReasoningEffort,
   type ModelRouterEnvironment,
   type ModelRouterOptions,
 } from "./contracts.js";
@@ -18,6 +19,15 @@ const PROVIDER_ID_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
 const MODEL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/@:+-]{0,199}$/;
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 const HEADER_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+const REASONING_EFFORTS = [
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const satisfies readonly ModelReasoningEffort[];
 
 const providerIdSchema = z
   .string()
@@ -74,6 +84,13 @@ const providerSchema = z
     apiKeyEnv: envNameSchema,
     headers: z.record(z.string(), headerEnvRefSchema).optional(),
     thinkingMode: z.enum(["enabled", "disabled"]).optional(),
+    reasoningEffort: z.enum(REASONING_EFFORTS).optional(),
+  })
+  .strict();
+
+const modelCapabilitiesSchema = z
+  .object({
+    vision: z.boolean(),
   })
   .strict();
 
@@ -89,6 +106,11 @@ export const modelRouterConfigSchema = z
   .object({
     allowInsecureLocal: z.boolean().default(false),
     providers: z.array(providerSchema).min(1).max(MAX_PROVIDERS),
+    // Capabilities are declared per exact model reference: two models behind
+    // one provider can differ. Missing entries resolve fail-closed later.
+    modelCapabilities: z
+      .record(modelCandidateSchema, modelCapabilitiesSchema)
+      .default({}),
     roles: z
       .object({
         turn: roleCandidatesSchema,
@@ -130,6 +152,16 @@ export const modelRouterConfigSchema = z
           message: "thinkingMode is supported only by the deepseek protocol.",
         });
       }
+      if (
+        provider.reasoningEffort !== undefined &&
+        provider.protocol !== "openai"
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["providers", providerIndex, "reasoningEffort"],
+          message: "reasoningEffort is supported only by the openai protocol.",
+        });
+      }
       if (headers.length > MAX_HEADERS_PER_PROVIDER) {
         context.addIssue({
           code: "custom",
@@ -156,6 +188,17 @@ export const modelRouterConfigSchema = z
         }
         normalizedHeaders.add(normalized);
       });
+    });
+
+    Object.keys(config.modelCapabilities).forEach((candidate) => {
+      const parts = splitCandidate(candidate);
+      if (parts && !providerIds.has(parts.providerId)) {
+        context.addIssue({
+          code: "custom",
+          path: ["modelCapabilities", candidate],
+          message: `Unknown provider "${parts.providerId}".`,
+        });
+      }
     });
 
     for (const role of MODEL_ROLES) {

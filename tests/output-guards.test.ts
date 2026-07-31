@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   TELEGRAM_TEXT_LIMIT_UTF16,
+  guardApplicationPlainTelegramOutput,
   guardFinalTelegramOutput,
   splitTelegramText,
   utf16Length,
@@ -172,6 +173,28 @@ test("an unattributed quote without evidence is allowed", () => {
   const sent = expectSend(result);
   assert.equal(sent.report.verifiedQuotes, 0);
   assert.match(sent.text, /полностью выдуманная длинная цитата/u);
+});
+
+test("a page-title label before a quote is not treated as a chat speaker", () => {
+  const result = guardFinalTelegramOutput(
+    { kind: "final", text: "Заголовок страницы: «Example Domain»." },
+    {
+      evidence: [{ speaker: "Боб", text: "Боб написал совсем другое." }],
+    },
+  );
+
+  assert.equal(expectSend(result).report.verifiedQuotes, 0);
+});
+
+test("an all-caps external source after a quote is not treated as a chat speaker", () => {
+  const result = guardFinalTelegramOutput(
+    { kind: "final", text: "«Example Domain» — IANA." },
+    {
+      evidence: [{ speaker: "Боб", text: "Боб написал совсем другое." }],
+    },
+  );
+
+  assert.equal(expectSend(result).report.verifiedQuotes, 0);
 });
 
 test("more than two mentions rejects even when every username is allowlisted", () => {
@@ -381,6 +404,41 @@ test("the validated fallback chunk bound crosses the publication boundary", () =
     plainText: "x".repeat(200),
     maxChunkUtf16: 64,
   });
+});
+
+test("an application-owned local transcript stays plain but neutralizes Telegram mentions and links", () => {
+  const transcript = `Коля: «длинная фраза из голосового, которую нельзя выдавать за модельную цитату»\n@somename https://example.test/path, t.me/channel, person@example.test ${"x".repeat(5_000)}`;
+  const result = guardApplicationPlainTelegramOutput(
+    { kind: "final", text: transcript },
+  );
+
+  const sent = expectSend(result);
+  const expected = transcript
+    .replaceAll("@somename", "@\u2060somename")
+    .replaceAll("https:", "https:\u2060")
+    .replaceAll("example.test", "example.\u2060test")
+    .replaceAll("t.me", "t.\u2060me")
+    .replaceAll("person@", "person@\u2060");
+  assert.deepEqual(sent.publication, {
+    mode: "plain",
+    plainText: expected,
+    maxChunkUtf16: TELEGRAM_TEXT_LIMIT_UTF16,
+  });
+  assert.doesNotMatch(sent.text, /@[a-z][a-z0-9_]{4,31}\b/iu);
+  assert.doesNotMatch(sent.text, /https:\/\//iu);
+  assert.doesNotMatch(sent.text, /\bt\.me\//iu);
+  assert.deepEqual(splitTelegramText(sent.text).join(""), expected);
+});
+
+test("normal model plain publication is not rewritten by local transcript entity hardening", () => {
+  const result = guardFinalTelegramOutput(
+    { kind: "final", text: "@alice https://example.test/path" },
+    { allowedMentions: ["alice"] },
+  );
+
+  const sent = expectSend(result);
+  assert.equal(sent.publication.mode, "rich");
+  assert.equal(sent.text, "@alice https://example.test/path");
 });
 
 test("splitter preserves paragraph whitespace and never exceeds a conservative limit", () => {

@@ -38,6 +38,8 @@ export interface DreamPassOptions
     | "dreamMaxMessages"
     | "memoryMaxChars"
     | "modelConfigPath"
+    | "modelTotalTimeoutMs"
+    | "modelCandidateTimeoutMs"
   > {}
 
 export async function runDreamPass(
@@ -66,6 +68,8 @@ export async function runDreamPass(
   const consolidator = new DreamConsolidator({
     router,
     maxOutputChars: options.memoryMaxChars,
+    totalTimeoutMs: options.modelTotalTimeoutMs,
+    candidateTimeoutMs: options.modelCandidateTimeoutMs,
   });
 
   const result = await consolidator.run(store, {

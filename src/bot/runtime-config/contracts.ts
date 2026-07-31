@@ -20,6 +20,19 @@ export type BotWebSearchRuntimeConfig =
   | BotWebSearchHttpRuntimeConfig
   | BotWebSearchVertexRuntimeConfig;
 
+export interface BotResearchGatewayRuntimeConfig {
+  socketPath: string;
+  timeoutMs: number;
+}
+
+/** Machine-local Flov endpoint used only for audio sent to this bot. */
+export interface BotAudioTranscribeRuntimeConfig {
+  endpoint: string;
+  timeoutMs: number;
+  /** Optional bearer credential for a locally hardened Flov API. */
+  bearerToken?: string;
+}
+
 export interface BotRuntimeConfig {
   token: string;
   exclusivePollerConfirmed: true;
@@ -34,6 +47,8 @@ export interface BotRuntimeConfig {
   dbPath: string;
   modelConfigPath: string;
   webSearch?: BotWebSearchRuntimeConfig;
+  researchGateway?: BotResearchGatewayRuntimeConfig;
+  audioTranscribe: BotAudioTranscribeRuntimeConfig;
   mode: BotRuntimeMode;
   workerConcurrency: number;
   triggerCooldownMs: number;
@@ -50,9 +65,12 @@ export interface BotRuntimeConfig {
 
 export type SafeBotRuntimeConfig = Omit<
   BotRuntimeConfig,
-  "token" | "webSearch"
+  "token" | "webSearch" | "researchGateway" | "audioTranscribe"
 > & {
   tokenConfigured: true;
+  audioTranscribe: Omit<BotAudioTranscribeRuntimeConfig, "bearerToken"> & {
+    bearerTokenConfigured: boolean;
+  };
   webSearch?:
     | {
         kind: "http";
@@ -67,6 +85,10 @@ export type SafeBotRuntimeConfig = Omit<
         maxOutputTokens: number;
         gcloudPathConfigured: boolean;
       };
+  researchGateway?: {
+    configured: true;
+    timeoutMs: number;
+  };
 };
 
 export type BotRuntimeEnvironment = Readonly<

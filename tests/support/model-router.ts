@@ -34,6 +34,11 @@ export function config(): ModelRouterConfig {
         apiKeyEnv: "ANTHROPIC_SUBSCRIPTION",
       },
     ],
+    modelCapabilities: {
+      "openai_primary:gpt-5.6": { vision: true },
+      "openai_primary:gpt-5.6-mini": { vision: false },
+      "anthropic_backup:claude-sonnet-4-6": { vision: true },
+    },
     roles: {
       turn: [
         "openai_primary:gpt-5.6",

@@ -58,6 +58,8 @@ export type MtcutePeerSource =
 export type MtcuteMessageSource = {
   readonly id: number;
   readonly text: string;
+  /** Mtcute exposes native rich content separately from `text`. */
+  readonly richMessage?: unknown | null;
   readonly date: Date;
   readonly editDate: Date | null;
   readonly sender: MtcutePeerSource;

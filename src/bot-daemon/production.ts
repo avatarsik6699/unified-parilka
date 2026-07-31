@@ -12,6 +12,7 @@ import { MessageStore } from "../store.js";
 import { VectorRag } from "../vector-rag.js";
 import { HttpJsonWebSearchProvider } from "../bot/web-search.js";
 import { VertexGeminiWebSearchProvider } from "../bot/web-search-vertex.js";
+import { UnixSocketResearchGatewayProvider } from "../bot/read-tools.js";
 import { composeBotDaemon } from "./composition.js";
 import type {
   BotDaemonComposition,
@@ -53,6 +54,10 @@ export function createProductionBotDaemon(
     config.webSearch === undefined
       ? undefined
       : factories.createWebSearch(config.webSearch);
+  const researchGateway =
+    config.researchGateway === undefined
+      ? undefined
+      : factories.createResearchGateway(config.researchGateway);
   const store = factories.createStore(config.dbPath);
   let composition: BotDaemonComposition | undefined;
   let closed = false;
@@ -89,6 +94,7 @@ export function createProductionBotDaemon(
       appConfig,
       ...(vector === undefined ? {} : { vector }),
       ...(webSearch === undefined ? {} : { webSearch }),
+      ...(researchGateway === undefined ? {} : { researchGateway }),
       logger: options.logger,
       workerIdPrefix: options.workerIdPrefix,
     });
@@ -100,6 +106,7 @@ export function createProductionBotDaemon(
       logger: options.logger,
       vectorEnabled: vector !== undefined,
       webSearchEnabled: webSearch !== undefined,
+      researchGatewayEnabled: researchGateway !== undefined,
       activeWorkerCount: () =>
         composition?.workerPump.activeWorkers ?? 0,
       close,
@@ -153,6 +160,11 @@ const DEFAULT_PRODUCTION_FACTORIES: ProductionBotDaemonFactories = {
     return new HttpJsonWebSearchProvider({
       endpoint: config.endpoint,
       bearerToken: config.bearerToken,
+    });
+  },
+  createResearchGateway(config) {
+    return new UnixSocketResearchGatewayProvider({
+      socketPath: config.socketPath,
     });
   },
 };

@@ -155,6 +155,80 @@ export function guardFinalTelegramOutput(
   };
 }
 
+/**
+ * Guard an application-produced, already-local plain response such as an
+ * explicit Flov transcription. It deliberately does not interpret its text
+ * as model Markdown, quotes, or mentions: the payload is sent through the
+ * classic plain path. To keep spoken usernames and links from becoming
+ * Telegram entities, zero-width word joiners neutralize only the entity
+ * syntax; the visible transcript remains readable. Unicode, emptiness and
+ * the same Telegram chunk bound remain enforced.
+ */
+export function guardApplicationPlainTelegramOutput(
+  output: FinalModelOutput,
+  policy: OutputGuardPolicy = {},
+): OutputGuardResult {
+  const validated = validatePolicy(policy);
+  if (!validated.ok) {
+    return validated;
+  }
+  const text = neutralizeTelegramEntities(
+    cleanArtifactWhitespace(output.text),
+  );
+  if (!text) {
+    return rejectOutput(
+      "empty_after_sanitization",
+      "The application output contained no publishable text.",
+    );
+  }
+  if (hasUnpairedSurrogate(text)) {
+    return rejectOutput(
+      "invalid_unicode",
+      "The application output contains an unpaired UTF-16 surrogate and cannot be sent safely.",
+    );
+  }
+  return {
+    ok: true,
+    disposition: "send",
+    text,
+    publication: {
+      mode: "plain",
+      plainText: text,
+      maxChunkUtf16: validated.maxChunkUtf16,
+    },
+    report: {
+      removedHiddenBlocks: 0,
+      removedServiceArtifacts: 0,
+      verifiedQuotes: 0,
+      mentions: [],
+    },
+  };
+}
+
+const WORD_JOINER = "\u2060";
+
+/**
+ * A local transcript is application-owned rather than model-authored, so it
+ * cannot go through the normal mention policy without misrepresenting what
+ * was said. Break Telegram's entity tokenization invisibly instead. This is
+ * intentionally used only by the local-audio publication boundary.
+ */
+function neutralizeTelegramEntities(text: string): string {
+  return text
+    .replace(
+      /@(?=[a-z][a-z0-9_]{4,31}(?:\b|$))/giu,
+      `@${WORD_JOINER}`,
+    )
+    .replace(
+      /\b((?:https?|tg):)(?=\/\/)/giu,
+      `$1${WORD_JOINER}`,
+    )
+    .replace(
+      /\b([a-z0-9-]+)\.(?=[a-z0-9-]+(?:\.|\/|\b))/giu,
+      `$1.${WORD_JOINER}`,
+    );
+}
+
 function validatePolicy(policy: OutputGuardPolicy): ValidatedPolicy {
   const maxMentions = policy.maxMentions ?? DEFAULT_MAX_MENTIONS;
   const maxChunkUtf16 =

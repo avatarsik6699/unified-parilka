@@ -106,6 +106,26 @@ test("edits the existing message as tools complete", async () => {
   assert.deepEqual(texts, ["⏳ search_chat", "✓ search_chat"]);
 });
 
+test("shows thinking as a separate safe status before a tool call", async () => {
+  const port = fakePort();
+  const { publisher } = makePublisher({ port });
+
+  publisher.onThinkingStarted({ callId: "thinking-1" });
+  await drain();
+  publisher.onThinkingCompleted({ callId: "thinking-1" }, true);
+  publisher.onToolStarted({ toolName: "web_search", callId: "search-1" });
+  await drain();
+  await publisher.finish(new AbortController().signal);
+
+  const texts = port.calls
+    .filter((call) => call.kind === "send" || call.kind === "edit")
+    .map((call) => call.text);
+  assert.deepEqual(texts, [
+    "🧠 thinking",
+    "✓ thinking\n⏳ web_search",
+  ]);
+});
+
 test("uses error icon for failed tools", async () => {
   const port = fakePort();
   const { publisher } = makePublisher({ port });
@@ -118,6 +138,96 @@ test("uses error icon for failed tools", async () => {
 
   const edit = port.calls.find((call) => call.kind === "edit");
   assert.equal(edit?.text, "✗ web_search");
+});
+
+test("shows an allowlisted query and clamps it to three lines", async () => {
+  const port = fakePort();
+  const { publisher } = makePublisher({ port });
+
+  publisher.onToolStarted({
+    toolName: "web_search",
+    callId: "c1",
+    input: { query: "q".repeat(400) },
+  });
+  await drain();
+  publisher.onToolCompleted({ toolName: "web_search", callId: "c1" }, true);
+  await drain();
+  await publisher.finish(new AbortController().signal);
+
+  const texts = port.calls
+    .filter((call) => call.kind === "send" || call.kind === "edit")
+    .map((call) => call.text);
+  const first = String(texts[0]);
+  const lines = first.split("\n");
+  assert.equal(lines.length, 4);
+  assert.equal(lines[0], "⏳ web_search");
+  assert.match(lines[1] ?? "", /^  запрос: q+/);
+  assert.match(lines[3] ?? "", /…$/);
+  assert.match(String(texts[1]), /^✓ web_search\n  запрос:/);
+});
+
+test("shows a web_fetch page selector without leaking its query string", async () => {
+  const port = fakePort();
+  const { publisher } = makePublisher({ port });
+
+  publisher.onToolStarted({
+    toolName: "web_fetch",
+    callId: "c1",
+    input: { url: "https://example.com/article?access_token=do-not-show" },
+  });
+  await drain();
+  await publisher.finish(new AbortController().signal);
+
+  const sent = port.calls.find((call) => call.kind === "send");
+  assert.equal(
+    sent?.text,
+    "⏳ web_fetch\n  страница: https://example.com/article",
+  );
+  assert.doesNotMatch(String(sent?.text), /access_token|do-not-show/u);
+});
+
+test("research lookup hides its raw selector from the visible timeline", async () => {
+  const port = fakePort();
+  const { publisher } = makePublisher({ port });
+
+  publisher.onToolStarted({
+    toolName: "research_lookup",
+    callId: "c1",
+    input: { query: "Иван Иванов phone +7 999 123-45-67" },
+  });
+  await drain();
+  await publisher.finish(new AbortController().signal);
+
+  const sent = port.calls.find((call) => call.kind === "send");
+  assert.equal(
+    sent?.text,
+    "⏳ research_lookup\n  корпус: обезличенные HH-исследования",
+  );
+  assert.doesNotMatch(String(sent?.text), /Иван|999|123/u);
+});
+
+test("audio transcription shows only the safe addressed-media selector", async () => {
+  const port = fakePort();
+  const { publisher } = makePublisher({ port });
+
+  publisher.onToolStarted({
+    toolName: "audio_transcribe",
+    callId: "audio-1",
+    input: {
+      source: "reply",
+      file_id: "never-display-this",
+      transcript: "и это тоже никогда не должно попасть в progress",
+    },
+  });
+  await drain();
+  await publisher.finish(new AbortController().signal);
+
+  const sent = port.calls.find((call) => call.kind === "send");
+  assert.equal(
+    sent?.text,
+    "⏳ audio_transcribe\n  аудио: прямой реплай",
+  );
+  assert.doesNotMatch(String(sent?.text), /file_id|never-display|тоже никогда/u);
 });
 
 test("recovers a stale message from a previous attempt", async () => {
@@ -154,16 +264,16 @@ test("survives send/edit/delete failures without throwing", async () => {
 
 test("renderProgressText joins statuses and truncates", () => {
   const pending = new Map([
-    ["a", { toolName: "search_chat", state: "running" as const }],
-    ["b", { toolName: "web_search", state: "ok" as const }],
-    ["c", { toolName: "day_digest", state: "error" as const }],
+    ["a", { kind: "tool" as const, toolName: "search_chat", state: "running" as const }],
+    ["b", { kind: "tool" as const, toolName: "web_search", state: "ok" as const }],
+    ["c", { kind: "tool" as const, toolName: "day_digest", state: "error" as const }],
   ]);
   assert.equal(
     renderProgressText(pending, 100),
     "⏳ search_chat\n✓ web_search\n✗ day_digest",
   );
 
-  const long = new Map([["x", { toolName: "very_long_tool_name", state: "running" as const }]]);
+  const long = new Map([["x", { kind: "tool" as const, toolName: "very_long_tool_name", state: "running" as const }]]);
   const rendered = renderProgressText(long, 10);
   assert.equal(rendered.length, 10);
   assert.equal(rendered.at(-1), "…");

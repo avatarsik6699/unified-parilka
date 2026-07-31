@@ -1,10 +1,5 @@
 import { randomBytes } from "node:crypto";
-import {
-  generateText,
-  jsonSchema,
-  tool,
-  type ToolSet,
-} from "ai";
+import { generateText } from "ai";
 import {
   ModelContentFilterError,
   type ModelExecutionResult,
@@ -13,19 +8,19 @@ import {
 } from "../providers/model-router.js";
 import {
   BOT_AGENT_CONTRACT,
+  botResearchMinimumToolCalls,
+  botResearchModeForText,
+  botToolCallBudget,
   buildBotSystemPrompt,
   renderFoldBatch,
-  wrapUntrustedToolData,
   type BotSystemPromptOptions,
 } from "./prompt.js";
+import { type BotReadTools } from "./read-tools.js";
+import { BotMemoryTools } from "./memory-tools.js";
+import { botMemoryWriteAllowedForText } from "./memory-policy.js";
 import {
-  BOT_READ_TOOL_DEFINITIONS,
-  BOT_READ_TOOL_NAMES,
-  type BotReadToolName,
-  type BotReadToolResult,
-  type BotReadTools,
-} from "./read-tools.js";
-import {
+  extractReasoningMode,
+  extractReasoningTokens,
   TurnUsageAccumulator,
   type TurnTelemetry,
 } from "./telemetry.js";
@@ -35,13 +30,29 @@ import type {
   BotTurnAgent,
   JsonEventLogger,
 } from "./worker.js";
-import { buildTurnMessages, userMessage } from "./agent/context.js";
+import {
+  buildTurnMessages,
+  userMessage,
+  withImageAttachment,
+} from "./agent/context.js";
 import {
   boundedSerialize,
   collectQuoteEvidence,
   renderCarriedToolMessages,
   type CarriedToolResult,
 } from "./agent/evidence.js";
+import { ThinkingProgressTracker } from "./agent/thinking-progress.js";
+import {
+  createBotToolSet,
+  researchContinuationInstructions,
+  type BotToolSetExecutionCompleted,
+} from "./agent/tool-set.js";
+import {
+  AudioTranscriptionExecution,
+  isDirectAudioTranscriptionRequest,
+  renderDirectAudioTranscription,
+} from "./agent/media-execution.js";
+import { type BotMediaToolsPort } from "./media-tools.js";
 import {
   agentAbortError,
   boundedInteger,
@@ -55,11 +66,9 @@ import {
 
 const DEFAULT_CONTEXT_CHARS = 48_000;
 const DEFAULT_MAX_OUTPUT_TOKENS = 2_048;
-const DEFAULT_TOTAL_TIMEOUT_MS = 120_000;
-const DEFAULT_STEP_TIMEOUT_MS = 60_000;
+const DEFAULT_TOTAL_TIMEOUT_MS = 600_000;
 const DEFAULT_TOOL_TIMEOUT_MS = 15_000;
 const MAX_CONTEXT_CHARS = 200_000;
-const MAX_MODEL_STEPS = BOT_AGENT_CONTRACT.maxToolCalls + 1;
 
 export interface TurnModelRouter {
   executeWithFallback<T>(
@@ -74,6 +83,8 @@ export interface TurnModelRouter {
 export interface AiSdkBotTurnAgentOptions {
   router: TurnModelRouter;
   readTools: BotReadTools;
+  mediaTools?: BotMediaToolsPort;
+  memoryTools?: BotMemoryTools;
   prompt: Omit<BotSystemPromptOptions, "modelLabel" | "now">;
   logger?: JsonEventLogger;
   now?: () => Date;
@@ -117,6 +128,8 @@ export class BotAgentProtocolError extends Error {
 export class AiSdkBotTurnAgent implements BotTurnAgent {
   readonly #router: TurnModelRouter;
   readonly #readTools: BotReadTools;
+  readonly #mediaTools: BotMediaToolsPort | undefined;
+  readonly #memoryTools: BotMemoryTools | undefined;
   readonly #prompt: Omit<BotSystemPromptOptions, "modelLabel" | "now">;
   readonly #logger: JsonEventLogger | undefined;
   readonly #now: () => Date;
@@ -124,12 +137,19 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
   readonly #contextCharLimit: number;
   readonly #maxOutputTokens: number;
   readonly #totalTimeoutMs: number;
-  readonly #stepTimeoutMs: number;
+  /**
+   * Undefined deliberately means that only the whole-turn deadline applies.
+   * Qwen can legitimately take longer than a fixed per-step ceiling after a
+   * tool result, while the enclosing AbortSignal still bounds the turn.
+   */
+  readonly #stepTimeoutMs: number | undefined;
   readonly #toolTimeoutMs: number;
 
   constructor(options: AiSdkBotTurnAgentOptions) {
     this.#router = options.router;
     this.#readTools = options.readTools;
+    this.#mediaTools = options.mediaTools;
+    this.#memoryTools = options.memoryTools;
     this.#prompt = options.prompt;
     this.#logger = options.logger;
     this.#now = options.now ?? (() => new Date());
@@ -153,31 +173,32 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
       15 * 60_000,
       "totalTimeoutMs",
     );
-    this.#stepTimeoutMs = boundedInteger(
-      options.stepTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS,
-      100,
-      this.#totalTimeoutMs,
-      "stepTimeoutMs",
-    );
+    this.#stepTimeoutMs = options.stepTimeoutMs === undefined
+      ? undefined
+      : boundedInteger(
+          options.stepTimeoutMs,
+          100,
+          this.#totalTimeoutMs,
+          "stepTimeoutMs",
+        );
     this.#toolTimeoutMs = boundedInteger(
       options.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
       100,
-      this.#stepTimeoutMs,
+      this.#stepTimeoutMs ?? this.#totalTimeoutMs,
       "toolTimeoutMs",
     );
   }
 
   async run(request: BotAgentRequest): Promise<BotAgentFinalResult> {
     throwIfTurnAborted(request.signal);
+    const agentStartedAtMs = Date.now();
+    const agentDeadlineAtMs = agentStartedAtMs + this.#totalTimeoutMs;
     const traceContext = {
       turnId: request.turn.id,
       updateId: request.turn.updateId,
     };
     const deadlineSignal = AbortSignal.timeout(this.#totalTimeoutMs);
-    const turnSignal = AbortSignal.any([
-      request.signal,
-      deadlineSignal,
-    ]);
+    const turnSignal = AbortSignal.any([request.signal, deadlineSignal]);
     const now = this.#now();
     if (!(now instanceof Date) || Number.isNaN(now.getTime())) {
       throw new Error("now must return a valid Date");
@@ -188,6 +209,12 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
       nonce,
       this.#contextCharLimit,
     );
+    const researchMode = botResearchModeForText(request.trigger.text);
+    const researchMinimumToolCalls = botResearchMinimumToolCalls(researchMode);
+    const memoryWriteAllowed =
+      this.#memoryTools !== undefined &&
+      botMemoryWriteAllowedForText(request.trigger.text);
+    const toolCallBudget = botToolCallBudget(researchMode);
     const folds: string[] = [];
     const carriedTools: CarriedToolResult[] = [];
     const evidence: BotAgentFinalResult["evidence"][number][] = [];
@@ -196,9 +223,40 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
     const usage = new TurnUsageAccumulator();
     let allowedExecutions = 0;
     let startedExecutions = 0;
+    let startedReadExecutions = 0;
     let completedExecutions = 0;
     let deniedExecutions = 0;
     let requestedExecutions = 0;
+    let researchQualityRetries = 0;
+    const thinkingProgress = new ThinkingProgressTracker(
+      request.toolProgressPort,
+    );
+    const mediaTools = this.#mediaTools;
+    const photoTarget = mediaTools?.findPhoto(
+      request.trigger,
+      request.replyTarget,
+    );
+    const audioTarget = mediaTools?.findAudio(
+      request.trigger,
+      request.replyTarget,
+    );
+    let visionAttachmentPromise: ReturnType<BotMediaToolsPort["resolveVision"]> | undefined;
+    const audioExecution = new AudioTranscriptionExecution({
+      mediaTools,
+      target: audioTarget,
+      thinkingProgress,
+      toolProgressPort: request.toolProgressPort,
+      carriedTools,
+      evidence,
+      evidenceKeys,
+      onStarted: () => { startedExecutions += 1; },
+      onCompleted: () => { completedExecutions += 1; },
+      getSequence: (callId) =>
+        approvalOrder.get(callId) ?? allowedExecutions + carriedTools.length + 1,
+      remainingTurnMs: () => Math.max(0, agentDeadlineAtMs - Date.now()),
+      log: (level, event, fields) => this.#log(level, event, fields),
+      traceContext,
+    });
 
     const rememberFold = (boundary: "model" | "tool"): void => {
       const rendered = renderFoldBatch(request.drainFold(boundary));
@@ -207,17 +265,84 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
       }
     };
 
+    if (isDirectAudioTranscriptionRequest(request.trigger.text)) {
+      // A reply + @mention saying "расшифруй" is an explicit local command,
+      // not a suggestion for a remote language model. It intentionally never
+      // sends the private transcript to a provider: the worker publishes the
+      // full result through its application-owned plain-text path instead.
+      allowedExecutions += audioExecution.available ? 1 : 0;
+      const directAudio = await audioExecution.runDirect({
+        callId: `audio:auto:${request.turn.id}`,
+        signal: turnSignal,
+      });
+      usage.setFinalModel("flov", "local");
+      usage.setExecutionStats({
+        toolCalls: startedExecutions,
+        durationMs: Math.max(0, Date.now() - agentStartedAtMs),
+      });
+      const final: BotAgentFinalResult = {
+        kind: "final",
+        text: renderDirectAudioTranscription(directAudio),
+        evidence: [],
+        telemetry: usage.build(),
+        responseOrigin: "local_audio",
+      };
+      this.#log("info", "bot.agent.complete", {
+        ...traceContext,
+        candidate: "local:flov",
+        attempt: 1,
+        fallbackCount: 0,
+        fallbackReasons: [],
+        requestedToolCalls: requestedExecutions,
+        allowedToolCalls: allowedExecutions,
+        startedToolCalls: startedExecutions,
+        startedReadToolCalls: startedReadExecutions,
+        completedToolCalls: completedExecutions,
+        deniedToolCalls: deniedExecutions,
+        evidenceCount: 0,
+        researchMode,
+        memoryWriteAllowed,
+        toolCallBudget,
+        researchMinimumToolCalls,
+        researchQualityRetries,
+      });
+      return final;
+    }
+
     try {
       const routed = await this.#router.executeWithFallback(
         "turn",
         async (candidate, attemptNumber) => {
           throwIfAgentAborted(request.signal, deadlineSignal);
-          let foldCursor = folds.length;
-          const attemptMessages = [
-            ...baseMessages,
-            ...folds.map(userMessage),
-            ...renderCarriedToolMessages(carriedTools, nonce),
-          ];
+          let visionAttachment:
+            | Awaited<ReturnType<BotMediaToolsPort["resolveVision"]>>
+            | undefined;
+          if (
+            photoTarget !== undefined &&
+            mediaTools !== undefined &&
+            candidate.capabilities.vision
+          ) {
+            try {
+              visionAttachmentPromise ??= mediaTools.resolveVision(
+                photoTarget,
+                turnSignal,
+              );
+              visionAttachment = await visionAttachmentPromise;
+            } catch (error) {
+              if (turnSignal.aborted) {
+                throw agentAbortError(request.signal, deadlineSignal);
+              }
+              this.#log("warn", "bot.agent.vision_unavailable", {
+                ...traceContext,
+                candidate: candidate.reference,
+                attempt: attemptNumber,
+                code: safeErrorCode(error),
+              });
+            }
+          }
+          const candidateBaseMessages = visionAttachment === undefined
+            ? baseMessages
+            : withImageAttachment(baseMessages, visionAttachment);
           const instructions = buildBotSystemPrompt({
             ...this.#prompt,
             modelLabel: candidate.reference,
@@ -225,225 +350,284 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
             memoryBlock:
               request.memoryBlock ?? this.#prompt.memoryBlock,
             memoryMaxChars: this.#prompt.memoryMaxChars,
+            fastMemory: request.fastMemory,
+            longTermLessons: request.longTermLessons,
+            chatSkills: request.chatSkills,
+            memoryToolsAvailable: this.#memoryTools !== undefined,
+            memoryWriteAllowed,
+            researchMode,
+            imageAttached: photoTarget !== undefined,
+            visionAvailable: candidate.capabilities.vision,
+            imageDelivered: visionAttachment !== undefined,
+            audioTranscriptionAvailable:
+              audioExecution.available && !audioExecution.hasModelTranscription,
           });
-          let forceFinal = allowedExecutions >= BOT_AGENT_CONTRACT.maxToolCalls;
-
-          const makeTool = (name: BotReadToolName) => {
-            const definition = BOT_READ_TOOL_DEFINITIONS.find(
-              (item) => item.name === name,
+          let forceFinal = allowedExecutions >= toolCallBudget;
+          const onToolCompleted = (
+            execution: BotToolSetExecutionCompleted,
+          ): void => {
+            completedExecutions += 1;
+            request.toolProgressPort?.onToolCompleted(
+              { toolName: execution.name, callId: execution.callId },
+              execution.output.ok,
             );
-            if (!definition) {
-              throw new Error(`Missing read tool definition: ${name}`);
+            const sequence =
+              approvalOrder.get(execution.callId) ??
+              allowedExecutions + carriedTools.length + 1;
+            carriedTools.push({
+              sequence,
+              name: execution.name,
+              serialized: boundedSerialize(execution.output),
+            });
+            if (execution.kind === "read") {
+              collectQuoteEvidence(execution.output, evidence, evidenceKeys);
             }
-            return tool({
-              description: definition.description,
-              inputSchema: jsonSchema<Record<string, unknown>>(
-                definition.inputSchema as Parameters<typeof jsonSchema>[0],
-              ),
-              execute: async (input, options): Promise<BotReadToolResult> => {
-                const startedAt = Date.now();
-                startedExecutions += 1;
-                request.toolProgressPort?.onToolStarted({
-                  toolName: name,
-                  callId: options.toolCallId,
-                });
-                const signal = options.abortSignal ?? turnSignal;
-                const output = await this.#readTools.callTool(name, input, {
-                  signal,
-                });
-                completedExecutions += 1;
-                request.toolProgressPort?.onToolCompleted(
-                  { toolName: name, callId: options.toolCallId },
-                  output.ok,
-                );
-                const sequence =
-                  approvalOrder.get(options.toolCallId) ??
-                  allowedExecutions + carriedTools.length + 1;
-                carriedTools.push({
-                  sequence,
-                  name,
-                  serialized: boundedSerialize(output),
-                });
-                collectQuoteEvidence(
-                  output,
-                  evidence,
-                  evidenceKeys,
-                );
-                this.#log("info", "bot.agent.tool", {
-                  ...traceContext,
-                  candidate: candidate.reference,
-                  attempt: attemptNumber,
-                  tool: name,
-                  durationMs: Math.max(0, Date.now() - startedAt),
-                  ok: output.ok,
-                  status: output.ok ? output.status : undefined,
-                  errorCode: output.ok ? undefined : output.error.code,
-                });
-                return output;
-              },
-              toModelOutput: ({ output }) => ({
-                type: "text",
-                value: wrapUntrustedToolData(
-                  name,
-                  boundedSerialize(output),
-                  nonce,
-                ),
-              }),
+            this.#log("info", "bot.agent.tool", {
+              ...traceContext,
+              candidate: candidate.reference,
+              attempt: attemptNumber,
+              tool: execution.name,
+              durationMs: Math.max(0, Date.now() - execution.startedAt),
+              ok: execution.output.ok,
+              status: execution.output.ok ? execution.output.status : undefined,
+              errorCode: execution.output.ok
+                ? undefined
+                : execution.output.error.code,
             });
           };
-
-          const tools = {
-            search_chat: makeTool("search_chat"),
-            day_digest: makeTool("day_digest"),
-            thread_context: makeTool("thread_context"),
-            web_search: makeTool("web_search"),
-            paper_search: makeTool("paper_search"),
-          } satisfies ToolSet;
+          const { tools, toolOrder } = createBotToolSet({
+            readTools: this.#readTools,
+            memoryTools: this.#memoryTools,
+            memoryWriteAllowed,
+            audioTranscriptionAvailable:
+              audioExecution.available && !audioExecution.hasModelTranscription,
+            nonce,
+            turnSignal,
+            chatId: request.turn.chatId,
+            sourceMessageId: request.trigger.messageId,
+            onExecutionStarted: (execution) => {
+              startedExecutions += 1;
+              if (execution.kind === "read") {
+                startedReadExecutions += 1;
+              }
+              thinkingProgress.finish();
+              request.toolProgressPort?.onToolStarted({
+                toolName: execution.name,
+                callId: execution.callId,
+                input: execution.input,
+              });
+            },
+            onExecutionCompleted: onToolCompleted,
+            ...(!audioExecution.available || audioExecution.hasModelTranscription
+              ? {}
+              : {
+                  runAudioTranscription: ({ callId, signal }) =>
+                    audioExecution.runForModel({
+                      callId,
+                      signal,
+                      candidate,
+                      attempt: attemptNumber,
+                    }),
+                }),
+          });
 
           try {
-            const result = await generateText({
-              model: candidate.model,
-              providerOptions: candidate.providerOptions,
-              instructions,
-              messages: attemptMessages,
-              tools,
-              toolOrder: [...BOT_READ_TOOL_NAMES],
-              toolChoice: "auto",
-              toolApproval: ({ toolCall }) => {
-                throwIfAgentAborted(request.signal, deadlineSignal);
-                requestedExecutions += 1;
-                if (
-                  forceFinal ||
-                  allowedExecutions >= BOT_AGENT_CONTRACT.maxToolCalls
-                ) {
-                  deniedExecutions += 1;
-                  forceFinal = true;
-                  return {
-                    type: "denied",
-                    reason: "read_tool_budget_exhausted",
-                  };
-                }
-                rememberFold("tool");
-                allowedExecutions += 1;
-                approvalOrder.set(toolCall.toolCallId, allowedExecutions);
-                if (
-                  allowedExecutions >= BOT_AGENT_CONTRACT.maxToolCalls
-                ) {
-                  forceFinal = true;
-                }
-                return "not-applicable";
-              },
-              prepareStep: ({ stepNumber, steps, messages }) => {
-                throwIfAgentAborted(request.signal, deadlineSignal);
-                rememberFold("model");
-                const newFolds = folds.slice(foldCursor);
-                foldCursor = folds.length;
-                const nextMessages =
-                  newFolds.length === 0
-                    ? messages
-                    : [...messages, ...newFolds.map(userMessage)];
-                const observedToolRequests = steps.reduce(
-                  (count, step) => count + step.toolCalls.length,
-                  0,
+            while (true) {
+              throwIfAgentAborted(request.signal, deadlineSignal);
+              let foldCursor = folds.length;
+              forceFinal = allowedExecutions >= toolCallBudget;
+              const activeInstructions = researchQualityRetries === 0
+                ? instructions
+                : researchContinuationInstructions(
+                    instructions,
+                    researchMinimumToolCalls,
+                    startedReadExecutions,
+                  );
+              const attemptMessages = [
+                ...candidateBaseMessages,
+                ...folds.map(userMessage),
+                ...renderCarriedToolMessages(carriedTools, nonce),
+              ];
+              const result = await generateText({
+                model: candidate.model,
+                providerOptions: candidate.providerOptions,
+                instructions: activeInstructions,
+                messages: attemptMessages,
+                tools,
+                toolOrder,
+                // Qwen's compatible Chat Completions endpoint rejects
+                // tool_choice="required" with 400. A bounded quality gate
+                // retries premature research finals while auto remains the
+                // supported wire mode.
+                toolChoice: "auto",
+                toolApproval: ({ toolCall }) => {
+                  throwIfAgentAborted(request.signal, deadlineSignal);
+                  requestedExecutions += 1;
+                  if (
+                    forceFinal ||
+                    allowedExecutions >= toolCallBudget
+                  ) {
+                    deniedExecutions += 1;
+                    forceFinal = true;
+                    return {
+                      type: "denied",
+                      reason: "tool_budget_exhausted",
+                    };
+                  }
+                  rememberFold("tool");
+                  allowedExecutions += 1;
+                  approvalOrder.set(toolCall.toolCallId, allowedExecutions);
+                  if (
+                    allowedExecutions >= toolCallBudget
+                  ) {
+                    forceFinal = true;
+                  }
+                  return "not-applicable";
+                },
+                prepareStep: ({ steps, messages }) => {
+                  throwIfAgentAborted(request.signal, deadlineSignal);
+                  rememberFold("model");
+                  const newFolds = folds.slice(foldCursor);
+                  foldCursor = folds.length;
+                  const nextMessages =
+                    newFolds.length === 0
+                      ? messages
+                      : [...messages, ...newFolds.map(userMessage)];
+                  const observedToolRequests = steps.reduce(
+                    (count, step) => count + step.toolCalls.length,
+                    0,
+                  );
+                  forceFinal ||= (
+                    allowedExecutions >=
+                      toolCallBudget ||
+                    observedToolRequests >=
+                      toolCallBudget
+                  );
+                  return forceFinal
+                    ? {
+                        messages: nextMessages,
+                        activeTools: [],
+                        toolChoice: "none",
+                        instructions:
+                          `${activeInstructions}\n\n` +
+                          "Лимит инструментов исчерпан. Сейчас верни только " +
+                          "финальный ответ по уже полученным данным; новых " +
+                          "инструментов не вызывай.",
+                      }
+                    : {
+                        messages: nextMessages,
+                        toolChoice: "auto",
+                      };
+                },
+                // Do not impose an artificial count of model steps. The model
+                // stops naturally after a final response; tool execution stays
+                // bounded by toolCallBudget and the entire turn by turnSignal.
+                stopWhen: () => false,
+                maxRetries: 0,
+                abortSignal: turnSignal,
+                timeout: {
+                  ...(this.#stepTimeoutMs === undefined
+                    ? {}
+                    : { stepMs: this.#stepTimeoutMs }),
+                  toolMs: this.#toolTimeoutMs,
+                },
+                maxOutputTokens: this.#maxOutputTokens,
+                include: {
+                  requestBody: false,
+                  requestMessages: false,
+                  responseBody: false,
+                },
+                onStepStart: () => {
+                  thinkingProgress.start();
+                },
+                onStepEnd: (step) => {
+                  thinkingProgress.finish();
+                  usage.recordStep({
+                    modelId: step.response.modelId ?? candidate.modelId,
+                    providerId: candidate.providerId,
+                    inputTokens: step.usage.inputTokens,
+                    outputTokens: step.usage.outputTokens,
+                    totalTokens: step.usage.totalTokens,
+                    reasoningTokens: extractReasoningTokens(step.usage),
+                    reasoningMode: extractReasoningMode(step),
+                  });
+                  this.#log("info", "bot.agent.step", {
+                    ...traceContext,
+                    candidate: candidate.reference,
+                    attempt: attemptNumber,
+                    researchQualityRetry: researchQualityRetries,
+                    stepNumber: step.stepNumber,
+                    callId: step.callId,
+                    finishReason: step.finishReason,
+                    rawFinishReason: step.rawFinishReason,
+                    responseId: step.response.id,
+                    responseModelId: step.response.modelId,
+                    inputTokens: step.usage.inputTokens,
+                    outputTokens: step.usage.outputTokens,
+                    totalTokens: step.usage.totalTokens,
+                    responseTimeMs: step.performance.responseTimeMs,
+                    stepTimeMs: step.performance.stepTimeMs,
+                    toolCalls: step.toolCalls.length,
+                    toolResults: step.toolResults.length,
+                  });
+                },
+              });
+
+              if (
+                result.finishReason === "content-filter" ||
+                result.steps.some(
+                  (step) => step.finishReason === "content-filter",
+                )
+              ) {
+                throw new ModelContentFilterError(
+                  "Provider blocked the generated response.",
                 );
-                forceFinal ||= (
-                  allowedExecutions >=
-                    BOT_AGENT_CONTRACT.maxToolCalls ||
-                  observedToolRequests >=
-                    BOT_AGENT_CONTRACT.maxToolCalls ||
-                  stepNumber >= BOT_AGENT_CONTRACT.maxToolCalls
+              }
+              if (result.finishReason !== "stop") {
+                throw new BotAgentProtocolError(
+                  "incomplete_finish",
+                  result.finishReason,
+                  result.finishReason === "error" ||
+                    result.finishReason === "other" ||
+                    result.finishReason === "tool-calls",
                 );
-                const mustForceFinal = forceFinal;
-                return mustForceFinal
-                  ? {
-                      messages: nextMessages,
-                      activeTools: [],
-                      toolChoice: "none",
-                      instructions:
-                        `${instructions}\n\n` +
-                        "Лимит инструментов исчерпан. Сейчас верни только " +
-                        "финальный ответ по уже полученным данным; новых " +
-                        "инструментов не вызывай.",
-                    }
-                  : { messages: nextMessages };
-              },
-              stopWhen: ({ steps }) => steps.length >= MAX_MODEL_STEPS,
-              maxRetries: 0,
-              abortSignal: turnSignal,
-              timeout: {
-                stepMs: this.#stepTimeoutMs,
-                toolMs: this.#toolTimeoutMs,
-              },
-              maxOutputTokens: this.#maxOutputTokens,
-              include: {
-                requestBody: false,
-                requestMessages: false,
-                responseBody: false,
-              },
-              onStepEnd: (step) => {
-                usage.recordStep({
-                  modelId: step.response.modelId ?? candidate.modelId,
-                  providerId: candidate.providerId,
-                  inputTokens: step.usage.inputTokens,
-                  outputTokens: step.usage.outputTokens,
-                  totalTokens: step.usage.totalTokens,
-                  reasoningTokens: extractReasoningTokens(step.usage),
-                  reasoningMode: extractReasoningMode(step),
-                });
-                this.#log("info", "bot.agent.step", {
+              }
+              if (result.text.trim().length === 0) {
+                throw new BotAgentProtocolError("empty_final");
+              }
+              if (
+                researchMinimumToolCalls > startedReadExecutions &&
+                researchQualityRetries < BOT_AGENT_CONTRACT.researchQualityRetries &&
+                allowedExecutions < toolCallBudget
+              ) {
+                researchQualityRetries += 1;
+                this.#log("info", "bot.agent.research_depth_retry", {
                   ...traceContext,
                   candidate: candidate.reference,
                   attempt: attemptNumber,
-                  stepNumber: step.stepNumber,
-                  callId: step.callId,
-                  finishReason: step.finishReason,
-                  rawFinishReason: step.rawFinishReason,
-                  responseId: step.response.id,
-                  responseModelId: step.response.modelId,
-                  inputTokens: step.usage.inputTokens,
-                  outputTokens: step.usage.outputTokens,
-                  totalTokens: step.usage.totalTokens,
-                  responseTimeMs: step.performance.responseTimeMs,
-                  stepTimeMs: step.performance.stepTimeMs,
-                  toolCalls: step.toolCalls.length,
-                  toolResults: step.toolResults.length,
+                  retry: researchQualityRetries,
+                  requiredReadToolCalls: researchMinimumToolCalls,
+                  startedReadToolCalls: startedReadExecutions,
                 });
-              },
-            });
-
-            if (
-              result.finishReason === "content-filter" ||
-              result.steps.some(
-                (step) => step.finishReason === "content-filter",
-              )
-            ) {
-              throw new ModelContentFilterError(
-                "Provider blocked the generated response.",
+                continue;
+              }
+              usage.setFinalModel(
+                result.response.modelId ?? candidate.modelId,
+                candidate.providerId,
               );
+              usage.setExecutionStats({
+                toolCalls: startedExecutions,
+                durationMs: Math.max(0, Date.now() - agentStartedAtMs),
+              });
+              return {
+                kind: "final" as const,
+                text: result.text,
+                evidence: Object.freeze([...evidence]),
+                telemetry: usage.build(),
+              };
             }
-            if (result.finishReason !== "stop") {
-              throw new BotAgentProtocolError(
-                "incomplete_finish",
-                result.finishReason,
-                result.finishReason === "error" ||
-                  result.finishReason === "other" ||
-                  result.finishReason === "tool-calls",
-              );
-            }
-            if (result.text.trim().length === 0) {
-              throw new BotAgentProtocolError("empty_final");
-            }
-            usage.setFinalModel(
-              result.response.modelId ?? candidate.modelId,
-              candidate.providerId,
-            );
-            return {
-              kind: "final" as const,
-              text: result.text,
-              evidence: Object.freeze([...evidence]),
-              telemetry: usage.build(),
-            };
           } catch (error) {
+            thinkingProgress.finish(false);
             if (turnSignal.aborted) {
               throw agentAbortError(request.signal, deadlineSignal);
             }
@@ -467,9 +651,15 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
         requestedToolCalls: requestedExecutions,
         allowedToolCalls: allowedExecutions,
         startedToolCalls: startedExecutions,
+        startedReadToolCalls: startedReadExecutions,
         completedToolCalls: completedExecutions,
         deniedToolCalls: deniedExecutions,
         evidenceCount: evidence.length,
+        researchMode,
+        memoryWriteAllowed,
+        toolCallBudget,
+        researchMinimumToolCalls,
+        researchQualityRetries,
       });
       return routed.value;
     } catch (error) {
@@ -478,9 +668,15 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
         requestedToolCalls: requestedExecutions,
         allowedToolCalls: allowedExecutions,
         startedToolCalls: startedExecutions,
+        startedReadToolCalls: startedReadExecutions,
         completedToolCalls: completedExecutions,
         deniedToolCalls: deniedExecutions,
         code: safeErrorCode(error),
+        researchMode,
+        memoryWriteAllowed,
+        toolCallBudget,
+        researchMinimumToolCalls,
+        researchQualityRetries,
       });
       throw error;
     }
@@ -497,38 +693,4 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
       // Observability is best-effort and must not alter the agent loop.
     }
   }
-}
-
-function extractReasoningTokens(usage: unknown): number | undefined {
-  if (typeof usage !== "object" || usage === null) {
-    return undefined;
-  }
-  const record = usage as Record<string, unknown>;
-  const direct = record.reasoningTokens;
-  if (typeof direct === "number" && Number.isSafeInteger(direct) && direct >= 0) {
-    return direct;
-  }
-  const outputTokens = record.outputTokens;
-  if (typeof outputTokens === "object" && outputTokens !== null) {
-    const reasoning = (outputTokens as Record<string, unknown>).reasoning;
-    if (typeof reasoning === "number" && Number.isSafeInteger(reasoning) && reasoning >= 0) {
-      return reasoning;
-    }
-  }
-  return undefined;
-}
-
-function extractReasoningMode(step: unknown): string | undefined {
-  if (typeof step !== "object" || step === null) {
-    return undefined;
-  }
-  const record = step as Record<string, unknown>;
-  const usage = record.usage;
-  if (typeof usage === "object" && usage !== null) {
-    const reasoningTokens = extractReasoningTokens(usage);
-    if (reasoningTokens !== undefined && reasoningTokens > 0) {
-      return "on";
-    }
-  }
-  return undefined;
 }

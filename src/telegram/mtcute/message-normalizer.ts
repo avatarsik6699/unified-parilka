@@ -34,6 +34,7 @@ export function normalizeMtcuteMessage(
   return {
     messageId: message.id,
     text: message.text,
+    ...(message.richMessage == null ? {} : { textAvailable: false }),
     sentAt,
     editedAt,
     sender: normalizeSender(message.sender),

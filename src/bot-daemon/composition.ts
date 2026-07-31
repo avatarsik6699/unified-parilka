@@ -1,5 +1,8 @@
 import type { Api } from "grammy";
 import { AiSdkBotTurnAgent } from "../bot/ai-agent.js";
+import { BotMemoryTools } from "../bot/memory-tools.js";
+import { BotMediaTools } from "../bot/media-tools.js";
+import { FlovAudioTranscriber } from "../bot/media/flov-transcriber.js";
 import { CanonicalBotReadCache } from "../bot/read-cache.js";
 import { BotReadTools } from "../bot/read-tools.js";
 import {
@@ -10,6 +13,7 @@ import {
   botRuntimeOptionsFromConfig,
   createDurableGrammyBotTurnPublisher,
   createGrammyLongPollingApi,
+  createGrammyTelegramMediaDownloader,
   createToolProgressGrammyBotApiPort,
 } from "../bot/runtime.js";
 import { TurnCoordinator } from "../bot/turn-coordinator.js";
@@ -48,11 +52,33 @@ export function composeBotDaemon(
     ...(options.webSearch === undefined
       ? {}
       : { webSearch: options.webSearch }),
+    ...(options.researchGateway === undefined
+      ? {}
+      : {
+          researchGateway: options.researchGateway,
+          ...(config.researchGateway === undefined
+            ? {}
+            : { researchGatewayTimeoutMs: config.researchGateway.timeoutMs }),
+        }),
     timeZone: "Europe/Moscow",
+  });
+  const memoryTools = new BotMemoryTools({ store: options.store });
+  const mediaTools = new BotMediaTools({
+    downloader: createGrammyTelegramMediaDownloader(options.api, config.token),
+    transcriber: new FlovAudioTranscriber({
+      endpoint: `${config.audioTranscribe.endpoint}/v1/audio/transcriptions`,
+      timeoutMs: config.audioTranscribe.timeoutMs,
+      language: "ru",
+      ...(config.audioTranscribe.bearerToken === undefined
+        ? {}
+        : { bearerToken: config.audioTranscribe.bearerToken }),
+    }),
   });
   const agent = new AiSdkBotTurnAgent({
     router: options.router,
     readTools,
+    mediaTools,
+    memoryTools,
     prompt: {
       botUsername: config.botUsername,
       botName: config.botDisplayName,
@@ -69,8 +95,10 @@ export function composeBotDaemon(
     },
     logger: options.logger,
     totalTimeoutMs: config.turnTimeoutMs,
-    stepTimeoutMs: Math.min(60_000, config.turnTimeoutMs),
-    toolTimeoutMs: Math.min(15_000, config.turnTimeoutMs),
+    toolTimeoutMs: Math.min(
+      config.audioTranscribe.timeoutMs,
+      config.turnTimeoutMs,
+    ),
   });
   const publisher = createDurableGrammyBotTurnPublisher(options.api, {
     store: options.store,
@@ -148,6 +176,8 @@ export function composeBotDaemon(
     coordinator,
     cache,
     readTools,
+    mediaTools,
+    memoryTools,
     agent,
   };
 }

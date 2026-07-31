@@ -22,6 +22,12 @@ export type TelegramMessageSender = {
 export type TelegramHistoryMessage = {
   messageId: number;
   text: string;
+  /**
+   * False when a transport can identify native rich content but cannot provide
+   * its plain-text projection. Callers retain an existing canonical projection
+   * instead of treating its empty `text` placeholder as an edit.
+   */
+  textAvailable?: boolean;
   sentAt?: string;
   editedAt?: string;
   sender?: TelegramMessageSender;
