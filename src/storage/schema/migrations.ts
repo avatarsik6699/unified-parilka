@@ -475,4 +475,14 @@ declare protected applyMaintenanceSchema: () => void;
         ON bot_chat_skills(chat_id, updated_at_ms DESC);
     `);
   }
+
+  /**
+   * Inline response actions were retired. Drop their isolated table rather
+   * than retaining prompt continuations or user ownership records after the
+   * feature is gone. `IF EXISTS` makes a v16 database (which never had the
+   * table) and a v17/v18 database converge on the same v19 schema.
+   */
+  protected applyRetireBotCallbackIntentsMigration(): void {
+    this.db.exec("DROP TABLE IF EXISTS bot_callback_intents;");
+  }
 }

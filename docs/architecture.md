@@ -8,7 +8,7 @@ group chat. Application shells только компонуют independently tes
 
 ```text
 Bot API ──► parilka-bot ───────────────┐
-                                       ├──► SQLite WAL v16 ◄── maintenance/digests
+                                       ├──► SQLite WAL v19 ◄── maintenance/digests
 MTProto ──► parilka-sync ──────────────┘
                  │
                  └──► HTTP 127.0.0.1:8766/mcp

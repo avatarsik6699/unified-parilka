@@ -101,7 +101,7 @@ test("owner follow-ups and ambient chat are separated without losing stable orde
   assert.equal(fold.boundary, "tool");
 });
 
-test("folds preserve sender names for guarded reply mentions", () => {
+test("folds preserve sender names for reply context", () => {
   const coordinator = new TurnCoordinator({ maxActiveTurns: 1 });
   coordinator.startTurn({ turnId: "turn", ownerSenderId: "alice-id" });
   coordinator.routeMessage({

@@ -7,7 +7,7 @@ import {
   type GrammyRichMessageOptions,
   type GrammySendMessageOptions,
 } from "../src/bot/grammy-publisher.js";
-import type { GuardedTelegramPublication } from "../src/bot/output-guards.js";
+import type { TelegramPublication } from "../src/bot/telegram-publication.js";
 
 const SCREENSHOT_MARKDOWN = [
   "| Метрика | Значение |",
@@ -79,18 +79,18 @@ function richPublication(
   markdown = "**привет**",
   plainText = "привет",
   maxChunkUtf16 = 4_096,
-): GuardedTelegramPublication {
+): TelegramPublication {
   return { mode: "rich", markdown, plainText, maxChunkUtf16 };
 }
 
 function plainPublication(
   plainText: string,
   maxChunkUtf16 = 4_096,
-): GuardedTelegramPublication {
+): TelegramPublication {
   return { mode: "plain", plainText, maxChunkUtf16 };
 }
 
-function request(publication: GuardedTelegramPublication, replyToMessageId = 99) {
+function request(publication: TelegramPublication, replyToMessageId = 99) {
   return {
     chatId: "-1004242",
     replyToMessageId,
@@ -426,7 +426,7 @@ test("an invalid publish request is rejected without any API call", async () => 
   const { api, richCalls, plainCalls } = makeFakeApi();
   const result = await new GrammyBotTurnPublisher(api).publish({
     ...request(richPublication()),
-    publication: { mode: "rich" } as unknown as GuardedTelegramPublication,
+    publication: { mode: "rich" } as unknown as TelegramPublication,
   });
 
   assert.equal(richCalls.length, 0);

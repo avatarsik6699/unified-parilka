@@ -193,8 +193,8 @@ export class ToolProgressPublisher implements ToolProgressPort {
 
   /**
    * Finishes the progress presentation once the agent has a terminal result.
-   * Deletes the message before publication, guard rejection, SKIP, or shadow
-   * completion, and waits for any in-flight edit.
+   * Deletes the message before publication or shadow completion, and waits
+   * for any in-flight edit.
    */
   async finish(signal: AbortSignal): Promise<void> {
     await this.#dispatchPromise;

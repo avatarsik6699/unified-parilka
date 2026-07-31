@@ -25,7 +25,7 @@ test("bot runtime config is strict, bounded, and defaults to safe shadow mode", 
   assert.equal(config.botUsername, "ParilkaBot");
   assert.equal(config.mode, "shadow");
   assert.equal(config.modelConfigPath, resolve("package.json"));
-  assert.deepEqual(config.allowedMentions, ["ParilkaBot"]);
+  assert.equal("allowedMentions" in config, false);
   assert.equal(config.workerConcurrency, 3);
   assert.equal(config.triggerCooldownMs, 5_000);
   assert.equal(config.updateMaxAttempts, 3);

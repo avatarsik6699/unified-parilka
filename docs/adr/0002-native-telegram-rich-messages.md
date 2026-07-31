@@ -33,14 +33,10 @@ footnotes, inline `$...$`, block `$$...$$` и fenced `math`. Установле�
 
 ```text
 model final Markdown + telemetry footer
-  -> artifact/control/Unicode cleanup (без изменений)
-  -> bounded Markdown AST preflight (unified + remark-parse + remark-gfm
-     + remark-math): raw HTML / media / unsafe|credential URL / malformed
-     fence / limit overflow -> whole-message plain mode
-     safe path: исходный Markdown, кроме невидимой канонизации коротких
-                разделителей GFM-таблицы до минимум трёх дефисов
-  -> GuardedTelegramPublication
-       rich:  { markdown, plainText }
+  -> TelegramPublication (транспортный контракт без content policy):
+     обычный ответ — исходный Markdown;
+     local audio или >4096 UTF-16 — plain publication
+  -> rich:  { markdown, plainText }
        plain: { plainText }
   -> saveBotTurnDraft(plainText)
   -> существующий durable sending fence
@@ -61,38 +57,20 @@ mapping. Это повторяет основную ошибку 004 (локал
 отклоняется. Classic entities как primary отклонены: они принципиально не
 выражают native table и formula.
 
-### Security preflight
+### Transport boundary
 
-Локальный код не рендерит и не сериализует произвольный Markdown. Bounded AST preflight
-(`src/bot/rich-markdown.ts`):
-
-- разрешает только `https:` ссылки без `username`/`password` (`new URL`),
-  включая autolinks, reference definitions и явные `[text](https://…)`;
-- raw HTML, image/media узлы, незакрытый fence, превышение лимитов
-  (32768 code points до AST parse, 500 Telegram blocks, 16 уровней
-  вложенности, дополнительный лимит 2000 AST-узлов и 20 колонок таблицы)
-  переводят **весь** ответ в plain mode — частичная деградация невозможна,
-  `ok: true` после частичной ошибки не возвращается;
-- Telegram-only `==marked==` и `||spoiler||` пока намеренно переводят весь
-  ответ в literal plain mode: CommonMark/GFM AST не строит для них точную
-  visible projection, поэтому rich delivery не должна обходить mention/quote
-  guards;
-- remark-gfm допускает в разделителе GFM-таблицы один-два дефиса, а Telegram
-  рендерит таблицу только от трёх. Для AST-распознанной таблицы preflight
-  безопасно расширяет только этот невидимый разделитель (например, `:--` в
-  `:---`); prose и fenced code не переписываются;
-- `skip_entity_detection: true` запрещает implicit URL/mention/hashtag/
-  cashtag/command/phone/card entities из текста модели: разрешённые ссылки
-  остаются только явными `[text](https://…)`.
+Локальный код не рендерит, не разбирает и не переписывает Markdown модели.
+Обычный финал передаётся Telegram нативно как есть. `skip_entity_detection:
+true` остаётся параметром Rich Messages, а не локальной policy-проверкой;
+текстовая публикация выбирается только для local audio и для ответа длиннее
+документированного лимита Telegram в 4096 UTF-16 единиц.
 
 ### Canonical plain text
 
-Preflight строит полный visible plain projection (AST walk): prefix/suffix,
-list items и стили не теряются и не дублируются, `2 * 3 * 4` не искажается,
-соседние nested styles не схлопываются. `plainText` питает mention/quote
-guards, `saveBotTurnDraft`, corpus recording и classic fallback. Durable
-adapter записывает canonical plain text, а не `response.text`: rich ACK
-несёт `rich_message`, а не `text`.
+Для Rich publication `plainText` совпадает с исходным финальным текстом и
+питает `saveBotTurnDraft`, corpus recording и classic fallback. Durable
+adapter записывает его, а не `response.text`: rich ACK несёт `rich_message`,
+а не `text`.
 
 ### Failure semantics
 
@@ -105,36 +83,18 @@ adapter записывает canonical plain text, а не `response.text`: rich
   delivery и post-ACK DB failure никогда не вызывают resend и сохраняют
   существующую `lost_ack` semantics.
 
-### Quotes и policy
-
-Восстановлен контракт goal 002: `validateQuotes` с `evidence` и
-`minQuoteCharacters` снова вызывается на canonical plain text; attributed
-quote, отсутствующий в evidence своего speaker, остаётся terminal
-`quote_speaker_mismatch`; unattributed quote без evidence разрешена.
-`maxChunkUtf16`/`minQuoteCharacters` снова валидируются как public policy
-settings.
-
 ## Следствия
 
-- Hand-rolled GFM lexer/render/chunk (`src/bot/rich-text/`) и
-  implementation-shaped `tests/rich-text.test.ts` удалены — не остаётся двух
-  расходящихся Markdown engines.
+- Hand-rolled GFM lexer/render/chunk (`src/bot/rich-text/`) и content-policy
+  preflight удалены: Telegram остаётся единственным Markdown renderer.
 - `grammy-publisher.ts` держит узкий двухоперационный порт
   (`sendRichMessage` primary, `sendMessage` plain fallback); production
   adapter использует типизированный `Api.sendRichMessage`, без raw `fetch` и
   ручных токенов.
-- Добавлены прямые dependencies: `unified`, `remark-parse`, `remark-gfm`,
-  `remark-math`. `mdast-util-to-string` сознательно не используется: его
-  проекция склеивает элементы списков/таблиц, поэтому canonical plain text
-  строится bounded AST walk.
-- Prompt-контракт обновлён: headings, ordered/unordered/task lists, GFM
-  tables, `$...$`/`$$...$$`/fenced `math`, styles/code/quotes и explicit
-  HTTPS links; запрещены HTML, images/media и unsafe links; исправлена
-  подсказка про inline code (один backtick, не три).
-- После corrective review live Telegram Desktop E2E подтвердил нативную
-  таблицу-сетку и inline/block formulas. Перед этим screenshot с delimiter
-  `:--` показал расхождение remark-gfm и Telegram; теперь оно закрыто
-  canonicalization и отдельной regression-проверкой.
+- Финальный Markdown не проходит локальный content filter: формат и
+  допустимость конструкций интерпретирует сам Telegram Rich Messages API.
+- Live Telegram Desktop E2E подтвердил нативную таблицу-сетку и
+  inline/block formulas.
 
 ## Альтернативы
 

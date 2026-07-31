@@ -34,7 +34,7 @@ test("system prompt preserves the persona and executable agent contract", () => 
   assert.match(prompt, /Скрытую цепочку рассуждений не показывай/);
   assert.match(prompt, /`web_fetch`/);
   assert.match(prompt, /`research_lookup`/);
-  assert.match(prompt, /ровно SKIP/);
+  assert.doesNotMatch(prompt, /ровно SKIP/);
   assert.match(prompt, /Поддерживаемая\s+разметка/);
   assert.match(prompt, /\*\*жирный\*\*/);
   assert.match(prompt, /```lang \.\.\. ```/);
@@ -55,7 +55,7 @@ test("system prompt preserves the persona and executable agent contract", () => 
   assert.equal(BOT_AGENT_CONTRACT.researchMinToolCalls, 4);
   assert.equal(BOT_AGENT_CONTRACT.researchQualityRetries, 2);
   assert.equal(BOT_AGENT_CONTRACT.forcedFinalAfterToolBudget, true);
-  assert.equal(BOT_AGENT_CONTRACT.skipSentinel, "SKIP");
+  assert.equal("skipSentinel" in BOT_AGENT_CONTRACT, false);
 });
 
 test("explicit research requests receive a bounded evidence-first prompt", () => {

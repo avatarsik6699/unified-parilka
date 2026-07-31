@@ -10,6 +10,12 @@ rollback не выполнялся; сохранённый rollback bundle и т
 
 ## Текущее production disposition
 
+Ниже — зафиксированное состояние cutover v16 от 2026-07-30, а не утверждение
+о schema текущего checkout: исходники теперь поддерживают v19. Новая migration
+или deploy этим runbook не авторизуются и требуют отдельного operator decision.
+В v19 удалён retired `bot_callback_intents`: это isolated state бывших inline
+кнопок, не часть истории сообщений, памяти или outbox.
+
 - canonical state:
   `/home/billy/.telegram-parilka-mcp/messages-v13.sqlite`, schema v16,
   mode `0600`;
@@ -258,7 +264,7 @@ poller начнёт ровно с первого ещё не обработан�
 
 - update ingestion и trigger classification;
 - durable reservations, leases и poison/dead-letter behavior;
-- generated drafts и output guard decisions;
+- generated drafts и publication decisions;
 - tool result schema/evidence;
 - provider fallback/latency/errors;
 - memory, SQLite и journal growth.

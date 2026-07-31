@@ -37,7 +37,6 @@ import {
 } from "./agent/context.js";
 import {
   boundedSerialize,
-  collectQuoteEvidence,
   renderCarriedToolMessages,
   type CarriedToolResult,
 } from "./agent/evidence.js";
@@ -121,7 +120,7 @@ export class BotAgentProtocolError extends Error {
 /**
  * A non-streaming, read-only model loop.
  *
- * Correctness state (tool budget, folds, evidence) is shared across provider
+ * Correctness state (tool budget and folds) is shared across provider
  * attempts. Provider-specific assistant/tool messages are not: a fallback
  * starts from application-owned context plus bounded successful tool results.
  */
@@ -217,8 +216,6 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
     const toolCallBudget = botToolCallBudget(researchMode);
     const folds: string[] = [];
     const carriedTools: CarriedToolResult[] = [];
-    const evidence: BotAgentFinalResult["evidence"][number][] = [];
-    const evidenceKeys = new Set<string>();
     const approvalOrder = new Map<string, number>();
     const usage = new TurnUsageAccumulator();
     let allowedExecutions = 0;
@@ -247,8 +244,6 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
       thinkingProgress,
       toolProgressPort: request.toolProgressPort,
       carriedTools,
-      evidence,
-      evidenceKeys,
       onStarted: () => { startedExecutions += 1; },
       onCompleted: () => { completedExecutions += 1; },
       getSequence: (callId) =>
@@ -283,7 +278,6 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
       const final: BotAgentFinalResult = {
         kind: "final",
         text: renderDirectAudioTranscription(directAudio),
-        evidence: [],
         telemetry: usage.build(),
         responseOrigin: "local_audio",
       };
@@ -299,7 +293,6 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
         startedReadToolCalls: startedReadExecutions,
         completedToolCalls: completedExecutions,
         deniedToolCalls: deniedExecutions,
-        evidenceCount: 0,
         researchMode,
         memoryWriteAllowed,
         toolCallBudget,
@@ -379,9 +372,6 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
               name: execution.name,
               serialized: boundedSerialize(execution.output),
             });
-            if (execution.kind === "read") {
-              collectQuoteEvidence(execution.output, evidence, evidenceKeys);
-            }
             this.#log("info", "bot.agent.tool", {
               ...traceContext,
               candidate: candidate.reference,
@@ -622,7 +612,6 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
               return {
                 kind: "final" as const,
                 text: result.text,
-                evidence: Object.freeze([...evidence]),
                 telemetry: usage.build(),
               };
             }
@@ -654,7 +643,6 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
         startedReadToolCalls: startedReadExecutions,
         completedToolCalls: completedExecutions,
         deniedToolCalls: deniedExecutions,
-        evidenceCount: evidence.length,
         researchMode,
         memoryWriteAllowed,
         toolCallBudget,

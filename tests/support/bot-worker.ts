@@ -168,7 +168,6 @@ export function final(text: string): BotAgentFinalResult {
   return {
     kind: "final",
     text,
-    evidence: [],
     telemetry: stubTelemetry(),
   };
 }

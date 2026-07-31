@@ -131,7 +131,6 @@ export function composeBotDaemon(
         mode: config.mode,
         turnTimeoutMs: config.turnTimeoutMs,
         publishTimeoutMs: config.publishTimeoutMs,
-        additionalAllowedMentions: config.allowedMentions,
         typingPort,
         toolProgressBotApiPort,
         logger: options.logger,

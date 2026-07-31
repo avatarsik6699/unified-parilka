@@ -43,7 +43,6 @@ export interface BotRuntimeConfig {
   chatTitle: string;
   historyDescription: string;
   approximateMemberCount?: number;
-  allowedMentions: readonly string[];
   dbPath: string;
   modelConfigPath: string;
   webSearch?: BotWebSearchRuntimeConfig;

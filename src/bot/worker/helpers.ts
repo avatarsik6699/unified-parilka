@@ -1,6 +1,5 @@
 import type { StoredMessage } from "../../store.js";
-import type { QuoteEvidence } from "../output-guards.js";
-import { MAX_AGENT_EVIDENCE_ITEMS, type BotAgentFinalResult } from "./contracts.js";
+import type { BotAgentFinalResult } from "./contracts.js";
 
 export class WorkerAbortError extends Error {
   constructor(code: string) {
@@ -23,43 +22,11 @@ export function isAgentFinal(value: unknown): value is BotAgentFinalResult {
   const candidate = value as Record<string, unknown>;
   if (
     candidate.kind !== "final" ||
-    typeof candidate.text !== "string" ||
-    !Array.isArray(candidate.evidence) ||
-    candidate.evidence.length > MAX_AGENT_EVIDENCE_ITEMS
+    typeof candidate.text !== "string"
   ) {
     return false;
   }
-  return candidate.evidence.every(
-    (item) =>
-      item != null &&
-      typeof item === "object" &&
-      typeof (item as Record<string, unknown>).speaker === "string" &&
-      typeof (item as Record<string, unknown>).text === "string",
-  );
-}
-
-export function messagesToEvidence(
-  messages: readonly StoredMessage[],
-): QuoteEvidence[] {
-  return messages
-    .filter((message) => message.text.trim().length > 0)
-    .map((message) => ({
-      speaker: message.senderName ?? message.senderId ?? "unknown",
-      text: message.text,
-    }));
-}
-
-export function dedupeEvidence(evidence: readonly QuoteEvidence[]): QuoteEvidence[] {
-  const seen = new Set<string>();
-  const result: QuoteEvidence[] = [];
-  for (const item of evidence) {
-    const key = `${item.speaker}\u0000${item.text}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      result.push(item);
-    }
-  }
-  return result;
+  return true;
 }
 
 export function durableMessageId(message: StoredMessage): string {

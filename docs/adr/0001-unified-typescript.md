@@ -32,7 +32,7 @@ maintenance oneshot/timer:
 1. `parilka-sync` — единственный владелец MTProto client/session, history sync,
    MCP registry и live MCP send scheduler.
 2. `parilka-bot` — Bot API long poller, durable update/turn state machine,
-   bounded read-only agent loop и guarded publisher.
+   bounded read-only agent loop и Telegram publisher.
 3. `parilka-maintain.service` + `.timer` — сначала `quick_check`, bounded
    history/bot/terminal-outbox retention, `PRAGMA optimize` и passive WAL
    checkpoint, затем
@@ -121,7 +121,7 @@ Lease восстанавливает crash до `sending`. После перех
 network ambiguity, partial publish или ошибка записи подтверждённой отправки не
 ретраятся автоматически и завершаются `lost_ack`.
 
-`PARILKA_BOT_MODE=shadow` строит и сохраняет guarded draft, затем завершает turn
+`PARILKA_BOT_MODE=shadow` строит и сохраняет draft, затем завершает turn
 как `skipped` без `sendMessage`. Shadow всё равно потребляет Bot API updates,
 поэтому два poller с одним token одновременно не поддерживаются.
 Runtime дополнительно требует fail-closed подтверждение
@@ -156,7 +156,7 @@ Agent loop не stream-ит сырой model output. Он даёт модели 
 Общий budget — до четырёх разрешённых tool executions и forced final step.
 Default total deadline — 120 секунд, model step — 60 секунд, tool — 15 секунд.
 Tool data оборачивается как untrusted input; финальный текст проходит
-quote/mention/format guards до durable draft.
+bounded Markdown preflight до durable draft.
 
 Опциональный web search имеет два bot-owned бэкенда: provider-neutral HTTP
 JSON boundary и native Vertex Gemini grounding (`googleSearch` через gcloud

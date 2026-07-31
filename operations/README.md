@@ -33,7 +33,8 @@ send, rollback, commit, push или deploy.
   `last_consolidated_message_id` и `revision`. Он инжектируется в системный
   prompt как недоверенные данные (`## Постоянная память`) с индикатором
   заполнения.
-- Дополнительно schema v16 хранит строго chat-scoped explicit knowledge:
+- Schema v16 ввела строго chat-scoped explicit knowledge (оно сохраняется и в
+  последующих schema versions):
   `bot_chat_fast_memory` (до 12 оперативных заметок, сразу в prompt),
   `bot_chat_lessons` (до 64 problem/solution/when-to-apply уроков) и
   `bot_chat_skills` (до 32 playbook). Последние два слоя дают только bounded

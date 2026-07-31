@@ -12,7 +12,6 @@ import type {
   TurnBoundary,
   TurnCoordinator,
 } from "../turn-coordinator.js";
-import type { QuoteEvidence } from "../output-guards.js";
 import {
   BOT_CONTEXT_MESSAGES,
   BOT_REPLAY_MESSAGES,
@@ -169,12 +168,8 @@ export function createTurnFoldCollector(
   coordinator: TurnCoordinator,
   coordinatorTurnId: string,
 ): {
-  drainedEvidence: QuoteEvidence[];
-  foldedAllowedMentions: string[];
   drainFold: (boundary: TurnBoundary) => FoldBatch;
 } {
-  const drainedEvidence: QuoteEvidence[] = [];
-  const foldedAllowedMentions: string[] = [];
   const drainFold = (boundary: TurnBoundary): FoldBatch => {
     const result = coordinator.drainAtBoundary(
       coordinatorTurnId,
@@ -183,25 +178,9 @@ export function createTurnFoldCollector(
     if (result.status === "not_found") {
       throw new WorkerProtocolError("coordinator_turn_missing");
     }
-    for (const message of result.fold.messages) {
-      if (message.text.trim()) {
-        drainedEvidence.push({
-          speaker: message.senderName ?? message.senderId,
-          text: message.text,
-        });
-      }
-      if (
-        message.route === "owner_follow_up" &&
-        message.senderName
-      ) {
-        foldedAllowedMentions.push(message.senderName);
-      }
-    }
     return result.fold;
   };
   return {
-    drainedEvidence,
-    foldedAllowedMentions,
     drainFold,
   };
 }

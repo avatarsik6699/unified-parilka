@@ -9,7 +9,6 @@ import {
   existingAbsoluteFile,
   integer,
   normalizeBotUsername,
-  parseAllowedMentions,
   requiredPlain,
   requiredSecret,
   sameConfiguredFile,
@@ -105,10 +104,6 @@ export function parseBotRuntimeConfig(
             10_000_000,
           ),
         }),
-    allowedMentions: parseAllowedMentions(
-      env.PARILKA_BOT_ALLOWED_MENTIONS,
-      botUsername,
-    ),
     // Always return the common spelling, including hard-link aliases.
     dbPath: sharedDbPath,
     modelConfigPath: existingAbsoluteFile(

@@ -38,7 +38,7 @@ test("returns only the final step text, never reasoning or an intermediate draft
 
   assert.equal(result.text, "безопасный финальный ответ");
   assert.doesNotMatch(result.text, /PRIVATE_CHAIN_OF_THOUGHT/);
-  assert.deepEqual(result.evidence, []);
+  assert.equal("evidence" in result, false);
   assert.equal(model.doGenerateCalls.length, 1);
   assert.deepEqual(
     model.doGenerateCalls[0]?.providerOptions,
@@ -50,7 +50,7 @@ test("returns only the final step text, never reasoning or an intermediate draft
   );
 });
 
-test("executes a read tool, wraps its output as untrusted data, and records quote evidence", async () => {
+test("executes a read tool and wraps its output as untrusted data without attaching quote evidence to the final", async () => {
   const exactQuote = "эта реплика действительно была в истории";
   const model = mockModel([
     toolResponse([
@@ -81,9 +81,7 @@ test("executes a read tool, wraps its output as untrusted data, and records quot
   const result = await fixture.agent.run(request());
 
   assert.equal(fixture.searchCalls, 1);
-  assert.deepEqual(result.evidence, [
-    { speaker: "Коля", text: exactQuote },
-  ]);
+  assert.equal("evidence" in result, false);
   assert.equal(model.doGenerateCalls.length, 2);
   const secondPrompt = JSON.stringify(
     model.doGenerateCalls[1]?.prompt,

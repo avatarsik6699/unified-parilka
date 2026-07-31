@@ -2,13 +2,13 @@
 
 Parilka — единый TypeScript-проект для Telegram-бота, синхронизации истории
 через MTProto и локального MCP-сервера. Проект рассчитан на один хост и один
-versioned SQLite store (текущая схема — v16).
+versioned SQLite store (текущая схема исходников — v19).
 
 Текущая топология:
 
 ```text
 Bot API ──► parilka-bot ───────────────┐
-                                       ├──► SQLite WAL v16 ◄── maintain + digests
+                                       ├──► SQLite WAL v19 ◄── maintain + digests
 MTProto ──► parilka-sync ──────────────┘
                  │
                  └── HTTP 127.0.0.1:8766/mcp
@@ -22,7 +22,7 @@ MCP client ──stdio──► thin proxy
 - `telegram-parilka-mcp` — по умолчанию тонкий stdio-proxy к `parilka-sync`; он
   не открывает Telegram session и SQLite.
 - `parilka-bot` — durable Bot API poller. Update, сообщение и turn reservation
-  записываются до сдвига polling offset; turns используют leases, guarded draft,
+  записываются до сдвига polling offset; turns используют leases, stored draft,
   terminal `lost_ack` после неоднозначного dispatch и bounded retries до
   `dead_letter`.
 - `parilka-maintain` — проверка `quick_check`, ограниченный retention
@@ -269,7 +269,8 @@ HH-репозиторию, manifest, БД, credential и raw record не вхо�
 `/run/user/<UID>/hh-research-gateway/gateway.sock`; `%t` применим только внутри
 systemd unit.
 
-Шлюз делает первый технический privacy-filter, а bot дополнительно отбрасывает
+Это единственная tool-specific граница раскрытия данных закрытого корпуса:
+шлюз делает первый технический privacy-filter, а bot дополнительно отбрасывает
 опасный query до обращения к сокету, отбрасывает неожиданные идентификаторы и
 обязан обобщать результат в финальном ответе. Он не предназначен для поиска
 людей, конкретных резюме/профилей, вакансий или построения досье; агрегированные
@@ -304,7 +305,7 @@ PARILKA_MTPROTO_EXCLUSIVE_OWNER=true \
 PARILKA_BOT_EXCLUSIVE_POLLER=true PARILKA_BOT_MODE=shadow ./bin/parilka-bot
 ```
 
-Shadow сохраняет и обрабатывает updates, строит guarded drafts, но не вызывает
+Shadow сохраняет и обрабатывает updates, строит drafts, но не вызывает
 Bot API `sendMessage`. При этом он всё равно является long poller: нельзя
 одновременно запускать старый и новый bot с одним Bot API token. Для
 параллельного shadow нужен отдельный тестовый bot/token; иначе старый poller
@@ -395,7 +396,7 @@ systemctl --user enable --now parilka-bot.service
 ```
 
 Сначала отдельно проверьте dry-run maintenance и digest plan; второй не
-вызывает модель и требует уже мигрированную schema v16. Если в shell уже
+вызывает модель и требует уже мигрированную schema v19. Если в shell уже
 экспортированы production DB/allowlist, снимите их для изолированного snapshot,
 иначе fail-closed identity check правильно отклонит другой файл:
 
@@ -533,7 +534,7 @@ Backup/restore остаются внешней операторской проц
 границ транзакций — в
 [src/maintenance/README.md](src/maintenance/README.md).
 
-Digest CLI тоже dry-run по умолчанию. Он читает только schema v16, планирует
+Digest CLI тоже dry-run по умолчанию. Он читает только schema v19, планирует
 недостающие Moscow-calendar days и ISO weeks и не вызывает модель:
 
 ```bash

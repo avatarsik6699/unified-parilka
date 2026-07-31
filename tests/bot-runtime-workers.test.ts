@@ -6,7 +6,7 @@ import {
   createDurableGrammyBotTurnPublisher,
   type BotWorkerPort,
 } from "../src/bot/runtime.js";
-import type { GuardedTelegramPublication } from "../src/bot/output-guards.js";
+import type { TelegramPublication } from "../src/bot/telegram-publication.js";
 import {
   BOT_ID,
   BOT_USERNAME,
@@ -14,7 +14,7 @@ import {
   makeStore,
 } from "./support/bot-runtime.js";
 
-function plainPublication(plainText: string): GuardedTelegramPublication {
+function plainPublication(plainText: string): TelegramPublication {
   return { mode: "plain", plainText, maxChunkUtf16: 4_096 };
 }
 

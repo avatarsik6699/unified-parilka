@@ -23,10 +23,11 @@ The public entry points remain thin compatibility files:
   rounds if the model tries to finalise too early. The prompt separates external
   evidence (`web_search`/`web_fetch`/`paper_search`) from facts in this chat
   (`search_chat`/digest/thread) and never treats chat search as an automatic
-  supplement to an external lookup. `research_lookup` is private evidence:
-  its model-facing description forbids personal extraction, and the executor
-  rejects such queries before the Unix socket; results are always paraphrased
-  and generalized, never quoted or used to identify a person.
+  supplement to an external lookup. `research_lookup` is private evidence and
+  the sole tool-specific data-disclosure boundary: its model-facing description
+  forbids personal extraction, and the executor rejects such queries before the
+  Unix socket; results are always paraphrased and generalized, never quoted or
+  used to identify a person.
 - `media-tools.ts` — the narrow per-turn Telegram media boundary. It may read
   only an addressed photo/audio attachment or its one direct reply; Telegram
   `file_id`, download path and authenticated URL never enter a model prompt,
@@ -40,17 +41,11 @@ The public entry points remain thin compatibility files:
   skill loading. Read tools are always bounded; write tools exist only when
   the addressed trigger explicitly asks to remember/update something, and are
   source-attributed to that trigger.
-- `output-guards.ts` — final-output validation and the rich/plain publication
-  boundary. A rejected model final is never stored or sent; in live mode the
-  worker instead sends one fixed, guarded retry notice without exposing the
-  rejected text or guard internals.
-- `rich-markdown.ts` — bounded Rich Markdown AST preflight (unified +
-  remark-parse + remark-gfm + remark-math): admits safe original Markdown
-  for native `sendRichMessage` (only short GFM table separators are widened
-  to Telegram's minimum of three dashes), builds the canonical visible plain
-  text, and proves whole-message plain mode for raw HTML/media/unsafe
-  links/Telegram-only syntax without an exact projection/malformed input/limit
-  overflow (including the 500-block API limit).
+- `telegram-publication.ts` — narrow transport contract for the final text:
+  normal model replies keep their original Markdown for native
+  `sendRichMessage`; local audio and replies over Telegram's UTF-16 limit use
+  lossless classic plain-message chunks. It applies no content policy and does
+  not rewrite model text.
 - `telemetry.ts` — per-turn usage accumulation and footer rendering.
 - `typing.ts` — best-effort typing heartbeat.
 - `tool-progress.ts` — persisted single-message model/tool timeline: safe
@@ -85,12 +80,9 @@ Their implementation is split by ownership:
   The worker rehydrates the exact durable Bot API update before a media turn,
   so the generic MTProto sync representation cannot erase its current file
   reference.
-- `output-guards/`: artifact cleanup, exact plain-text quote/mention
-  verification (including backtick spans), and UTF-16-safe length handling.
-- `rich-markdown.ts`: the bounded AST preflight described above. It never
-  renders or serializes arbitrary Markdown; Telegram renders the rich payload
-  natively. The only local classic splitter is the lossless 4096-char plain
-  fallback (`output-guards/length.ts`).
+- `telegram-publication.ts`: the transport contract described above. Telegram
+  renders the rich payload natively; the only local fallback is a lossless
+  4096-char plain splitter.
 - `runtime-config/`: public contracts, environment rules, cross-field
   validation, optional web-search loading, and redacted inspection.
 - `../bot-daemon/`: dependency composition, production adapters, trace wiring,
@@ -137,14 +129,12 @@ and never retry a send after entering an ambiguous delivery state.
   `tests/media-flov.test.ts`
 - Memory/dream: `tests/bot-memory.test.ts`, `tests/bot-memory-tools.test.ts`,
   `tests/chat-knowledge.test.ts`, `tests/dream.test.ts`
-- Process/config/output: `tests/bot-daemon.test.ts`,
-  `tests/bot-runtime-config.test.ts`, `tests/output-guards.test.ts`
-- Rich Markdown preflight: `tests/rich-markdown.test.ts`
+- Process/config: `tests/bot-daemon.test.ts`, `tests/bot-runtime-config.test.ts`
 
 Run all bot tests with:
 
 ```sh
 node --test --import tsx tests/bot-*.test.ts tests/ai-agent-*.test.ts \
-  tests/grammy-publisher.test.ts tests/output-guards.test.ts \
+  tests/grammy-publisher.test.ts \
   tests/telegram-update.test.ts tests/turn-coordinator.test.ts
 ```

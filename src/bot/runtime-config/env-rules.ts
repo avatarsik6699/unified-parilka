@@ -155,35 +155,6 @@ export function boundedPlain(
   return flattened;
 }
 
-export function parseAllowedMentions(
-  raw: string | undefined,
-  botUsername: string,
-): readonly string[] {
-  const candidates = [
-    botUsername,
-    ...(raw ?? "")
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean),
-  ];
-  if (candidates.length > 33) {
-    throw new Error(
-      "PARILKA_BOT_ALLOWED_MENTIONS can contain at most 32 usernames.",
-    );
-  }
-  const unique = new Map<string, string>();
-  for (const candidate of candidates) {
-    const username = candidate.replace(/^@/u, "");
-    if (!/^[A-Za-z][A-Za-z0-9_]{4,31}$/u.test(username)) {
-      throw new Error(
-        "PARILKA_BOT_ALLOWED_MENTIONS must contain only valid Telegram usernames.",
-      );
-    }
-    unique.set(username.toLowerCase(), username);
-  }
-  return [...unique.values()];
-}
-
 export function integer(
   raw: string | undefined,
   name: string,

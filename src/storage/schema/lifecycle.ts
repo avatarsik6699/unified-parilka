@@ -33,6 +33,7 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
   declare protected applyBaseSchema: () => void;
   declare protected applyBotChatMemoryMigration: () => void;
   declare protected applyBotChatKnowledgeMigration: () => void;
+  declare protected applyRetireBotCallbackIntentsMigration: () => void;
   declare protected applyBotDurabilityMigration: () => void;
   declare protected applyBotRetryBackoffMigration: () => void;
   declare protected applyBotToolProgressMigration: () => void;
@@ -123,6 +124,10 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
       if (currentVersion < 16) {
         this.applyBotChatKnowledgeMigration();
         this.db.exec("PRAGMA user_version = 16");
+      }
+      if (currentVersion < 19) {
+        this.applyRetireBotCallbackIntentsMigration();
+        this.db.exec("PRAGMA user_version = 19");
       }
       // This is a backwards-compatible performance index, not a data-model
       // change. Reconcile it for every writable compatible open so databases

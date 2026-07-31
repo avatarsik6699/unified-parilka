@@ -309,7 +309,7 @@ export interface CachedDigestResult {
   digests: readonly CachedDigest[];
   /**
    * Optional exact source messages behind the summaries. They are emitted as
-   * separate evidence so a quote guard can distinguish chat text from digest
+   * separate evidence so the model can distinguish chat text from digest
    * prose.
    */
   sourceMessages?: readonly StoredMessage[];

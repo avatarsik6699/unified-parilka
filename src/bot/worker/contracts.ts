@@ -7,7 +7,7 @@ import type {
   StoredMessage,
 } from "../../store.js";
 import type { FoldBatch, TurnBoundary, TurnCoordinator } from "../turn-coordinator.js";
-import type { GuardedTelegramPublication, OutputGuardPolicy, QuoteEvidence } from "../output-guards.js";
+import type { TelegramPublication } from "../telegram-publication.js";
 import type {
   ToolProgressBotApiPort,
   ToolProgressPort,
@@ -22,17 +22,13 @@ export const DEFAULT_LEASE_MS = 30_000;
 export const DEFAULT_HEARTBEAT_MS = 10_000;
 export const DEFAULT_TURN_TIMEOUT_MS = 600_000;
 export const DEFAULT_PUBLISH_TIMEOUT_MS = 30_000;
-export const MAX_AGENT_EVIDENCE_ITEMS = 1_000;
-
 export interface BotAgentFinalResult {
   kind: "final";
   text: string;
-  evidence: readonly QuoteEvidence[];
   telemetry: TurnTelemetry;
   /**
    * An explicit local Flov transcription is sent as bounded plain text rather
-   * than being reparsed as model Markdown or routed through model-only social
-   * guards. It is still subjected to application plain-output validation.
+   * than being sent through the native rich-message endpoint.
    */
   responseOrigin?: "local_audio";
 }
@@ -63,7 +59,7 @@ export interface BotTurnAgent {
 export interface TelegramPublishRequest {
   chatId: string;
   replyToMessageId: number;
-  publication: GuardedTelegramPublication;
+  publication: TelegramPublication;
   signal: AbortSignal;
 }
 
@@ -118,8 +114,6 @@ export interface BotTurnWorkerOptions {
   heartbeatMs?: number;
   turnTimeoutMs?: number;
   publishTimeoutMs?: number;
-  outputPolicy?: Omit<OutputGuardPolicy, "evidence" | "allowedMentions">;
-  additionalAllowedMentions?: readonly string[];
   typingPort?: TypingPort;
   typingIntervalMs?: number;
   toolProgressBotApiPort?: ToolProgressBotApiPort;
@@ -135,8 +129,7 @@ export type BotTurnWorkerResult =
   | {
       status: "skipped";
       turnId: number;
-      reason: "model_skip" | "guard_rejected" | "shadow" | "chat_scope";
-      guardCode?: string;
+      reason: "shadow" | "chat_scope";
     }
   | { status: "failed"; turnId: number; stage: "load" | "agent" | "coordinator" }
   | { status: "lease_lost"; turnId: number }

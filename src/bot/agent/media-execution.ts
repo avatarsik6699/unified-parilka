@@ -6,10 +6,8 @@ import type {
 } from "../media-tools.js";
 import { flovRejectionDiagnostic } from "../media-tools.js";
 import type { ResolvedModelCandidate } from "../../providers/model-router.js";
-import type { BotAgentFinalResult } from "../worker.js";
 import {
   boundedSerialize,
-  collectQuoteEvidence,
   type CarriedToolResult,
 } from "./evidence.js";
 import { ThinkingProgressTracker } from "./thinking-progress.js";
@@ -23,8 +21,6 @@ export interface AudioTranscriptionExecutionOptions {
   readonly thinkingProgress: ThinkingProgressTracker;
   readonly toolProgressPort?: ToolProgressPort;
   readonly carriedTools: CarriedToolResult[];
-  readonly evidence: BotAgentFinalResult["evidence"][number][];
-  readonly evidenceKeys: Set<string>;
   readonly onStarted: () => void;
   readonly onCompleted: () => void;
   readonly getSequence: (callId: string) => number;
@@ -95,11 +91,6 @@ export class AudioTranscriptionExecution {
           name: "audio_transcribe",
           serialized: boundedSerialize(output),
         });
-        collectQuoteEvidence(
-          output,
-          this.#options.evidence,
-          this.#options.evidenceKeys,
-        );
         this.#options.log("info", "bot.agent.tool", {
           ...this.#options.traceContext,
           ...(input.candidate === undefined

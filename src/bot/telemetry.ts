@@ -3,8 +3,8 @@
  *
  * The accumulator lives inside the agent loop and collects usage from every
  * completed model step across all provider attempts. The footer is appended to
- * the final model text before output guards run, so it passes through the same
- * sanitization, guard, rich-render and Telegram chunking pipeline.
+ * the final model text before publication, so it passes through the same
+ * rich-render and Telegram chunking pipeline.
  */
 
 export interface StepUsageRecord {
@@ -121,7 +121,7 @@ export class TurnUsageAccumulator {
  * Format: `model 🧠 · input/output · tool calls · duration`
  *
  * Missing values are shown as `?` rather than invented. The footer is plain
- * text and must pass through the same output guards as the rest of the answer.
+ * text and follows the same publication path as the rest of the answer.
  */
 export function buildTelemetryFooter(telemetry: TurnTelemetry): string {
   const model = displayModelName(

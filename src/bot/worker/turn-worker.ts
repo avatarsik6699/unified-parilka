@@ -1,12 +1,9 @@
 import type { MessageStore, StoredBotTurn } from "../../store.js";
 import { TurnCoordinator } from "../turn-coordinator.js";
 import {
-  guardApplicationPlainTelegramOutput,
-  guardFinalTelegramOutput,
-  type GuardedTelegramPublication,
-  type OutputGuardPolicy,
-  type OutputRejectionCode,
-} from "../output-guards.js";
+  createTelegramPublication,
+  type TelegramPublication,
+} from "../telegram-publication.js";
 import { buildTelemetryFooter } from "../telemetry.js";
 import {
   ToolProgressPublisher,
@@ -28,9 +25,7 @@ import {
 } from "./contracts.js";
 import { dispatchBotTurn, markBotTurnLostAck } from "./dispatch.js";
 import {
-  dedupeEvidence,
   isAgentFinal,
-  messagesToEvidence,
   safeErrorCode,
 } from "./helpers.js";
 import { startTurnTimers, type TurnTimers } from "./timers.js";
@@ -40,9 +35,6 @@ import {
   seedBotTurnReplay,
 } from "./turn-context.js";
 import { resolveBotTurnWorkerSettings } from "./worker-config.js";
-
-const GUARD_REJECTION_NOTICE =
-  "⚠️ Ответ не отправлен: он не прошёл внутреннюю проверку безопасности. Переформулируй запрос — отвечу заново.";
 
 export class BotTurnWorker {
   readonly #store: MessageStore;
@@ -56,11 +48,6 @@ export class BotTurnWorker {
   readonly #heartbeatMs: number;
   readonly #turnTimeoutMs: number;
   readonly #publishTimeoutMs: number;
-  readonly #outputPolicy: Omit<
-    OutputGuardPolicy,
-    "evidence" | "allowedMentions"
-  >;
-  readonly #additionalAllowedMentions: readonly string[];
   readonly #typingPort: TypingPort | undefined;
   readonly #typingIntervalMs: number;
   readonly #toolProgressBotApiPort: ToolProgressBotApiPort | undefined;
@@ -81,9 +68,6 @@ export class BotTurnWorker {
     this.#heartbeatMs = settings.heartbeatMs;
     this.#turnTimeoutMs = settings.turnTimeoutMs;
     this.#publishTimeoutMs = settings.publishTimeoutMs;
-    this.#outputPolicy = settings.outputPolicy;
-    this.#additionalAllowedMentions =
-      settings.additionalAllowedMentions;
     this.#typingPort = options.typingPort;
     this.#typingIntervalMs = options.typingIntervalMs ?? 4_000;
     this.#toolProgressBotApiPort = options.toolProgressBotApiPort;
@@ -213,11 +197,7 @@ export class BotTurnWorker {
         now: this.#now,
         controller,
       });
-      const {
-        drainFold,
-        drainedEvidence,
-        foldedAllowedMentions,
-      } = createTurnFoldCollector(
+      const { drainFold } = createTurnFoldCollector(
         this.#coordinator,
         coordinatorTurnId,
       );
@@ -291,116 +271,19 @@ export class BotTurnWorker {
         return { status: "failed", turnId: turn.id, stage: "agent" };
       }
 
-      // A final may be rejected by output guards or become SKIP/shadow. The
-      // progress message is presentation-only and must not outlive any of
-      // those terminal outcomes.
+      // The progress message is presentation-only and must not outlive the
+      // final output, including a shadow turn.
       try {
         await toolProgress?.finish(controller.signal);
       } catch {
         // A persisted fence lets the next attempt recover a failed cleanup.
       }
 
-      const evidence = dedupeEvidence([
-        ...messagesToEvidence(loaded.context),
-        ...drainedEvidence,
-        ...final.evidence,
-      ]);
-      const allowedMentions = [
-        ...this.#additionalAllowedMentions,
-        ...foldedAllowedMentions,
-      ];
-      const isSkip = final.text.trim() === "SKIP";
-      const finalText = isSkip
-        ? final.text
-        : `${final.text}\n\n${buildTelemetryFooter(final.telemetry)}`;
-      const guarded = final.responseOrigin === "local_audio"
-        ? guardApplicationPlainTelegramOutput(
-            { kind: "final", text: finalText },
-            this.#outputPolicy,
-          )
-        : guardFinalTelegramOutput(
-            { kind: "final", text: finalText },
-            {
-              ...this.#outputPolicy,
-              evidence,
-              allowedMentions,
-            },
-          );
-
-      let publication: GuardedTelegramPublication;
-      let draftText: string;
-      let rejectedGuardCode: OutputRejectionCode | undefined;
-      if (!guarded.ok) {
-        rejectedGuardCode = guarded.rejection.code;
-        this.#log("warn", "bot.turn.guard_rejected", {
-          turnId: turn.id,
-          code: rejectedGuardCode,
-        });
-        const notice = guardFinalTelegramOutput(
-          { kind: "final", text: GUARD_REJECTION_NOTICE },
-          { maxMentions: 0 },
-        );
-        if (!notice.ok || notice.disposition !== "send") {
-          timers.stop();
-          if (
-            !this.#store.markBotTurnSkipped(
-              turn.id,
-              this.#workerId,
-              `guard_rejected:${rejectedGuardCode}`,
-              this.#now(),
-            )
-          ) {
-            return { status: "lease_lost", turnId: turn.id };
-          }
-          this.#log("error", "bot.turn.guard_notice_unavailable", {
-            turnId: turn.id,
-            code: rejectedGuardCode,
-          });
-          return {
-            status: "skipped",
-            turnId: turn.id,
-            reason: "guard_rejected",
-            guardCode: rejectedGuardCode,
-          };
-        }
-        publication = notice.publication;
-        draftText = notice.text;
-      } else if (guarded.disposition === "skip") {
-        if (
-          !this.#store.saveBotTurnDraft(
-            turn.id,
-            this.#workerId,
-            guarded.text,
-            this.#now(),
-          )
-        ) {
-          timers.stop();
-          return { status: "lease_lost", turnId: turn.id };
-        }
-        timers.stop();
-        if (
-          !this.#store.markBotTurnSkipped(
-            turn.id,
-            this.#workerId,
-            "model_skip",
-            this.#now(),
-          )
-        ) {
-          return { status: "lease_lost", turnId: turn.id };
-        }
-        this.#log("info", "bot.turn.skipped", {
-          turnId: turn.id,
-          reason: "model_skip",
-        });
-        return {
-          status: "skipped",
-          turnId: turn.id,
-          reason: "model_skip",
-        };
-      } else {
-        publication = guarded.publication;
-        draftText = guarded.text;
-      }
+      const draftText = `${final.text}\n\n${buildTelemetryFooter(final.telemetry)}`;
+      const publication: TelegramPublication = createTelegramPublication(
+        draftText,
+        final.responseOrigin,
+      );
 
       if (
         !this.#store.saveBotTurnDraft(
@@ -430,9 +313,6 @@ export class BotTurnWorker {
           turnId: turn.id,
           reason: "shadow",
           publication: publication.mode,
-          ...(rejectedGuardCode === undefined
-            ? {}
-            : { guardCode: rejectedGuardCode }),
         });
         return { status: "skipped", turnId: turn.id, reason: "shadow" };
       }

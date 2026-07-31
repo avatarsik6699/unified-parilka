@@ -1,11 +1,8 @@
 import type { ModelMessage } from "ai";
 import { wrapUntrustedToolData } from "../prompt.js";
-import type { ReadToolEvidence } from "../read-tools.js";
-import type { BotAgentFinalResult } from "../worker.js";
 import { userMessage } from "./context.js";
 
 const MAX_TOOL_CARRY_CHARS = 4_500;
-const MAX_QUOTE_EVIDENCE = 1_000;
 
 export interface CarriedToolResult {
   sequence: number;
@@ -45,38 +42,4 @@ export function boundedSerialize(value: unknown): string {
     return serialized;
   }
   return `${serialized.slice(0, MAX_TOOL_CARRY_CHARS - 25)}…[truncated]`;
-}
-
-export function collectQuoteEvidence(
-  output: {
-    ok: boolean;
-    evidence: readonly ReadToolEvidence[];
-  },
-  target: BotAgentFinalResult["evidence"][number][],
-  seen: Set<string>,
-): void {
-  if (!output.ok || target.length >= MAX_QUOTE_EVIDENCE) {
-    return;
-  }
-  for (const item of output.evidence) {
-    if (
-      item.source !== "chat_message" ||
-      item.text.trim().length === 0
-    ) {
-      continue;
-    }
-    const speaker = item.speaker.name ?? item.speaker.id;
-    if (!speaker) {
-      continue;
-    }
-    const key = `${speaker}\u0000${item.text}`;
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    target.push({ speaker, text: item.text });
-    if (target.length >= MAX_QUOTE_EVIDENCE) {
-      break;
-    }
-  }
 }

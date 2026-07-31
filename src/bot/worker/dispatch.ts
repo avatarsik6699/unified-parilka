@@ -1,5 +1,5 @@
 import type { MessageStore, StoredBotTurn, StoredMessage } from "../../store.js";
-import type { GuardedTelegramPublication } from "../output-guards.js";
+import type { TelegramPublication } from "../telegram-publication.js";
 import type {
   BotTurnPublisher,
   BotTurnWorkerResult,
@@ -28,7 +28,7 @@ export async function dispatchBotTurn(
   options: DispatchBotTurnOptions,
   turn: StoredBotTurn,
   trigger: StoredMessage,
-  publication: GuardedTelegramPublication,
+  publication: TelegramPublication,
 ): Promise<BotTurnWorkerResult> {
   const {
     store,

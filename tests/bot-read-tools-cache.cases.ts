@@ -200,7 +200,7 @@ test("day_digest passes inclusive Moscow days as an exact UTC half-open range", 
   let query: DigestCacheQuery | undefined;
   const source = message(
     301,
-    "дословное сообщение для quote guard",
+    "дословное сообщение для проверки кэша",
     "alice",
     "2026-07-29T21:00:00.000Z",
   );
@@ -256,7 +256,7 @@ test("day_digest passes inclusive Moscow days as an exact UTC half-open range", 
       message: { id: 301 },
       speaker: { id: "speaker-301", name: "alice" },
       date: "2026-07-29T21:00:00.000Z",
-      text: "дословное сообщение для quote guard",
+      text: "дословное сообщение для проверки кэша",
     },
   ]);
 });

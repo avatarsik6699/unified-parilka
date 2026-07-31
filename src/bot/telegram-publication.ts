@@ -1,4 +1,48 @@
-import { TELEGRAM_TEXT_LIMIT_UTF16 } from "./contracts.js";
+/** Telegram's documented UTF-16 text payload limit. */
+export const TELEGRAM_TEXT_LIMIT_UTF16 = 4_096;
+
+/**
+ * The exact model result that crosses the Telegram send boundary.
+ *
+ * This is deliberately a transport contract, not a content policy: model
+ * text is neither inspected nor rewritten here. Short model replies use the
+ * native rich path; local audio and rich payloads too long for one native
+ * message use the classic plain path, which the publisher splits losslessly.
+ */
+export type TelegramPublication =
+  | {
+      mode: "rich";
+      markdown: string;
+      plainText: string;
+      maxChunkUtf16: number;
+    }
+  | {
+      mode: "plain";
+      plainText: string;
+      maxChunkUtf16: number;
+    };
+
+export function createTelegramPublication(
+  text: string,
+  responseOrigin?: "local_audio",
+): TelegramPublication {
+  if (
+    responseOrigin === "local_audio" ||
+    utf16Length(text) > TELEGRAM_TEXT_LIMIT_UTF16
+  ) {
+    return {
+      mode: "plain",
+      plainText: text,
+      maxChunkUtf16: TELEGRAM_TEXT_LIMIT_UTF16,
+    };
+  }
+  return {
+    mode: "rich",
+    markdown: text,
+    plainText: text,
+    maxChunkUtf16: TELEGRAM_TEXT_LIMIT_UTF16,
+  };
+}
 
 export function utf16Length(text: string): number {
   return text.length;
@@ -39,21 +83,6 @@ export function splitTelegramText(
     start = end;
   }
   return chunks;
-}
-
-export function hasUnpairedSurrogate(text: string): boolean {
-  for (let index = 0; index < text.length; index += 1) {
-    const code = text.charCodeAt(index);
-    if (isHighSurrogate(code)) {
-      if (!isLowSurrogate(text.charCodeAt(index + 1))) {
-        return true;
-      }
-      index += 1;
-    } else if (isLowSurrogate(code)) {
-      return true;
-    }
-  }
-  return false;
 }
 
 function safeUtf16End(text: string, start: number, limit: number): number {

@@ -3,7 +3,7 @@ import { GrammyError, HttpError } from "grammy";
 import {
   splitTelegramText,
   TELEGRAM_TEXT_LIMIT_UTF16,
-} from "./output-guards.js";
+} from "./telegram-publication.js";
 import type {
   BotTurnPublisher,
   TelegramPublishRequest,
@@ -103,7 +103,7 @@ const RICH_PARSE_REJECTION_PATTERN =
   /can't parse (?:markdown|rich message|entities)|invalid rich message/iu;
 
 /**
- * Publishes one guarded publication. The primary path is a single native
+ * Publishes one prepared publication. The primary path is a single native
  * `sendRichMessage({ markdown, skip_entity_detection: true })`; the classic
  * `sendMessage` remains only for whole-message plain publications and the
  * one-shot parser-related 400 fallback.

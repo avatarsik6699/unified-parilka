@@ -1,4 +1,3 @@
-import type { OutputGuardPolicy } from "../output-guards.js";
 import {
   DEFAULT_HEARTBEAT_MS,
   DEFAULT_LEASE_MS,
@@ -22,11 +21,6 @@ export interface BotTurnWorkerSettings {
   heartbeatMs: number;
   turnTimeoutMs: number;
   publishTimeoutMs: number;
-  outputPolicy: Omit<
-    OutputGuardPolicy,
-    "evidence" | "allowedMentions"
-  >;
-  additionalAllowedMentions: readonly string[];
   logger: JsonEventLogger | undefined;
   scheduler: WorkerScheduler;
   now: () => number;
@@ -75,9 +69,6 @@ export function resolveBotTurnWorkerSettings(
       5 * 60_000,
       "publishTimeoutMs",
     ),
-    outputPolicy: options.outputPolicy ?? {},
-    additionalAllowedMentions:
-      options.additionalAllowedMentions ?? [],
     logger: options.logger,
     scheduler: options.scheduler ?? SYSTEM_SCHEDULER,
     now: options.now ?? Date.now,
