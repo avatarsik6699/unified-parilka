@@ -404,4 +404,16 @@ declare protected applyMaintenanceSchema: () => void;
       "TEXT CHECK(progress_state IN ('none', 'dispatching', 'active', 'unknown'))",
     );
   }
+
+  protected applyBotChatMemoryMigration(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS bot_chat_memory (
+        chat_id TEXT NOT NULL PRIMARY KEY,
+        memory_text TEXT NOT NULL DEFAULT '',
+        last_consolidated_message_id INTEGER,
+        revision INTEGER NOT NULL DEFAULT 0,
+        updated_at_ms INTEGER NOT NULL
+      );
+    `);
+  }
 }

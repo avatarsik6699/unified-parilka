@@ -7,11 +7,16 @@ import {
   acquireDigestProcessLock,
   runDigestGeneration,
   type DigestGenerationReport,
+  type DigestModelRouter,
   type DigestPhaseReport,
   type DigestProcessLock,
 } from "../digests.js";
 import { ModelRouter } from "../providers/model-router.js";
 import { MessageStore } from "../store.js";
+import {
+  runDreamPass,
+  type DreamPassResult,
+} from "./dream-pass.js";
 import {
   integerFromEnvironment,
   parseOptions,
@@ -44,21 +49,22 @@ export async function runDigestCli(
     store = new MessageStore(options.dbPath, {
       readOnly: !options.apply,
     });
-    const summaryPort = options.apply
-      ? new AiSdkSummaryPort(
-          ModelRouter.fromFile(options.modelConfigPath!),
-          {
-            maxOutputTokens: integerFromEnvironment(
-              env.PARILKA_DIGEST_MAX_OUTPUT_TOKENS,
-              "PARILKA_DIGEST_MAX_OUTPUT_TOKENS",
-              64,
-              32_768,
-              2_048,
-            ),
-            totalTimeoutMs: options.modelTotalTimeoutMs,
-            candidateTimeoutMs: options.modelCandidateTimeoutMs,
-          },
-        )
+    const router: DigestModelRouter | undefined =
+      options.apply && options.modelConfigPath
+        ? ModelRouter.fromFile(options.modelConfigPath)
+        : undefined;
+    const summaryPort = router
+      ? new AiSdkSummaryPort(router, {
+          maxOutputTokens: integerFromEnvironment(
+            env.PARILKA_DIGEST_MAX_OUTPUT_TOKENS,
+            "PARILKA_DIGEST_MAX_OUTPUT_TOKENS",
+            64,
+            32_768,
+            2_048,
+          ),
+          totalTimeoutMs: options.modelTotalTimeoutMs,
+          candidateTimeoutMs: options.modelCandidateTimeoutMs,
+        })
       : undefined;
     const report = await runDigestGeneration({
       store,
@@ -74,6 +80,18 @@ export async function runDigestCli(
       maxWeekGenerationsPerRun:
         options.maxWeekGenerationsPerRun,
     });
+    const dream = await runDreamPass(
+      store,
+      {
+        chatId: options.chatId,
+        apply: options.apply,
+        dreamEveryNMessages: options.dreamEveryNMessages,
+        dreamMaxMessages: options.dreamMaxMessages,
+        memoryMaxChars: options.memoryMaxChars,
+        modelConfigPath: options.modelConfigPath,
+      },
+      router,
+    );
     const reportOutput = options.summaryOnly
       ? compactDigestReport(report)
       : report;
@@ -81,6 +99,7 @@ export async function runDigestCli(
       `${JSON.stringify(
         {
           ...reportOutput,
+          dream,
           ...(lock
             ? {
                 lock: {

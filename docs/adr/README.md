@@ -11,3 +11,6 @@ ADR, небольшое уточнение — датированным addendum
 
 - [ADR 0001](0001-unified-typescript.md): единый TypeScript codebase, два
   process owners, один versioned SQLite и loopback MCP.
+- [ADR 0002](0002-native-telegram-rich-messages.md): нативные Telegram Rich
+  Messages (`sendRichMessage` + `markdown`) как primary path финального
+  ответа бота, bounded AST preflight и classic plain fallback.

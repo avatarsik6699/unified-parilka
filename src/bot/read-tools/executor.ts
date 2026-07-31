@@ -16,6 +16,7 @@ import {
   type BotReadToolName,
   type BotReadToolResult,
   type BotReadToolsOptions,
+  type PaperSearchProvider,
   type WebSearchProvider,
 } from "./contracts.js";
 import {
@@ -23,7 +24,13 @@ import {
   normalizeReadToolError,
 } from "./payload.js";
 import {
+  executePaperSearch,
+  DEFAULT_PAPER_RATE_LIMIT_MS,
+  DEFAULT_PAPER_TIMEOUT_MS,
+} from "./paper-executor.js";
+import {
   dayDigestArgsSchema,
+  paperSearchArgsSchema,
   searchChatArgsSchema,
   threadContextArgsSchema,
   webSearchArgsSchema,
@@ -37,12 +44,16 @@ const MAX_WEB_TIMEOUT_MS = 5 * 60_000;
 export class BotReadTools {
   readonly #cacheContext: CacheExecutorContext;
   readonly #webSearch: WebSearchProvider | undefined;
+  readonly #paperSearch: PaperSearchProvider | undefined;
   readonly #webSearchTimeoutMs: number;
+  readonly #paperSearchTimeoutMs: number;
+  readonly #paperSearchRateLimitMs: number;
 
   constructor(options: BotReadToolsOptions) {
     const chatId = requireNonEmpty(options.chatId, "chatId");
     const cache = options.cache;
     this.#webSearch = options.webSearch;
+    this.#paperSearch = options.paperSearch;
     const timeZone = options.timeZone ?? DEFAULT_TIME_ZONE;
     assertTimeZone(timeZone);
     const chatSearchTimeoutMs = boundedPositiveInteger(
@@ -54,6 +65,16 @@ export class BotReadTools {
       options.webSearchTimeoutMs ?? DEFAULT_WEB_TIMEOUT_MS,
       MAX_WEB_TIMEOUT_MS,
       "webSearchTimeoutMs",
+    );
+    this.#paperSearchTimeoutMs = boundedPositiveInteger(
+      options.paperSearchTimeoutMs ?? DEFAULT_PAPER_TIMEOUT_MS,
+      MAX_WEB_TIMEOUT_MS,
+      "paperSearchTimeoutMs",
+    );
+    this.#paperSearchRateLimitMs = boundedPositiveInteger(
+      options.paperSearchRateLimitMs ?? DEFAULT_PAPER_RATE_LIMIT_MS,
+      60_000,
+      "paperSearchRateLimitMs",
     );
     this.#cacheContext = {
       chatId,
@@ -103,6 +124,14 @@ export class BotReadTools {
             this.#webSearch,
             webSearchArgsSchema.parse(rawArgs ?? {}),
             this.#webSearchTimeoutMs,
+            options.signal,
+          );
+        case "paper_search":
+          return await executePaperSearch(
+            this.#paperSearch,
+            paperSearchArgsSchema.parse(rawArgs ?? {}),
+            this.#paperSearchTimeoutMs,
+            this.#paperSearchRateLimitMs,
             options.signal,
           );
       }

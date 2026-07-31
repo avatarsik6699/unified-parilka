@@ -108,13 +108,15 @@ export class TurnUsageAccumulator {
  * text and must pass through the same output guards as the rest of the answer.
  */
 export function buildTelemetryFooter(telemetry: TurnTelemetry): string {
+  const provider = telemetry.finalProviderId || "unknown";
   const model = telemetry.finalModelId || "unknown";
+  const reasoning = telemetry.reasoningMode ?? "?";
   const input = formatTokens(telemetry.totalInputTokens);
   const output = formatTokens(telemetry.totalOutputTokens);
   const total = formatTokens(telemetry.totalTokens);
   const suffix = telemetry.incomplete ? " · reported" : "";
 
-  return `──\n${model} · in:${input} out:${output} total:${total}${suffix}`;
+  return `──\n${provider}/${model} · reasoning:${reasoning} · in:${input} out:${output} total:${total}${suffix}`;
 }
 
 function formatTokens(value: number | undefined): string {

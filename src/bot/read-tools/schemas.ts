@@ -59,9 +59,45 @@ export const webSearchResponseSchema = z
   })
   .strict();
 
+export const paperSearchArgsSchema = z
+  .object({
+    query: querySchema,
+    source: z.enum(["arxiv", "europepmc"]).default("arxiv"),
+    max_results: z.number().int().min(1).max(5).default(3),
+  })
+  .strict();
+
+export const paperSearchResponseSchema = z
+  .object({
+    query: z.string().min(1).max(500),
+    source: z.enum(["arxiv", "europepmc"]),
+    papers: z
+      .array(
+        z
+          .object({
+            title: z.string().max(500),
+            authors: z.array(z.string().max(200)).max(50),
+            year: z.string().max(20).optional(),
+            abstract: z.string().max(8_000).optional(),
+            url: z
+              .url()
+              .refine(
+                (value) =>
+                  value.startsWith("https://") ||
+                  value.startsWith("http://"),
+                "Expected an HTTP(S) URL.",
+              ),
+          })
+          .strict(),
+      )
+      .max(5),
+  })
+  .strict();
+
 export type SearchChatArgs = z.infer<typeof searchChatArgsSchema>;
 export type DayDigestArgs = z.infer<typeof dayDigestArgsSchema>;
 export type ThreadContextArgs = z.infer<
   typeof threadContextArgsSchema
 >;
 export type WebSearchArgs = z.infer<typeof webSearchArgsSchema>;
+export type PaperSearchArgs = z.infer<typeof paperSearchArgsSchema>;

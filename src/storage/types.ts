@@ -207,6 +207,21 @@ export type BotTurnProgressState =
   | "active"
   | "unknown";
 
+export type StoredChatMemory = {
+  chatId: string;
+  memoryText: string;
+  lastConsolidatedMessageId?: number;
+  revision: number;
+  updatedAtMs: number;
+};
+
+export type UpsertChatMemoryInput = Omit<
+  StoredChatMemory,
+  "revision" | "updatedAtMs"
+> & {
+  updatedAtMs?: number;
+};
+
 export type StoredDayDigest = {
   chatId: string;
   day: string;

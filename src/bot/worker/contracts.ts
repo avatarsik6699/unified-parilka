@@ -1,6 +1,6 @@
 import type { MessageStore, StoredBotTurn, StoredMessage } from "../../store.js";
 import type { FoldBatch, TurnBoundary, TurnCoordinator } from "../turn-coordinator.js";
-import type { GuardedChunk, OutputGuardPolicy, QuoteEvidence } from "../output-guards.js";
+import type { GuardedTelegramPublication, OutputGuardPolicy, QuoteEvidence } from "../output-guards.js";
 import type {
   ToolProgressBotApiPort,
   ToolProgressPort,
@@ -31,6 +31,7 @@ export interface BotAgentRequest {
   signal: AbortSignal;
   drainFold: (boundary: TurnBoundary) => FoldBatch;
   toolProgressPort?: ToolProgressPort;
+  memoryBlock?: string;
 }
 
 export interface BotTurnAgent {
@@ -40,7 +41,7 @@ export interface BotTurnAgent {
 export interface TelegramPublishRequest {
   chatId: string;
   replyToMessageId: number;
-  chunks: readonly GuardedChunk[];
+  publication: GuardedTelegramPublication;
   signal: AbortSignal;
 }
 

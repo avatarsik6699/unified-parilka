@@ -2,6 +2,7 @@ import { BotTurnMethods, type BotTurnApi } from "./storage/bot-turns.js";
 import { BotUpdateMethods, type BotUpdateApi } from "./storage/bot-updates.js";
 import { StoreCore } from "./storage/core.js";
 import { DigestMethods, type DigestApi } from "./storage/digests.js";
+import { MemoryMethods, type MemoryApi } from "./storage/memory.js";
 import { EmbeddingMethods, type EmbeddingApi } from "./storage/embeddings.js";
 import { installStoreDomain } from "./storage/install-domain.js";
 import { MessageMethods, type MessageApi } from "./storage/messages.js";
@@ -26,6 +27,7 @@ export interface MessageStore
     BotTurnApi,
     DigestApi,
     EmbeddingApi,
+    MemoryApi,
     SendOutboxApi,
     SyncOpsApi,
     StatusApi {}
@@ -61,6 +63,7 @@ const domains = [
   BotTurnMethods,
   DigestMethods,
   EmbeddingMethods,
+  MemoryMethods,
   SendOutboxMethods,
   SyncOpsMethods,
   StatusMethods,

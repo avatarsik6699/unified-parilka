@@ -203,6 +203,17 @@ export function loadConfig(): AppConfig {
         "TELEGRAM_MAX_RUNNING_PER_CHAT",
       ),
     },
+    memory: {
+      dreamEveryNMessages: intFromEnv(
+        "PARILKA_DREAM_EVERY_N_MESSAGES",
+      ),
+      dreamMaxMessages: intFromEnv(
+        "PARILKA_DREAM_MAX_MESSAGES",
+      ),
+      memoryMaxChars: intFromEnv(
+        "PARILKA_MEMORY_MAX_CHARS",
+      ),
+    },
   };
 
   validateConfig(config);

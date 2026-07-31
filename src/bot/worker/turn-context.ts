@@ -1,6 +1,7 @@
 import type {
   MessageStore,
   StoredBotTurn,
+  StoredChatMemory,
   StoredMessage,
 } from "../../store.js";
 import type {
@@ -22,6 +23,7 @@ export interface LoadedBotTurn {
   trigger: StoredMessage;
   context: StoredMessage[];
   replay: StoredMessage[];
+  memory?: StoredChatMemory;
 }
 
 export function loadBotTurn(
@@ -49,10 +51,12 @@ export function loadBotTurn(
     limit: BOT_REPLAY_MESSAGES,
     order: "asc",
   });
+  const memory = store.getChatMemory(turn.chatId);
   return {
     trigger,
     context: [...previous, trigger],
     replay,
+    ...(memory === undefined ? {} : { memory }),
   };
 }
 

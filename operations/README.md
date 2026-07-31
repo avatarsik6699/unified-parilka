@@ -26,3 +26,25 @@ Operator documentation находится вне архитектурного `d
 
 Runbook описывает процедуру, но сам по себе не авторизует новый stop/start,
 send, rollback, commit, push или deploy.
+
+## Bot memory and dreaming
+
+- `bot_chat_memory` хранит один bounded memory-блок на чат, watermark
+  `last_consolidated_message_id` и `revision`.
+- Блок инжектируется в системный промпт бота на каждом turn как недоверенные
+  данные (`## Постоянная память`) с индикатором заполнения.
+- Dream-консолидация запускается существующим `parilka-digests --apply`
+  (`parilka-maintain.timer`, 04:20). Она срабатывает только когда с момента
+  последнего watermark накопилось `>= PARILKA_DREAM_EVERY_N_MESSAGES`
+  (default 50), но читает не больше `PARILKA_DREAM_MAX_MESSAGES` (default 200).
+- При падении модели/невалидном выводе старый блок и watermark сохраняются
+  (fail-closed). Повторный прогон без новых сообщений не пишет в
+  `bot_chat_memory`.
+- Сбросить блок можно через SQL:
+  `DELETE FROM bot_chat_memory WHERE chat_id = '<chat_id>';`. Это сбросит
+  watermark и бот начнёт с пустой памяти.
+- Параметры:
+  - `PARILKA_MEMORY_MAX_CHARS` — бюджет блока (500–4000, default 2000).
+  - `PARILKA_DREAM_EVERY_N_MESSAGES` — порог консолидации (10–500, default 50).
+  - `PARILKA_DREAM_MAX_MESSAGES` — сколько сообщений читать за проход
+    (20–1000, default 200, должен быть >= порога).

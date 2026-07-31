@@ -222,6 +222,9 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
             ...this.#prompt,
             modelLabel: candidate.reference,
             now,
+            memoryBlock:
+              request.memoryBlock ?? this.#prompt.memoryBlock,
+            memoryMaxChars: this.#prompt.memoryMaxChars,
           });
           let forceFinal = allowedExecutions >= BOT_AGENT_CONTRACT.maxToolCalls;
 
@@ -294,6 +297,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
             day_digest: makeTool("day_digest"),
             thread_context: makeTool("thread_context"),
             web_search: makeTool("web_search"),
+            paper_search: makeTool("paper_search"),
           } satisfies ToolSet;
 
           try {

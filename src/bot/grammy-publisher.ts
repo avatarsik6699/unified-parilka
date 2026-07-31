@@ -1,6 +1,9 @@
 import type { Api } from "grammy";
 import { GrammyError, HttpError } from "grammy";
-import type { GuardedChunk } from "./output-guards.js";
+import {
+  splitTelegramText,
+  TELEGRAM_TEXT_LIMIT_UTF16,
+} from "./output-guards.js";
 import type {
   BotTurnPublisher,
   TelegramPublishRequest,
@@ -12,15 +15,40 @@ export interface GrammySendMessageOptions {
     message_id: number;
     allow_sending_without_reply: false;
   };
-  entities?: unknown[];
   link_preview_options?: { is_disabled: true };
 }
 
+export interface GrammyRichMessageOptions {
+  reply_parameters: {
+    message_id: number;
+    allow_sending_without_reply: false;
+  };
+}
+
+export interface GrammyRichMessagePayload {
+  markdown: string;
+  skip_entity_detection: true;
+}
+
+export interface GrammyRichMessageSendInput {
+  chatId: string;
+  richMessage: GrammyRichMessagePayload;
+  /**
+   * Canonical visible plain text. The durable adapter records it as the
+   * acknowledged message text because a rich ACK carries `rich_message`,
+   * not `text`.
+   */
+  plainText: string;
+  options: GrammyRichMessageOptions;
+  signal: AbortSignal;
+}
+
 /**
- * The publisher only needs one Bot API operation. Keeping this port narrower
+ * The publisher only needs two Bot API operations. Keeping this port narrower
  * than grammY's Api makes delivery behavior straightforward to test.
  */
 export interface GrammyBotApiPort {
+  sendRichMessage(input: GrammyRichMessageSendInput): Promise<unknown>;
   sendMessage(
     chatId: string,
     text: string,
@@ -66,10 +94,19 @@ const NETWORK_CODES = new Set([
 ]);
 
 /**
- * Publishes already-guarded chunks in order with pre-computed entities.
- * Link previews are always disabled. On an unambiguous Telegram 400
- * entity-parse rejection the publisher retries that chunk once as plain text;
- * no other error class triggers a retry.
+ * Only a definitive parser-related Bot API 400 before any ACK may open the
+ * classic plain fallback, and it may do so exactly once. Timeout, network,
+ * aborted signal, malformed ACK, partial delivery and post-ACK failures never
+ * trigger a resend.
+ */
+const RICH_PARSE_REJECTION_PATTERN =
+  /can't parse (?:markdown|rich message|entities)|invalid rich message/iu;
+
+/**
+ * Publishes one guarded publication. The primary path is a single native
+ * `sendRichMessage({ markdown, skip_entity_detection: true })`; the classic
+ * `sendMessage` remains only for whole-message plain publications and the
+ * one-shot parser-related 400 fallback.
  */
 export class GrammyBotTurnPublisher implements BotTurnPublisher {
   readonly #api: GrammyBotApiPort;
@@ -88,10 +125,87 @@ export class GrammyBotTurnPublisher implements BotTurnPublisher {
       });
     }
 
+    if (request.publication.mode === "plain") {
+      return this.#publishPlain(
+        request,
+        request.publication.plainText,
+      );
+    }
+    return this.#publishRich(request);
+  }
+
+  async #publishRich(
+    request: TelegramPublishRequest,
+  ): Promise<TelegramPublisherResult> {
+    if (request.publication.mode !== "rich") {
+      return failure(0, {
+        kind: "unknown",
+        code: "INVALID_PUBLISH_REQUEST",
+      });
+    }
+    const { markdown, plainText } = request.publication;
+    if (request.signal.aborted) {
+      return failure(0, { kind: "timeout", code: "ABORTED" });
+    }
+
+    let response: unknown;
+    try {
+      response = await this.#api.sendRichMessage({
+        chatId: request.chatId,
+        richMessage: { markdown, skip_entity_detection: true },
+        plainText,
+        options: richOptions(request.replyToMessageId),
+        signal: request.signal,
+      });
+    } catch (error) {
+      if (isRichParseRejection(error)) {
+        return this.#publishPlain(request, plainText);
+      }
+      return classifyThrownFailure(error, request.signal, 0);
+    }
+
+    const rejection = readTelegramRejection(response);
+    if (rejection) {
+      if (isRichParseRejectionCode(
+        rejection.errorCode,
+        rejection.description,
+      )) {
+        return this.#publishPlain(request, plainText);
+      }
+      return classifyTelegramRejection(rejection, 0);
+    }
+
+    const messageId = readMessageId(response);
+    if (messageId === undefined) {
+      return ambiguousOrPartialFailure(0, {
+        kind: "unknown",
+        code: "MALFORMED_SUCCESS_RESPONSE",
+      });
+    }
+
+    return { ok: true, chunksSent: 1, telegramMessageId: messageId };
+  }
+
+  async #publishPlain(
+    request: TelegramPublishRequest,
+    plainText: string,
+  ): Promise<TelegramPublisherResult> {
+    const chunks = splitTelegramText(
+      plainText,
+      request.publication.maxChunkUtf16,
+    );
+    const baseOptions: GrammySendMessageOptions = {
+      reply_parameters: {
+        message_id: request.replyToMessageId,
+        allow_sending_without_reply: false,
+      },
+      link_preview_options: { is_disabled: true },
+    };
+
     let chunksSent = 0;
     let firstMessageId: number | undefined;
 
-    for (const chunk of request.chunks) {
+    for (const chunk of chunks) {
       if (request.signal.aborted) {
         return ambiguousOrPartialFailure(chunksSent, {
           kind: "timeout",
@@ -99,16 +213,33 @@ export class GrammyBotTurnPublisher implements BotTurnPublisher {
         });
       }
 
-      const result = await this.#sendChunk(
-        request,
-        chunk,
-        chunksSent,
-      );
-      if (!result.ok) {
-        return result;
+      let response: unknown;
+      try {
+        response = await this.#api.sendMessage(
+          request.chatId,
+          chunk,
+          baseOptions,
+          request.signal,
+        );
+      } catch (error) {
+        return classifyThrownFailure(error, request.signal, chunksSent);
       }
+
+      const rejection = readTelegramRejection(response);
+      if (rejection) {
+        return classifyTelegramRejection(rejection, chunksSent);
+      }
+
+      const messageId = readMessageId(response);
+      if (messageId === undefined) {
+        return ambiguousOrPartialFailure(chunksSent, {
+          kind: "unknown",
+          code: "MALFORMED_SUCCESS_RESPONSE",
+        });
+      }
+
       chunksSent += 1;
-      firstMessageId ??= result.telegramMessageId;
+      firstMessageId ??= messageId;
     }
 
     return {
@@ -119,125 +250,42 @@ export class GrammyBotTurnPublisher implements BotTurnPublisher {
         : { telegramMessageId: firstMessageId }),
     };
   }
-
-  async #sendChunk(
-    request: TelegramPublishRequest,
-    chunk: GuardedChunk,
-    chunksSent: number,
-  ): Promise<TelegramPublisherResult> {
-    const baseOptions: GrammySendMessageOptions = {
-      reply_parameters: {
-        message_id: request.replyToMessageId,
-        allow_sending_without_reply: false,
-      },
-      link_preview_options: { is_disabled: true },
-    };
-
-    let response: unknown;
-    try {
-      response = await this.#api.sendMessage(
-        request.chatId,
-        chunk.text,
-        {
-          ...baseOptions,
-          ...(chunk.entities.length > 0
-            ? { entities: [...chunk.entities] }
-            : {}),
-        },
-        request.signal,
-      );
-    } catch (error) {
-      if (isEntityParseRejection(error) && chunk.entities.length > 0) {
-        return this.#sendPlainFallback(
-          request,
-          chunk.text,
-          baseOptions,
-          chunksSent,
-        );
-      }
-      return classifyThrownFailure(error, request.signal, chunksSent);
-    }
-
-    const rejection = readTelegramRejection(response);
-    if (rejection) {
-      if (
-        isEntityParseRejectionCode(rejection.errorCode, rejection.description) &&
-        chunk.entities.length > 0
-      ) {
-        return this.#sendPlainFallback(
-          request,
-          chunk.text,
-          baseOptions,
-          chunksSent,
-        );
-      }
-      return classifyTelegramRejection(rejection, chunksSent);
-    }
-
-    const messageId = readMessageId(response);
-    if (messageId === undefined) {
-      return ambiguousOrPartialFailure(chunksSent, {
-        kind: "unknown",
-        code: "MALFORMED_SUCCESS_RESPONSE",
-      });
-    }
-
-    return { ok: true, chunksSent: chunksSent + 1, telegramMessageId: messageId };
-  }
-
-  async #sendPlainFallback(
-    request: TelegramPublishRequest,
-    text: string,
-    baseOptions: GrammySendMessageOptions,
-    chunksSent: number,
-  ): Promise<TelegramPublisherResult> {
-    let response: unknown;
-    try {
-      response = await this.#api.sendMessage(
-        request.chatId,
-        text,
-        baseOptions,
-        request.signal,
-      );
-    } catch (error) {
-      return classifyThrownFailure(error, request.signal, chunksSent);
-    }
-
-    const rejection = readTelegramRejection(response);
-    if (rejection) {
-      return classifyTelegramRejection(rejection, chunksSent);
-    }
-
-    const messageId = readMessageId(response);
-    if (messageId === undefined) {
-      return ambiguousOrPartialFailure(chunksSent, {
-        kind: "unknown",
-        code: "MALFORMED_SUCCESS_RESPONSE",
-      });
-    }
-
-    return { ok: true, chunksSent: chunksSent + 1, telegramMessageId: messageId };
-  }
 }
 
 /**
  * Adapts a real grammY Api without exposing the rest of it to the publisher.
  */
 export function createGrammyBotTurnPublisher(
-  api: Pick<Api, "sendMessage">,
+  api: Pick<Api, "sendRichMessage" | "sendMessage">,
 ): GrammyBotTurnPublisher {
   return new GrammyBotTurnPublisher({
+    sendRichMessage: (input) =>
+      api.sendRichMessage(
+        input.chatId,
+        input.richMessage as unknown as Parameters<Api["sendRichMessage"]>[1],
+        input.options as unknown as Parameters<Api["sendRichMessage"]>[2],
+        // grammY 1.45 declares the fourth argument with abort-controller's
+        // structural shim, while Node exposes the native, runtime-compatible
+        // signal used by the worker.
+        input.signal as unknown as Parameters<Api["sendRichMessage"]>[3],
+      ),
     sendMessage: (chatId, text, options, signal) =>
       api.sendMessage(
         chatId,
         text,
         options as unknown as Parameters<Api["sendMessage"]>[2],
-        // grammY 1.45 declares the fourth argument with abort-controller's
-        // structural shim, while Node exposes the native, runtime-compatible
-        // signal used by the worker.
         signal as unknown as Parameters<Api["sendMessage"]>[3],
       ),
   });
+}
+
+function richOptions(replyToMessageId: number): GrammyRichMessageOptions {
+  return {
+    reply_parameters: {
+      message_id: replyToMessageId,
+      allow_sending_without_reply: false,
+    },
+  };
 }
 
 function classifyThrownFailure(
@@ -375,24 +423,24 @@ function readTelegramRejection(value: unknown): TelegramRejection | undefined {
   }
 }
 
-function isEntityParseRejection(error: unknown): boolean {
+function isRichParseRejection(error: unknown): boolean {
   if (!(error instanceof GrammyError)) {
     return false;
   }
-  return isEntityParseRejectionCode(
+  return isRichParseRejectionCode(
     error.error_code,
     error.description,
   );
 }
 
-function isEntityParseRejectionCode(
+function isRichParseRejectionCode(
   errorCode: number,
   description: string | undefined,
 ): boolean {
   return (
     errorCode === 400 &&
     typeof description === "string" &&
-    /can't parse entities/iu.test(description)
+    RICH_PARSE_REJECTION_PATTERN.test(description)
   );
 }
 
@@ -470,20 +518,43 @@ function isValidRequest(request: TelegramPublishRequest): boolean {
     request.chatId.trim().length > 0 &&
     Number.isSafeInteger(request.replyToMessageId) &&
     request.replyToMessageId > 0 &&
-    Array.isArray(request.chunks) &&
-    request.chunks.length > 0 &&
-    request.chunks.every(
-      (chunk) =>
-        typeof chunk === "object" &&
-        chunk !== null &&
-        typeof chunk.text === "string" &&
-        chunk.text.length > 0 &&
-        chunk.text.length <= 4_096 &&
-        Array.isArray(chunk.entities),
-    ) &&
+    isPublication(request.publication) &&
     request.signal != null &&
     typeof request.signal.aborted === "boolean"
   );
+}
+
+function isPublication(value: unknown): boolean {
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
+  const publication = value as {
+    mode?: unknown;
+    markdown?: unknown;
+    plainText?: unknown;
+    maxChunkUtf16?: unknown;
+  };
+  const hasValidChunkLimit =
+    Number.isSafeInteger(publication.maxChunkUtf16) &&
+    (publication.maxChunkUtf16 as number) >= 2 &&
+    (publication.maxChunkUtf16 as number) <= TELEGRAM_TEXT_LIMIT_UTF16;
+  if (publication.mode === "plain") {
+    return (
+      typeof publication.plainText === "string" &&
+      publication.plainText.length > 0 &&
+      hasValidChunkLimit
+    );
+  }
+  if (publication.mode === "rich") {
+    return (
+      typeof publication.markdown === "string" &&
+      publication.markdown.length > 0 &&
+      typeof publication.plainText === "string" &&
+      publication.plainText.length > 0 &&
+      hasValidChunkLimit
+    );
+  }
+  return false;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

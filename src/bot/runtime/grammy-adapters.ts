@@ -42,12 +42,29 @@ export interface DurableGrammyPublisherOptions {
  * an automatic resend.
  */
 export function createDurableGrammyBotTurnPublisher(
-  api: Pick<Api, "sendMessage">,
+  api: Pick<Api, "sendRichMessage" | "sendMessage">,
   options: DurableGrammyPublisherOptions,
 ): GrammyBotTurnPublisher {
   const botId = positiveTelegramId(options.botId, "botId");
   const botUsername = normalizeExpectedUsername(options.botUsername);
   const port: GrammyBotApiPort = {
+    async sendRichMessage(input) {
+      const response = await api.sendRichMessage(
+        input.chatId,
+        input.richMessage as unknown as Parameters<Api["sendRichMessage"]>[1],
+        input.options as unknown as Parameters<Api["sendRichMessage"]>[2],
+        input.signal as unknown as Parameters<Api["sendRichMessage"]>[3],
+      );
+      recordOwnSend(options.store, {
+        response,
+        requestedChatId: input.chatId,
+        text: input.plainText,
+        replyToMessageId: input.options.reply_parameters.message_id,
+        botId,
+        botUsername,
+      });
+      return response;
+    },
     async sendMessage(chatId, text, sendOptions, signal) {
       const response = await api.sendMessage(
         chatId,

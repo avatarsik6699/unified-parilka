@@ -5,8 +5,10 @@ export const BOT_READ_TOOL_NAMES = [
   "day_digest",
   "thread_context",
   "web_search",
+  "paper_search",
 ] as const;
 export const MAX_BOT_READ_TOOL_OUTPUT_CHARS = 4_000;
+export const MAX_PAPER_SEARCH_RESULTS = 5;
 
 export type BotReadToolName = (typeof BOT_READ_TOOL_NAMES)[number];
 
@@ -107,10 +109,38 @@ export const BOT_READ_TOOL_DEFINITIONS: readonly BotReadToolDefinition[] = [
       ["query"],
     ),
   },
+  {
+    name: "paper_search",
+    description:
+      "Поиск научных статей по arXiv (keyless) или Europe PMC. Используй для фактов, источников и свежих публикаций.",
+    inputSchema: objectSchema(
+      {
+        query: {
+          type: "string",
+          minLength: 1,
+          maxLength: 500,
+          description: "Поисковый запрос на английском.",
+        },
+        source: {
+          type: "string",
+          enum: ["arxiv", "europepmc"],
+          description:
+            "Источник: arxiv (по умолчанию) или europepmc.",
+        },
+        max_results: {
+          type: "integer",
+          minimum: 1,
+          maximum: MAX_PAPER_SEARCH_RESULTS,
+          description: `Количество результатов, по умолчанию 3, максимум ${MAX_PAPER_SEARCH_RESULTS}.`,
+        },
+      },
+      ["query"],
+    ),
+  },
 ];
 
 export interface ReadToolEvidence {
-  source: "chat_message" | "digest" | "web";
+  source: "chat_message" | "digest" | "web" | "paper";
   chat: { id: string } | null;
   message: { id: number; endId?: number } | null;
   speaker: { id: string | null; name: string | null };
@@ -122,6 +152,29 @@ export interface ReadToolEvidence {
     dayFrom: string;
     dayTo: string;
   };
+}
+
+export interface PaperSearchResult {
+  title: string;
+  authors: string[];
+  year?: string;
+  abstract?: string;
+  url: string;
+}
+
+export interface PaperSearchResponse {
+  query: string;
+  source: "arxiv" | "europepmc";
+  papers: readonly PaperSearchResult[];
+}
+
+export interface PaperSearchProvider {
+  search(request: {
+    query: string;
+    source: "arxiv" | "europepmc";
+    maxResults: number;
+    signal: AbortSignal;
+  }): Promise<PaperSearchResponse>;
 }
 
 export type ReadToolErrorCode =
@@ -245,9 +298,12 @@ export interface BotReadToolsOptions {
   chatId: string;
   cache: BotReadToolCache;
   webSearch?: WebSearchProvider;
+  paperSearch?: PaperSearchProvider;
   timeZone?: string;
   chatSearchTimeoutMs?: number;
   webSearchTimeoutMs?: number;
+  paperSearchTimeoutMs?: number;
+  paperSearchRateLimitMs?: number;
 }
 
 export interface BotReadToolCallOptions {

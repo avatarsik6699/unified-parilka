@@ -58,6 +58,8 @@ export function composeBotDaemon(
       botName: config.botDisplayName,
       chatTitle: config.chatTitle,
       historyDescription: config.historyDescription,
+      memoryMaxChars:
+        options.appConfig?.memory?.memoryMaxChars ?? 2_000,
       ...(config.approximateMemberCount === undefined
         ? {}
         : {

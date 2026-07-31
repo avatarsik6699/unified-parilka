@@ -25,6 +25,9 @@ export interface CliOptions {
   modelCandidateTimeoutMs?: number;
   maxDayGenerationsPerRun: number;
   maxWeekGenerationsPerRun: number;
+  dreamEveryNMessages: number;
+  dreamMaxMessages: number;
+  memoryMaxChars: number;
 }
 
 export function parseOptions(
@@ -124,7 +127,7 @@ export function parseOptions(
     );
   }
 
-  return {
+  const options: CliOptions = {
     apply,
     all,
     summaryOnly,
@@ -182,7 +185,37 @@ export function parseOptions(
         0,
         MAX_WEEK_GENERATIONS_PER_RUN,
       ) ?? DEFAULT_MAX_WEEK_GENERATIONS_PER_RUN,
+    dreamEveryNMessages: integerFromEnvironment(
+      env.PARILKA_DREAM_EVERY_N_MESSAGES,
+      "dream every N messages",
+      10,
+      500,
+      50,
+    ),
+    dreamMaxMessages: integerFromEnvironment(
+      env.PARILKA_DREAM_MAX_MESSAGES,
+      "dream max messages",
+      20,
+      1_000,
+      200,
+    ),
+    memoryMaxChars: integerFromEnvironment(
+      env.PARILKA_MEMORY_MAX_CHARS,
+      "memory max chars",
+      500,
+      4_000,
+      2_000,
+    ),
   };
+
+  if (options.dreamMaxMessages < options.dreamEveryNMessages) {
+    throw new CliConfigError(
+      "dream_max_below_threshold",
+      "PARILKA_DREAM_MAX_MESSAGES must be >= PARILKA_DREAM_EVERY_N_MESSAGES.",
+    );
+  }
+
+  return options;
 }
 
 function telegramChatId(value: string | undefined): string {

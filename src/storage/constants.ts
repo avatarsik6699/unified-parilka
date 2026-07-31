@@ -4,7 +4,7 @@ export const SQLITE_BUSY_RETRY_ATTEMPTS = 6;
 
 export const SQLITE_BUSY_RETRY_INITIAL_MS = 25;
 
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 15;
 
 export const DEFAULT_BOT_MAX_ATTEMPTS = 3;
 

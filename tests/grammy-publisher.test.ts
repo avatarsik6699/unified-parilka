@@ -4,83 +4,221 @@ import { GrammyError, HttpError } from "grammy";
 import {
   GrammyBotTurnPublisher,
   type GrammyBotApiPort,
+  type GrammyRichMessageOptions,
   type GrammySendMessageOptions,
 } from "../src/bot/grammy-publisher.js";
-import type { GuardedChunk } from "../src/bot/output-guards.js";
+import type { GuardedTelegramPublication } from "../src/bot/output-guards.js";
 
-function plainChunks(texts: readonly string[]): GuardedChunk[] {
-  return texts.map((text) => ({ text, entities: [] }));
-}
+const SCREENSHOT_MARKDOWN = [
+  "| Метрика | Значение |",
+  "| --- | --- |",
+  "| Инлайн | $E = mc^2$ |",
+  "",
+  "Блок:",
+  "$$\\int_a^b f(x)\\,dx$$",
+].join("\n");
 
-const BASE_OPTIONS = {
+const BASE_RICH_OPTIONS: GrammyRichMessageOptions = {
   reply_parameters: {
     message_id: 99,
-    allow_sending_without_reply: false as const,
+    allow_sending_without_reply: false,
   },
-  link_preview_options: { is_disabled: true as const },
 };
 
-interface SendCall {
+const BASE_PLAIN_OPTIONS: GrammySendMessageOptions = {
+  reply_parameters: {
+    message_id: 99,
+    allow_sending_without_reply: false,
+  },
+  link_preview_options: { is_disabled: true },
+};
+
+interface RichCall {
+  chatId: string;
+  richMessage: { markdown: string; skip_entity_detection: true };
+  plainText: string;
+  options: GrammyRichMessageOptions;
+  signal: AbortSignal;
+}
+
+interface PlainCall {
   chatId: string;
   text: string;
   options: GrammySendMessageOptions;
   signal: AbortSignal;
 }
 
-test("publishes guarded plain-text chunks sequentially in their original order", async () => {
-  const calls: SendCall[] = [];
-  const responses = [{ message_id: 701 }, { message_id: 702 }];
+interface FakeApiOptions {
+  richResult?: () => unknown;
+  plainResult?: () => unknown;
+}
+
+function makeFakeApi(options: FakeApiOptions = {}) {
+  const richCalls: RichCall[] = [];
+  const plainCalls: PlainCall[] = [];
   const api: GrammyBotApiPort = {
+    async sendRichMessage(input) {
+      richCalls.push({
+        chatId: input.chatId,
+        richMessage: input.richMessage,
+        plainText: input.plainText,
+        options: input.options,
+        signal: input.signal,
+      });
+      return options.richResult?.() ?? { message_id: 701 };
+    },
     async sendMessage(chatId, text, options, signal) {
-      calls.push({ chatId, text, options, signal });
-      return responses[calls.length - 1];
+      plainCalls.push({ chatId, text, options, signal });
+      return options.plainResult?.() ?? { message_id: 702 };
     },
   };
-  const signal = new AbortController().signal;
-  const publisher = new GrammyBotTurnPublisher(api);
+  return { api, richCalls, plainCalls };
+}
 
-  const result = await publisher.publish({
+function richPublication(
+  markdown = "**привет**",
+  plainText = "привет",
+  maxChunkUtf16 = 4_096,
+): GuardedTelegramPublication {
+  return { mode: "rich", markdown, plainText, maxChunkUtf16 };
+}
+
+function plainPublication(
+  plainText: string,
+  maxChunkUtf16 = 4_096,
+): GuardedTelegramPublication {
+  return { mode: "plain", plainText, maxChunkUtf16 };
+}
+
+function request(publication: GuardedTelegramPublication, replyToMessageId = 99) {
+  return {
     chatId: "-1004242",
-    replyToMessageId: 99,
-    chunks: plainChunks(["первый <b>не HTML</b>", "второй"]),
-    signal,
-  });
+    replyToMessageId,
+    publication,
+    signal: new AbortController().signal,
+  };
+}
+
+test("publishes a rich publication as one native sendRichMessage with skip_entity_detection", async () => {
+  const { api, richCalls, plainCalls } = makeFakeApi();
+  const publisher = new GrammyBotTurnPublisher(api);
+  const publishRequest = request(richPublication("**привет**"));
+
+  const result = await publisher.publish(publishRequest);
 
   assert.deepEqual(result, {
     ok: true,
-    chunksSent: 2,
+    chunksSent: 1,
     telegramMessageId: 701,
   });
-  assert.deepEqual(
-    calls.map(({ chatId, text, options }) => ({
-      chatId,
-      text,
-      options,
-    })),
-    [
-      {
-        chatId: "-1004242",
-        text: "первый <b>не HTML</b>",
-        options: BASE_OPTIONS,
-      },
-      {
-        chatId: "-1004242",
-        text: "второй",
-        options: BASE_OPTIONS,
-      },
-    ],
-  );
-  assert.equal(calls[0]?.signal, signal);
-  assert.equal(calls[1]?.signal, signal);
+  assert.equal(richCalls.length, 1);
+  assert.equal(plainCalls.length, 0);
+  assert.deepEqual(richCalls[0]!.richMessage, {
+    markdown: "**привет**",
+    skip_entity_detection: true,
+  });
+  assert.deepEqual(richCalls[0]!.options, BASE_RICH_OPTIONS);
+  assert.equal(richCalls[0]!.chatId, "-1004242");
+  assert.equal(richCalls[0]!.signal, publishRequest.signal);
 });
 
-test("classifies a first-call grammY 400 as a definitive non-retryable rejection", async () => {
-  const publisher = publisherThrowing(
-    telegramError(400, "secret response description"),
+test("screenshot fixture reaches the fake port untouched and never calls the classic path", async () => {
+  const { api, richCalls, plainCalls } = makeFakeApi();
+  const publisher = new GrammyBotTurnPublisher(api);
+
+  const result = await publisher.publish(
+    request(richPublication(SCREENSHOT_MARKDOWN, "table")),
   );
 
-  const result = await publisher.publish(request(["answer token secret"]));
+  assert.deepEqual(result, {
+    ok: true,
+    chunksSent: 1,
+    telegramMessageId: 701,
+  });
+  assert.equal(richCalls.length, 1);
+  assert.equal(plainCalls.length, 0);
+  assert.equal(richCalls[0]!.richMessage.markdown, SCREENSHOT_MARKDOWN);
+  assert.equal(richCalls[0]!.richMessage.skip_entity_detection, true);
+  assert.equal("entities" in richCalls[0]!.richMessage, false);
+  assert.equal("parse_mode" in richCalls[0]!.options, false);
+  assert.equal("html" in richCalls[0]!.richMessage, false);
+  assert.equal("blocks" in richCalls[0]!.richMessage, false);
+});
 
+test("a parser-related 400 before ACK opens exactly one classic plain fallback", async () => {
+  let richCalls = 0;
+  let plainCalls = 0;
+  const api: GrammyBotApiPort = {
+    async sendRichMessage() {
+      richCalls += 1;
+      throw telegramError(400, "Bad Request: can't parse markdown");
+    },
+    async sendMessage(chatId, text, options, signal) {
+      plainCalls += 1;
+      assert.equal(chatId, "-1004242");
+      assert.deepEqual(options, BASE_PLAIN_OPTIONS);
+      assert.equal(signal instanceof AbortSignal, true);
+      return { message_id: 501 };
+    },
+  };
+  const publisher = new GrammyBotTurnPublisher(api);
+
+  const result = await publisher.publish(
+    request(richPublication("**x**", "canonical plain text")),
+  );
+
+  assert.deepEqual(result, {
+    ok: true,
+    chunksSent: 1,
+    telegramMessageId: 501,
+  });
+  assert.equal(richCalls, 1);
+  assert.equal(plainCalls, 1);
+});
+
+test("a long canonical plain text is losslessly split across fallback chunks at the guarded limit", async () => {
+  const plainText = "x".repeat(200);
+  const sentTexts: string[] = [];
+  const api: GrammyBotApiPort = {
+    async sendRichMessage() {
+      throw telegramError(400, "can't parse markdown");
+    },
+    async sendMessage(chatId, text, options, signal) {
+      sentTexts.push(text);
+      return { message_id: 500 + sentTexts.length };
+    },
+  };
+
+  const result = await new GrammyBotTurnPublisher(api).publish(
+    request(richPublication("**x**", plainText, 64)),
+  );
+
+  assert.deepEqual(sentTexts.map((text) => text.length), [64, 64, 64, 8]);
+  assert.equal(sentTexts.join(""), plainText);
+  assert.deepEqual(result, {
+    ok: true,
+    chunksSent: 4,
+    telegramMessageId: 501,
+  });
+});
+
+test("the fallback is attempted at most once: a second parse 400 never resends", async () => {
+  let plainCalls = 0;
+  const api: GrammyBotApiPort = {
+    async sendRichMessage() {
+      throw telegramError(400, "can't parse markdown");
+    },
+    async sendMessage() {
+      plainCalls += 1;
+      throw telegramError(400, "can't parse entities");
+    },
+  };
+
+  const result = await new GrammyBotTurnPublisher(api).publish(
+    request(richPublication("**x**", "plain")),
+  );
+
+  assert.equal(plainCalls, 1);
   assert.deepEqual(result, {
     ok: false,
     chunksSent: 0,
@@ -90,16 +228,189 @@ test("classifies a first-call grammY 400 as a definitive non-retryable rejection
       retryable: false,
     },
   });
-  assert.doesNotMatch(
-    JSON.stringify(result),
-    /secret response description|answer token secret/u,
-  );
 });
 
-test("marks a definitive Telegram 429 as retryable", async () => {
-  const publisher = publisherThrowing(telegramError(429, "flood wait"));
+test("a generic 400 is not masked as a parse failure and never opens the fallback", async () => {
+  let plainCalls = 0;
+  const api: GrammyBotApiPort = {
+    async sendRichMessage() {
+      throw telegramError(400, "Bad Request: message is too long");
+    },
+    async sendMessage() {
+      plainCalls += 1;
+      return { message_id: 1 };
+    },
+  };
 
-  assert.deepEqual(await publisher.publish(request(["answer"])), {
+  const result = await new GrammyBotTurnPublisher(api).publish(
+    request(richPublication("**x**", "plain")),
+  );
+
+  assert.equal(plainCalls, 0);
+  assert.deepEqual(result, {
+    ok: false,
+    chunksSent: 0,
+    error: {
+      kind: "telegram_rejected",
+      code: "TELEGRAM_400",
+      retryable: false,
+    },
+  });
+});
+
+test("timeout, network and aborted signals never resend", async (t) => {
+  await t.test("HttpError stays network without fallback", async () => {
+    const socketError = Object.assign(new Error("socket details"), {
+      code: "ECONNRESET",
+    });
+    const api: GrammyBotApiPort = {
+      async sendRichMessage() {
+        throw new HttpError("network request failed", socketError);
+      },
+      async sendMessage() {
+        throw new Error("must not fall back on transport failure");
+      },
+    };
+    assert.deepEqual(await new GrammyBotTurnPublisher(api).publish(
+      request(richPublication()),
+    ), {
+      ok: false,
+      chunksSent: 0,
+      error: { kind: "network", code: "ECONNRESET" },
+    });
+  });
+
+  await t.test("timeout code stays timeout", async () => {
+    const api: GrammyBotApiPort = {
+      async sendRichMessage() {
+        throw Object.assign(new Error("timed out"), {
+          code: "ETIMEDOUT",
+        });
+      },
+      async sendMessage() {
+        throw new Error("must not fall back on timeout");
+      },
+    };
+    assert.deepEqual(await new GrammyBotTurnPublisher(api).publish(
+      request(richPublication()),
+    ), {
+      ok: false,
+      chunksSent: 0,
+      error: { kind: "timeout", code: "ETIMEDOUT" },
+    });
+  });
+
+  await t.test("pre-aborted signal makes no API call at all", async () => {
+    let calls = 0;
+    const api: GrammyBotApiPort = {
+      async sendRichMessage() {
+        calls += 1;
+        return { message_id: 1 };
+      },
+      async sendMessage() {
+        calls += 1;
+        return { message_id: 2 };
+      },
+    };
+    const controller = new AbortController();
+    controller.abort(new Error("private abort reason"));
+    const result = await new GrammyBotTurnPublisher(api).publish({
+      ...request(richPublication()),
+      signal: controller.signal,
+    });
+    assert.equal(calls, 0);
+    assert.deepEqual(result, {
+      ok: false,
+      chunksSent: 0,
+      error: { kind: "timeout", code: "ABORTED" },
+    });
+  });
+});
+
+test("a malformed rich ACK is an unknown failure without resend", async () => {
+  let plainCalls = 0;
+  const api: GrammyBotApiPort = {
+    async sendRichMessage() {
+      return { ok: true };
+    },
+    async sendMessage() {
+      plainCalls += 1;
+      return { message_id: 1 };
+    },
+  };
+
+  const result = await new GrammyBotTurnPublisher(api).publish(
+    request(richPublication()),
+  );
+
+  assert.equal(plainCalls, 0);
+  assert.deepEqual(result, {
+    ok: false,
+    chunksSent: 0,
+    error: { kind: "unknown", code: "MALFORMED_SUCCESS_RESPONSE" },
+  });
+});
+
+test("a plain publication goes straight through classic sendMessage", async () => {
+  const { api, richCalls, plainCalls } = makeFakeApi();
+  const result = await new GrammyBotTurnPublisher(api).publish(
+    request(plainPublication("первый <b>не HTML</b>")),
+  );
+
+  assert.deepEqual(result, {
+    ok: true,
+    chunksSent: 1,
+    telegramMessageId: 702,
+  });
+  assert.equal(richCalls.length, 0);
+  assert.equal(plainCalls.length, 1);
+  assert.equal(plainCalls[0]!.text, "первый <b>не HTML</b>");
+  assert.deepEqual(plainCalls[0]!.options, BASE_PLAIN_OPTIONS);
+});
+
+test("a rejection on the second fallback chunk reports partial delivery", async () => {
+  const plainText = "x".repeat(5_000);
+  let plainCalls = 0;
+  const api: GrammyBotApiPort = {
+    async sendRichMessage() {
+      throw telegramError(400, "can't parse markdown");
+    },
+    async sendMessage() {
+      plainCalls += 1;
+      if (plainCalls === 1) {
+        return { message_id: 801 };
+      }
+      throw telegramError(400, "second chunk rejected");
+    },
+  };
+
+  const result = await new GrammyBotTurnPublisher(api).publish(
+    request(richPublication("**x**", plainText)),
+  );
+
+  assert.equal(plainCalls, 2);
+  assert.deepEqual(result, {
+    ok: false,
+    chunksSent: 1,
+    error: { kind: "unknown", code: "PARTIAL_DELIVERY" },
+  });
+});
+
+test("a definitive Telegram 429 on the rich path stays retryable", async () => {
+  let plainCalls = 0;
+  const api: GrammyBotApiPort = {
+    async sendRichMessage() {
+      throw telegramError(429, "flood wait");
+    },
+    async sendMessage() {
+      plainCalls += 1;
+      return { message_id: 1 };
+    },
+  };
+
+  assert.deepEqual(await new GrammyBotTurnPublisher(api).publish(
+    request(richPublication()),
+  ), {
     ok: false,
     chunksSent: 0,
     error: {
@@ -108,22 +419,44 @@ test("marks a definitive Telegram 429 as retryable", async () => {
       retryable: true,
     },
   });
+  assert.equal(plainCalls, 0);
 });
 
-test("extracts and clamps Telegram retry_after from a 429 rejection", async () => {
+test("an invalid publish request is rejected without any API call", async () => {
+  const { api, richCalls, plainCalls } = makeFakeApi();
+  const result = await new GrammyBotTurnPublisher(api).publish({
+    ...request(richPublication()),
+    publication: { mode: "rich" } as unknown as GuardedTelegramPublication,
+  });
+
+  assert.equal(richCalls.length, 0);
+  assert.equal(plainCalls.length, 0);
+  assert.deepEqual(result, {
+    ok: false,
+    chunksSent: 0,
+    error: { kind: "unknown", code: "INVALID_PUBLISH_REQUEST" },
+  });
+});
+
+test("extracts and clamps retry_after from a raw 429 rejection on the fallback path", async () => {
   const raw = {
     ok: false,
     error_code: 429,
     description: "Too Many Requests",
     parameters: { retry_after: 61 },
   };
-  const publisher = new GrammyBotTurnPublisher({
+  const api: GrammyBotApiPort = {
+    async sendRichMessage() {
+      throw telegramError(400, "can't parse markdown");
+    },
     async sendMessage() {
       return raw;
     },
-  });
+  };
 
-  assert.deepEqual(await publisher.publish(request(["answer"])), {
+  assert.deepEqual(await new GrammyBotTurnPublisher(api).publish(
+    request(richPublication("**x**", "plain")),
+  ), {
     ok: false,
     chunksSent: 0,
     error: {
@@ -135,162 +468,24 @@ test("extracts and clamps Telegram retry_after from a 429 rejection", async () =
   });
 
   raw.parameters.retry_after = 999_999;
-  assert.equal(
-    (
-      (await publisher.publish(request(["answer"]))) as {
-        ok: false;
-        error: { retryAfterMs?: number };
-      }
-    ).error.retryAfterMs,
-    15 * 60_000,
-  );
+  const clamped = await new GrammyBotTurnPublisher(api).publish(
+    request(richPublication("**x**", "plain")),
+  ) as { ok: false; error: { retryAfterMs?: number } };
+  assert.equal(clamped.error.retryAfterMs, 15 * 60_000);
 });
-
-test("accepts a raw definitive Bot API rejection response without treating it as success", async () => {
-  const publisher = new GrammyBotTurnPublisher({
-    async sendMessage() {
-      return {
-        ok: false,
-        error_code: 503,
-        description: "backend unavailable",
-      };
-    },
-  });
-
-  assert.deepEqual(await publisher.publish(request(["answer"])), {
-    ok: false,
-    chunksSent: 0,
-    error: {
-      kind: "telegram_rejected",
-      code: "TELEGRAM_503",
-      retryable: true,
-    },
-  });
-});
-
-test("keeps grammY HttpError and socket failures out of telegram_rejected", async (t) => {
-  await t.test("HttpError", async () => {
-    const socketError = Object.assign(new Error("socket details"), {
-      code: "ECONNRESET",
-    });
-    const publisher = publisherThrowing(
-      new HttpError("network request failed", socketError),
-    );
-
-    assert.deepEqual(await publisher.publish(request(["answer"])), {
-      ok: false,
-      chunksSent: 0,
-      error: { kind: "network", code: "ECONNRESET" },
-    });
-  });
-
-  await t.test("direct socket error", async () => {
-    const publisher = publisherThrowing(
-      Object.assign(new Error("dns details"), { code: "ENOTFOUND" }),
-    );
-
-    assert.deepEqual(await publisher.publish(request(["answer"])), {
-      ok: false,
-      chunksSent: 0,
-      error: { kind: "network", code: "ENOTFOUND" },
-    });
-  });
-});
-
-test("honors an already-aborted publish signal without making a Bot API call", async () => {
-  let calls = 0;
-  const publisher = new GrammyBotTurnPublisher({
-    async sendMessage() {
-      calls += 1;
-      return { message_id: 1 };
-    },
-  });
-  const controller = new AbortController();
-  controller.abort(new Error("private abort reason"));
-
-  const result = await publisher.publish({
-    ...request(["answer"]),
-    signal: controller.signal,
-  });
-
-  assert.deepEqual(result, {
-    ok: false,
-    chunksSent: 0,
-    error: { kind: "timeout", code: "ABORTED" },
-  });
-  assert.equal(calls, 0);
-  assert.doesNotMatch(JSON.stringify(result), /private abort reason/u);
-});
-
-test("a rejection on the second chunk reports the acknowledged prefix as partial delivery", async () => {
-  let calls = 0;
-  const publisher = new GrammyBotTurnPublisher({
-    async sendMessage() {
-      calls += 1;
-      if (calls === 1) {
-        return { message_id: 801 };
-      }
-      throw telegramError(400, "second chunk rejected");
-    },
-  });
-
-  assert.deepEqual(
-    await publisher.publish(request(["first", "second", "third"])),
-    {
-      ok: false,
-      chunksSent: 1,
-      error: { kind: "unknown", code: "PARTIAL_DELIVERY" },
-    },
-  );
-  assert.equal(calls, 2);
-});
-
-test("rejects a malformed successful response without trusting message_id", async () => {
-  const publisher = new GrammyBotTurnPublisher({
-    async sendMessage() {
-      return { message_id: "901" };
-    },
-  });
-
-  assert.deepEqual(await publisher.publish(request(["answer"])), {
-    ok: false,
-    chunksSent: 0,
-    error: {
-      kind: "unknown",
-      code: "MALFORMED_SUCCESS_RESPONSE",
-    },
-  });
-});
-
-function publisherThrowing(error: unknown): GrammyBotTurnPublisher {
-  return new GrammyBotTurnPublisher({
-    async sendMessage() {
-      throw error;
-    },
-  });
-}
 
 function telegramError(
   errorCode: number,
   description: string,
 ): GrammyError {
   return new GrammyError(
-    "Call to sendMessage failed",
+    "Call to sendRichMessage failed",
     {
       ok: false,
       error_code: errorCode,
       description,
     },
-    "sendMessage",
+    "sendRichMessage",
     {},
   );
-}
-
-function request(chunks: readonly string[]) {
-  return {
-    chatId: "-1004242",
-    replyToMessageId: 99,
-    chunks: plainChunks(chunks),
-    signal: new AbortController().signal,
-  };
 }

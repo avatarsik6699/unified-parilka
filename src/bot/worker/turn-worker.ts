@@ -232,6 +232,7 @@ export class BotTurnWorker {
             signal: controller.signal,
             drainFold,
             toolProgressPort: toolProgress,
+            memoryBlock: loaded.memory?.memoryText,
           }),
           timers.interruption,
         ]);
@@ -374,7 +375,7 @@ export class BotTurnWorker {
         this.#log("info", "bot.turn.skipped", {
           turnId: turn.id,
           reason: "shadow",
-          chunks: guarded.chunks.length,
+          publication: guarded.publication.mode,
         });
         return { status: "skipped", turnId: turn.id, reason: "shadow" };
       }
@@ -410,7 +411,7 @@ export class BotTurnWorker {
         },
         turn,
         loaded.trigger,
-        guarded.chunks,
+        guarded.publication,
       );
     } catch (error) {
       timers?.stop();

@@ -88,4 +88,9 @@ export type AppConfig = {
     globalConcurrency: number;
     maxRunningPerChat: number;
   };
+  memory: {
+    dreamEveryNMessages: number;
+    dreamMaxMessages: number;
+    memoryMaxChars: number;
+  };
 };

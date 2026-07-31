@@ -36,6 +36,7 @@ export type BotDaemonApi = Pick<
   | "deleteWebhook"
   | "getUpdates"
   | "sendMessage"
+  | "sendRichMessage"
   | "sendChatAction"
   | "editMessageText"
   | "deleteMessage"
@@ -48,6 +49,7 @@ export interface ComposeBotDaemonOptions {
   router: TurnModelRouter;
   vector?: BotVectorSearchPort;
   webSearch?: WebSearchProvider;
+  appConfig?: Readonly<AppConfig>;
   logger?: JsonEventLogger;
   workerIdPrefix?: string;
 }

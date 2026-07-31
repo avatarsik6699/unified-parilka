@@ -226,6 +226,21 @@ export const NUMERIC_ENV_RULES = {
     min: 1,
     max: 100_000,
   },
+  PARILKA_DREAM_EVERY_N_MESSAGES: {
+    fallback: 50,
+    min: 10,
+    max: 500,
+  },
+  PARILKA_DREAM_MAX_MESSAGES: {
+    fallback: 200,
+    min: 20,
+    max: 1_000,
+  },
+  PARILKA_MEMORY_MAX_CHARS: {
+    fallback: 2_000,
+    min: 500,
+    max: 4_000,
+  },
   TELEGRAM_QUEUE_MAX_AGE_MS: {
     fallback: 2 * 60_000,
     min: 1_000,

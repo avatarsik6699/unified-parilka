@@ -71,6 +71,7 @@ export function redactedConfig(
       searchLimit: config.embeddings.searchLimit,
     },
     throttle: config.throttle,
+    memory: config.memory,
   };
 }
 
