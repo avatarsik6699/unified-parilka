@@ -11,11 +11,13 @@ export function safeBotRuntimeConfig(
     webSearch,
     researchGateway,
     audioTranscribe,
+    memoryWriteAuthorizerIds,
     ...safe
   } = config;
   return {
     ...safe,
     tokenConfigured: true,
+    memoryWriteAuthorizerCount: memoryWriteAuthorizerIds.length,
     audioTranscribe: {
       endpoint: audioTranscribe.endpoint,
       timeoutMs: audioTranscribe.timeoutMs,

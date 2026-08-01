@@ -62,7 +62,10 @@ export function composeBotDaemon(
         }),
     timeZone: "Europe/Moscow",
   });
-  const memoryTools = new BotMemoryTools({ store: options.store });
+  const memoryTools = new BotMemoryTools({
+    store: options.store,
+    writeAuthorizerIds: config.memoryWriteAuthorizerIds,
+  });
   const mediaTools = new BotMediaTools({
     downloader: createGrammyTelegramMediaDownloader(options.api, config.token),
     transcriber: new FlovAudioTranscriber({

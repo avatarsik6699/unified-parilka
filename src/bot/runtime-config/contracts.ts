@@ -43,6 +43,8 @@ export interface BotRuntimeConfig {
   chatTitle: string;
   historyDescription: string;
   approximateMemberCount?: number;
+  /** Private allowlist of immutable Telegram user IDs permitted to write chat memory. */
+  memoryWriteAuthorizerIds: readonly string[];
   dbPath: string;
   modelConfigPath: string;
   webSearch?: BotWebSearchRuntimeConfig;
@@ -64,9 +66,14 @@ export interface BotRuntimeConfig {
 
 export type SafeBotRuntimeConfig = Omit<
   BotRuntimeConfig,
-  "token" | "webSearch" | "researchGateway" | "audioTranscribe"
+  | "token"
+  | "webSearch"
+  | "researchGateway"
+  | "audioTranscribe"
+  | "memoryWriteAuthorizerIds"
 > & {
   tokenConfigured: true;
+  memoryWriteAuthorizerCount: number;
   audioTranscribe: Omit<BotAudioTranscribeRuntimeConfig, "bearerToken"> & {
     bearerTokenConfigured: boolean;
   };

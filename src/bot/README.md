@@ -39,8 +39,10 @@ The public entry points remain thin compatibility files:
   local `audio_transcribe` tool, whose model projection is deliberately short.
 - `memory-tools.ts` — chat-scoped fast notes, durable lessons and progressive
   skill loading. Read tools are always bounded; write tools exist only when
-  the addressed trigger explicitly asks to remember/update something, and are
-  source-attributed to that trigger.
+  the addressed trigger both explicitly asks to remember/update something and
+  comes from an operator-authorized numeric Telegram account. The private
+  `PARILKA_BOT_MEMORY_WRITE_SENDER_IDS` allowlist is never exposed to the
+  model; writes remain source-attributed to that trigger.
 - `telegram-publication.ts` — narrow transport contract for the final text:
   normal model replies keep their original Markdown for native
   `sendRichMessage`; local audio and replies over Telegram's UTF-16 limit use
@@ -99,8 +101,9 @@ and never add source structure to this repository; add local history behavior
 behind `BotReadToolCache`; and keep Telegram transport adaptation in
 `runtime/grammy-adapters.ts` or `grammy-publisher.ts`. General model tools stay
 read-only. The only stateful exception is the narrow `memory-tools.ts` contract:
-it requires an authoritative direct-write gate, chat scope, bounded fields,
-source attribution and focused tests together.
+it requires an authoritative direct-write gate from the private operator
+authorizer allowlist, chat scope, bounded fields, source attribution and focused
+tests together.
 
 Vision is a candidate capability, not a prompt guess: the resolved
 `provider:model` manifest is fail-closed and carries `vision: false` unless

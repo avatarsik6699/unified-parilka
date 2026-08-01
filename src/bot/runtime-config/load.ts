@@ -13,6 +13,7 @@ import {
   requiredSecret,
   sameConfiguredFile,
   telegramId,
+  telegramIdList,
 } from "./env-rules.js";
 import { optionalResearchGatewayConfig } from "./research-gateway.js";
 import { audioTranscribeConfig } from "./audio-transcribe.js";
@@ -104,6 +105,11 @@ export function parseBotRuntimeConfig(
             10_000_000,
           ),
         }),
+    memoryWriteAuthorizerIds: telegramIdList(
+      env.PARILKA_BOT_MEMORY_WRITE_SENDER_IDS,
+      "PARILKA_BOT_MEMORY_WRITE_SENDER_IDS",
+      16,
+    ),
     // Always return the common spelling, including hard-link aliases.
     dbPath: sharedDbPath,
     modelConfigPath: existingAbsoluteFile(

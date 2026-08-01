@@ -29,6 +29,7 @@ test("bot runtime config is strict, bounded, and defaults to safe shadow mode", 
   assert.equal(config.workerConcurrency, 3);
   assert.equal(config.triggerCooldownMs, 5_000);
   assert.equal(config.updateMaxAttempts, 3);
+  assert.deepEqual(config.memoryWriteAuthorizerIds, []);
   assert.equal(config.initialOffset, undefined);
   assert.equal(config.pollLimit, 100);
   assert.equal(config.pollTimeoutSec, 30);
@@ -39,6 +40,41 @@ test("bot runtime config is strict, bounded, and defaults to safe shadow mode", 
     endpoint: "http://127.0.0.1:17432",
     timeoutMs: 300_000,
   });
+});
+
+test("memory-write authorizers are a private, normalized, fail-closed allowlist", () => {
+  const config = parseBotRuntimeConfig({
+    ...VALID_ENV,
+    PARILKA_BOT_MEMORY_WRITE_SENDER_IDS: " 42, 00084 ",
+  });
+  assert.deepEqual(config.memoryWriteAuthorizerIds, ["42", "84"]);
+
+  const safe = safeBotRuntimeConfig(config);
+  assert.equal(safe.memoryWriteAuthorizerCount, 2);
+  assert.equal("memoryWriteAuthorizerIds" in safe, false);
+  assert.doesNotMatch(JSON.stringify(safe), /"42"|"84"/u);
+
+  assert.throws(
+    () => parseBotRuntimeConfig({
+      ...VALID_ENV,
+      PARILKA_BOT_MEMORY_WRITE_SENDER_IDS: "42,,84",
+    }),
+    /comma-separated list/u,
+  );
+  assert.throws(
+    () => parseBotRuntimeConfig({
+      ...VALID_ENV,
+      PARILKA_BOT_MEMORY_WRITE_SENDER_IDS: "42,-84",
+    }),
+    /positive Telegram id/u,
+  );
+  assert.throws(
+    () => parseBotRuntimeConfig({
+      ...VALID_ENV,
+      PARILKA_BOT_MEMORY_WRITE_SENDER_IDS: "42,00042",
+    }),
+    /duplicate Telegram user IDs/u,
+  );
 });
 
 test("audio transcription stays on a bounded local Flov endpoint", () => {

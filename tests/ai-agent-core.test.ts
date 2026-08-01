@@ -249,10 +249,13 @@ test("malformed tool-call steps do not hit an arbitrary step ceiling", async () 
   assert.equal(fixture.searchCalls, 0);
 });
 
-test("memory write tools exist only for an explicit authoritative trigger", async () => {
+test("memory write tools require a direct request from an authorized sender", async () => {
   const store = new MessageStore(":memory:");
   try {
-    const memoryTools = new BotMemoryTools({ store });
+    const memoryTools = new BotMemoryTools({
+      store,
+      writeAuthorizerIds: ["42", "84"],
+    });
     const directModel = mockModel([
       toolResponse([
         toolCall("remember", "remember_fast", {
@@ -280,15 +283,32 @@ test("memory write tools exist only for an explicit authoritative trigger", asyn
     assert.equal(store.listFastChatMemory("-1004242")[0]?.title, "release");
     assert.equal(directModel.doGenerateCalls.length, 2);
 
-    const ordinaryModel = mockModel([
-      response([{ type: "text", text: "обычный ответ" }], "stop"),
+    const untrustedModel = mockModel([
+      response([{ type: "text", text: "не могу писать память" }], "stop"),
     ]);
-    const ordinaryFixture = makeAgent(
-      [candidate("primary:test", ordinaryModel)],
+    const untrustedFixture = makeAgent(
+      [candidate("primary:test", untrustedModel)],
       { memoryTools },
     );
-    await ordinaryFixture.agent.run(request());
-    assert.equal(ordinaryModel.doGenerateCalls.length, 1);
+    await untrustedFixture.agent.run(
+      request({
+        trigger: storedMessage(
+          101,
+          "запомни это в память: это не должно сохраниться",
+          "43",
+          "Не владелец",
+        ),
+      }),
+    );
+    assert.equal(untrustedModel.doGenerateCalls.length, 1);
+    const offeredToolNames = (untrustedModel.doGenerateCalls[0]?.tools ?? [])
+      .filter((tool) => tool.type === "function")
+      .map((tool) => tool.name);
+    assert.equal(offeredToolNames.includes("remember_fast"), false);
+    assert.equal(offeredToolNames.includes("remember_lesson"), false);
+    assert.equal(offeredToolNames.includes("save_chat_skill"), false);
+    assert.equal(offeredToolNames.includes("search_long_memory"), true);
+    assert.equal(offeredToolNames.includes("load_chat_skill"), true);
     assert.equal(store.listFastChatMemory("-1004242").length, 1);
   } finally {
     store.close();

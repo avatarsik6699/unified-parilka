@@ -29,7 +29,7 @@ MCP harness ──stdio──► thin proxy─┘
 | Lane | Path | Authority |
 | --- | --- | --- |
 | Process shells | `src/{index,bot-daemon,sync-daemon}.ts` | startup, composition, signals и graceful shutdown |
-| Bot | `src/bot/` | Bot API update ingest, turn FSM worker, bounded agent loop, evidence/search tools, chat-scoped memory reads and direct-gated memory writes, guarded rich/plain publication, typing/tool-progress presentation и telemetry rendering |
+| Bot | `src/bot/` | Bot API update ingest, turn FSM worker, bounded agent loop, evidence/search tools, chat-scoped memory reads and operator-authorized direct-gated memory writes, guarded rich/plain publication, typing/tool-progress presentation и telemetry rendering |
 | Storage | `src/storage/` + `src/store.ts` barrel | один connection/transaction kernel, schema и domain repositories |
 | Telegram/sync | `src/telegram/`, `src/sync/` | transport lifecycle, one-owner guard, recent/backfill reconciliation |
 | MCP | `src/mcp-tools/`, `src/mcp-loopback.ts` | 13 operator tools, loopback session transport и stdio proxy |
@@ -69,7 +69,9 @@ operator MCP ──► Telegram gateway + storage + serialized sync
   `thread_context`, `web_search`, `web_fetch`, `paper_search`) и двух bounded
   memory reads.
   Три memory-write tool появляются только для адресного trigger с прямой
-  просьбой сохранить/обновить память; это не даёт доступ к MCP writes.
+  просьбой сохранить/обновить память от numeric Telegram account из закрытого
+  operator-configured env allowlist. Allowlist не попадает в model context;
+  это не даёт доступ к MCP writes.
 - MCP stdio proxy не владеет Telegram credentials, SQLite или session.
 - Providers не владеют state и получают secrets только через env references.
 

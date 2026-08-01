@@ -50,6 +50,7 @@ export interface CreateBotToolSetOptions {
   readonly turnSignal: AbortSignal;
   readonly chatId: string;
   readonly sourceMessageId: number;
+  readonly senderId?: string;
   readonly onExecutionStarted: (input: BotToolSetExecutionStarted) => void;
   readonly onExecutionCompleted: (input: BotToolSetExecutionCompleted) => void;
   readonly runAudioTranscription?: (input: {
@@ -152,6 +153,7 @@ export function createBotToolSet(options: CreateBotToolSetOptions): BotToolSet {
         const output = memoryTools.callTool(name, input, {
           chatId: options.chatId,
           sourceMessageId: options.sourceMessageId,
+          senderId: options.senderId,
           allowWrite: options.memoryWriteAllowed,
         });
         options.onExecutionCompleted({

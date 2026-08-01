@@ -68,7 +68,7 @@ export const BOT_MEMORY_TOOL_DEFINITIONS: readonly BotMemoryToolDefinition[] = [
   {
     name: "remember_fast",
     description:
-      "Сохраняет или обновляет короткую оперативную заметку для следующих ходов. Доступен только когда адресный пользователь прямо попросил запомнить/обновить память.",
+      "Сохраняет или обновляет короткую оперативную заметку для следующих ходов. Доступен только когда авторизованный владелец прямо попросил запомнить/обновить память.",
     inputSchema: objectSchema(
       {
         title: stringProperty(1, MAX_FAST_TITLE_CHARS, "Короткий устойчивый ключ заметки."),
@@ -80,7 +80,7 @@ export const BOT_MEMORY_TOOL_DEFINITIONS: readonly BotMemoryToolDefinition[] = [
   {
     name: "remember_lesson",
     description:
-      "Сохраняет или обновляет долгий урок: конкретная проблема, проверенное решение и когда его применять. Доступен только по прямой просьбе пользователя сохранить это на будущее.",
+      "Сохраняет или обновляет долгий урок: конкретная проблема, проверенное решение и когда его применять. Доступен только по прямой просьбе авторизованного владельца сохранить это на будущее.",
     inputSchema: objectSchema(
       {
         title: stringProperty(1, MAX_LESSON_TITLE_CHARS, "Короткое имя урока."),
@@ -94,7 +94,7 @@ export const BOT_MEMORY_TOOL_DEFINITIONS: readonly BotMemoryToolDefinition[] = [
   {
     name: "save_chat_skill",
     description:
-      "Сохраняет или обновляет чатовый навык: имя, короткое назначение и подробный playbook. Доступен только когда адресный пользователь прямо просит создать или обновить навык.",
+      "Сохраняет или обновляет чатовый навык: имя, короткое назначение и подробный playbook. Доступен только когда авторизованный владелец прямо просит создать или обновить навык.",
     inputSchema: objectSchema(
       {
         name: stringProperty(1, MAX_SKILL_NAME_CHARS, "Имя навыка."),
@@ -142,6 +142,8 @@ export interface BotMemoryStore {
 export interface BotMemoryToolCallContext {
   readonly chatId: string;
   readonly sourceMessageId: number;
+  /** Immutable Bot API user ID of the addressed trigger, if it had one. */
+  readonly senderId?: string;
   readonly allowWrite: boolean;
 }
 
@@ -205,9 +207,24 @@ const MAX_MEMORY_TOOL_OUTPUT_CHARS = 4_000;
 
 export class BotMemoryTools {
   readonly #store: BotMemoryStore;
+  readonly #writeAuthorizerIds: ReadonlySet<string>;
 
-  constructor(options: { store: BotMemoryStore }) {
+  constructor(options: {
+    store: BotMemoryStore;
+    writeAuthorizerIds?: readonly string[];
+  }) {
     this.#store = options.store;
+    this.#writeAuthorizerIds = new Set(
+      options.writeAuthorizerIds ?? [],
+    );
+  }
+
+  /**
+   * The caller supplies only a Bot API sender ID from the durable trigger.
+   * Usernames, message text and model-controlled data never take part here.
+   */
+  isWriteAuthorizer(senderId: string | undefined): boolean {
+    return senderId !== undefined && this.#writeAuthorizerIds.has(senderId);
   }
 
   listTools(): readonly BotMemoryToolDefinition[] {
@@ -222,11 +239,14 @@ export class BotMemoryTools {
     if (!isBotMemoryToolName(name)) {
       return failure(name, "unknown_tool", "Unknown memory tool.");
     }
-    if (isWriteToolName(name) && !context.allowWrite) {
+    if (
+      isWriteToolName(name) &&
+      (!context.allowWrite || !this.isWriteAuthorizer(context.senderId))
+    ) {
       return failure(
         name,
         "write_not_authorized",
-        "This turn did not explicitly authorize memory writes.",
+        "This turn is not authorized to write chat memory.",
       );
     }
 

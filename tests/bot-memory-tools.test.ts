@@ -4,11 +4,20 @@ import { BotMemoryTools } from "../src/bot/memory-tools.js";
 import { MessageStore } from "../src/store.js";
 
 const CHAT_ID = "-1003179772905";
+const PRIMARY_AUTHORIZER_ID = "42";
+const SECONDARY_AUTHORIZER_ID = "84";
+const UNAUTHORIZED_SENDER_ID = "43";
 
 function withTools(run: (tools: BotMemoryTools, store: MessageStore) => void): void {
   const store = new MessageStore(":memory:");
   try {
-    run(new BotMemoryTools({ store }), store);
+    run(
+      new BotMemoryTools({
+        store,
+        writeAuthorizerIds: [PRIMARY_AUTHORIZER_ID, SECONDARY_AUTHORIZER_ID],
+      }),
+      store,
+    );
   } finally {
     store.close();
   }
@@ -17,10 +26,11 @@ function withTools(run: (tools: BotMemoryTools, store: MessageStore) => void): v
 const writable = {
   chatId: CHAT_ID,
   sourceMessageId: 77,
+  senderId: PRIMARY_AUTHORIZER_ID,
   allowWrite: true,
 } as const;
 
-test("write tools require the authoritative direct-write gate", () => {
+test("write tools require both the direct-write gate and an authorized sender", () => {
   withTools((tools, store) => {
     const denied = tools.callTool(
       "remember_fast",
@@ -30,6 +40,20 @@ test("write tools require the authoritative direct-write gate", () => {
     assert.equal(denied.ok, false);
     if (!denied.ok) {
       assert.equal(denied.error.code, "write_not_authorized");
+    }
+    assert.equal(store.listFastChatMemory(CHAT_ID).length, 0);
+
+    const impersonated = tools.callTool(
+      "remember_fast",
+      { title: "deploy", note: "run the smoke" },
+      {
+        ...writable,
+        senderId: UNAUTHORIZED_SENDER_ID,
+      },
+    );
+    assert.equal(impersonated.ok, false);
+    if (!impersonated.ok) {
+      assert.equal(impersonated.error.code, "write_not_authorized");
     }
     assert.equal(store.listFastChatMemory(CHAT_ID).length, 0);
   });
@@ -43,6 +67,16 @@ test("memory tools save source-attributed knowledge and progressively load it", 
       writable,
     );
     assert.equal(fast.ok, true);
+
+    const secondary = tools.callTool(
+      "remember_fast",
+      { title: "secondary", note: "also authorized" },
+      {
+        ...writable,
+        senderId: SECONDARY_AUTHORIZER_ID,
+      },
+    );
+    assert.equal(secondary.ok, true);
 
     const lesson = tools.callTool(
       "remember_lesson",

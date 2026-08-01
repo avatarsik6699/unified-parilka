@@ -57,6 +57,39 @@ export function telegramId(
   return parsed.toString();
 }
 
+/**
+ * Parses a small private allowlist without ever placing its values in an
+ * error message. An omitted or blank list intentionally means nobody can
+ * authorize model-driven memory writes.
+ */
+export function telegramIdList(
+  raw: string | undefined,
+  name: string,
+  maximumEntries: number,
+): readonly string[] {
+  const normalized = raw?.trim();
+  if (!normalized) {
+    return Object.freeze([]);
+  }
+  if (normalized.length > 1_024) {
+    throw new Error(`${name} is too long.`);
+  }
+  const parts = normalized.split(",").map((value) => value.trim());
+  if (
+    parts.length > maximumEntries ||
+    parts.some((value) => value.length === 0)
+  ) {
+    throw new Error(
+      `${name} must be a comma-separated list of at most ${maximumEntries} positive Telegram user IDs.`,
+    );
+  }
+  const ids = parts.map((value) => telegramId(value, name, "positive"));
+  if (new Set(ids).size !== ids.length) {
+    throw new Error(`${name} must not contain duplicate Telegram user IDs.`);
+  }
+  return Object.freeze(ids);
+}
+
 export function normalizeBotUsername(value: string): string {
   const username = value.replace(/^@/u, "");
   if (

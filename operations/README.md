@@ -40,10 +40,16 @@ send, rollback, commit, push или deploy.
   `bot_chat_skills` (до 32 playbook). Последние два слоя дают только bounded
   index; модель загружает detail через отдельный tool по необходимости.
 - Обычный ход может читать memory, но писать её может только адресный trigger,
-  который прямо просит запомнить/сохранить/обновить заметку, урок или навык.
-  Каждая запись source-attributed к ID этого сообщения, ограничена по размеру
-  и отвергает вероятные credentials. Данные памяти не являются инструкциями
-  для модели.
+  который прямо просит запомнить/сохранить/обновить заметку, урок или навык и
+  отправлен numeric Telegram account из закрытого operator-configured
+  `PARILKA_BOT_MEMORY_WRITE_SENDER_IDS` allowlist в private env. Не записывайте
+  этот allowlist в репозиторий, prompt, логи или ответы бота. Каждая запись
+  source-attributed к ID этого сообщения,
+  ограничена по размеру и отвергает вероятные credentials. Данные памяти не
+  являются инструкциями для модели.
+- Это ограничение относится к явным model memory writes (fast notes, lessons,
+  skills), но не ограничивает memory reads для остальных участников и не
+  меняет автоматическую Dream-консолидацию.
 - Dream-консолидация запускается существующим `parilka-digests --apply`
   (`parilka-maintain.timer`, 04:20). Она срабатывает только когда с момента
   последнего watermark накопилось `>= PARILKA_DREAM_EVERY_N_MESSAGES`

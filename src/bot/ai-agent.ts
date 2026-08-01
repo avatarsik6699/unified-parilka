@@ -40,7 +40,9 @@ import {
   renderCarriedToolMessages,
   type CarriedToolResult,
 } from "./agent/evidence.js";
+import { sanitizeFinalText } from "./agent/final-sanitizer.js";
 import { ThinkingProgressTracker } from "./agent/thinking-progress.js";
+import { createBotToolCompletionObserver } from "./agent/tool-observer.js";
 import {
   createBotToolSet,
   researchContinuationInstructions,
@@ -62,6 +64,7 @@ import {
   throwIfAgentAborted,
   throwIfTurnAborted,
 } from "./agent/runtime-helpers.js";
+import type { ReadToolEvidence } from "./read-tools/contracts.js";
 
 const DEFAULT_CONTEXT_CHARS = 48_000;
 const DEFAULT_MAX_OUTPUT_TOKENS = 2_048;
@@ -212,10 +215,13 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
     const researchMinimumToolCalls = botResearchMinimumToolCalls(researchMode);
     const memoryWriteAllowed =
       this.#memoryTools !== undefined &&
+      this.#memoryTools.isWriteAuthorizer(request.trigger.senderId) &&
       botMemoryWriteAllowedForText(request.trigger.text);
     const toolCallBudget = botToolCallBudget(researchMode);
     const folds: string[] = [];
     const carriedTools: CarriedToolResult[] = [];
+    const toolEvidence: ReadToolEvidence[] = [];
+    const readToolFailures: Array<{ name: string; code: string }> = [];
     const approvalOrder = new Map<string, number>();
     const usage = new TurnUsageAccumulator();
     let allowedExecutions = 0;
@@ -356,35 +362,21 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
               audioExecution.available && !audioExecution.hasModelTranscription,
           });
           let forceFinal = allowedExecutions >= toolCallBudget;
-          const onToolCompleted = (
-            execution: BotToolSetExecutionCompleted,
-          ): void => {
-            completedExecutions += 1;
-            request.toolProgressPort?.onToolCompleted(
-              { toolName: execution.name, callId: execution.callId },
-              execution.output.ok,
-            );
-            const sequence =
-              approvalOrder.get(execution.callId) ??
-              allowedExecutions + carriedTools.length + 1;
-            carriedTools.push({
-              sequence,
-              name: execution.name,
-              serialized: boundedSerialize(execution.output),
-            });
-            this.#log("info", "bot.agent.tool", {
-              ...traceContext,
-              candidate: candidate.reference,
-              attempt: attemptNumber,
-              tool: execution.name,
-              durationMs: Math.max(0, Date.now() - execution.startedAt),
-              ok: execution.output.ok,
-              status: execution.output.ok ? execution.output.status : undefined,
-              errorCode: execution.output.ok
-                ? undefined
-                : execution.output.error.code,
-            });
-          };
+          const onToolCompleted = createBotToolCompletionObserver({
+            traceContext,
+            candidate: candidate.reference,
+            attempt: attemptNumber,
+            approvalOrder,
+            allowedExecutions: () => allowedExecutions,
+            carriedTools,
+            toolEvidence,
+            readToolFailures,
+            toolProgressPort: request.toolProgressPort,
+            onCompleted: () => {
+              completedExecutions += 1;
+            },
+            log: (level, event, fields) => this.#log(level, event, fields),
+          });
           const { tools, toolOrder } = createBotToolSet({
             readTools: this.#readTools,
             memoryTools: this.#memoryTools,
@@ -395,6 +387,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
             turnSignal,
             chatId: request.turn.chatId,
             sourceMessageId: request.trigger.messageId,
+            senderId: request.trigger.senderId,
             onExecutionStarted: (execution) => {
               startedExecutions += 1;
               if (execution.kind === "read") {
@@ -585,6 +578,15 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
               if (result.text.trim().length === 0) {
                 throw new BotAgentProtocolError("empty_final");
               }
+              const sanitizedText = sanitizeFinalText({
+                text: result.text,
+                toolEvidence,
+                researchMode: researchMode === "research",
+                readToolFailures,
+              });
+              if (sanitizedText.length === 0) {
+                throw new BotAgentProtocolError("empty_final");
+              }
               if (
                 researchMinimumToolCalls > startedReadExecutions &&
                 researchQualityRetries < BOT_AGENT_CONTRACT.researchQualityRetries &&
@@ -611,7 +613,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
               });
               return {
                 kind: "final" as const,
-                text: result.text,
+                text: sanitizedText,
                 telemetry: usage.build(),
               };
             }
