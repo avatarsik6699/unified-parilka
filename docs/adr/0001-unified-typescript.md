@@ -199,11 +199,15 @@ failure.
 
 The previous unbounded-call wording is superseded by a 120-execution safety
 ceiling. Before a subsequent tool-capable step, the agent estimates the
-serialized context; at 120,000 characters the selected turn candidate (the
-same Qwen model/provider profile) summarizes the old messages, while recent
-tool results are retained. Up to four compaction passes are allowed per turn.
-If compaction fails or the deadline is close, tools are disabled and the agent
-must produce a final answer rather than growing context toward provider limits.
+serialized context using a conservative three-characters-per-token heuristic.
+At roughly 600,000 estimated tokens the selected turn candidate (the same Qwen
+model/provider profile) summarizes the bounded head/tail source, while recent
+tool results are retained. A roughly 900,000-token guard leaves room below the
+provider's advertised million-token window for system instructions, tool
+schemas, thinking and the final answer. Up to four compaction passes are
+allowed per turn. If compaction fails or the deadline is close, tools are
+disabled and the agent must produce a final answer rather than growing context
+toward provider limits.
 
 Память и единственный разрешённый stateful model-tool contract определены в
 [ADR 0003](0003-layered-chat-memory.md). Они не дают модели доступа к operator

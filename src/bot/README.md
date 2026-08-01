@@ -29,12 +29,14 @@ The public entry points remain thin compatibility files:
   forbids personal extraction, and the executor rejects such queries before the
   Unix socket; results are always paraphrased and generalized, never quoted or
   used to identify a person. Previous reasoning parts are compacted before the
-  next model step; when context reaches the bounded threshold, the selected
-  Qwen candidate summarizes old messages through the same provider, retaining
-  recent tool results. A context/deadline/limit guard can switch to a tool-free
-  final pass. A provider `length` finish gets one additional tool-free
-  finalization attempt before the turn is failed, and the default Qwen turn
-  output budget is 16,384 tokens.
+  next model step; when the estimated context reaches roughly 600k tokens, the
+  selected Qwen candidate summarizes old messages through the same provider,
+  retaining recent tool results and a head/tail bounded source. The estimate
+  uses a conservative serialized-character heuristic because the runtime has
+  no provider tokenizer. A roughly 900k-token context guard, deadline/limit
+  guard can switch to a tool-free final pass. A provider `length` finish gets
+  one additional tool-free finalization attempt before the turn is failed, and
+  the default Qwen turn output budget is 16,384 tokens.
 - `media-tools.ts` — the narrow per-turn Telegram media boundary. It may read
   only an addressed photo/audio attachment or its one direct reply; Telegram
   `file_id`, download path and authenticated URL never enter a model prompt,

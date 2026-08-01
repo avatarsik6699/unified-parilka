@@ -106,15 +106,14 @@ test("executes a read tool and wraps its output as untrusted data without attach
   assert.match(secondPrompt, /chat_message/);
 });
 
-test("compacts an oversized tool context through the selected model", async () => {
-  const calls = Array.from({ length: 32 }, (_, index) =>
-    toolCall(`compact-${index}`, "search_chat", {
-      query: `compact-${index}`,
-      limit: 1,
-    }),
-  );
+test("compacts an oversized context through the selected model", async () => {
   const model = mockModel([
-    toolResponse(calls),
+    toolResponse([
+      toolCall("compact-trigger", "search_chat", {
+        query: "compact-trigger",
+        limit: 1,
+      }),
+    ]),
     response([{ type: "text", text: "сводка старого контекста" }], "stop"),
     response([{ type: "text", text: "финал после автокомпакта" }], "stop"),
   ]);
@@ -129,22 +128,54 @@ test("compacts an oversized tool context through the selected model", async () =
       ],
     },
   );
+  const oldContext = `fold-start ${"доказательство ".repeat(140_000)} fold-end`;
+  let foldInjected = false;
 
   const result = await fixture.agent.run(
     request({
-      trigger: storedMessage(103, "исследуй и сожми длинный контекст", "42", "Коля"),
+      trigger: storedMessage(103, "сожми длинный контекст", "42", "Коля"),
+      drainFold: (boundary) => {
+        if (boundary !== "tool" || foldInjected) {
+          return emptyFold(boundary);
+        }
+        foldInjected = true;
+        const message = {
+          messageId: "oversized-fold",
+          senderId: "42",
+          senderName: "Коля",
+          text: oldContext,
+          watermark: 104,
+          route: "ambient" as const,
+          truncated: false,
+        };
+        return {
+          ...emptyFold(boundary),
+          messages: [message],
+          ambient: [message],
+          totalChars: oldContext.length,
+        };
+      },
     }),
   );
 
   assert.equal(result.text, "финал после автокомпакта");
-  assert.equal(fixture.searchCalls, 32);
+  assert.equal(fixture.searchCalls, 1);
   assert.equal(model.doGenerateCalls.length, 3);
   assert.deepEqual(model.doGenerateCalls[1]?.providerOptions, providerOptions);
-  assert.match(promptUserText(model.doGenerateCalls[1]), /<old_context>/u);
-  assert.match(promptUserText(model.doGenerateCalls[2]), /<compacted_context>/u);
-  assert.ok(
-    fixture.logs.some((record) => record.event === "bot.agent.context_compacted"),
+  const compactionPrompt = promptUserText(model.doGenerateCalls[1]);
+  assert.match(compactionPrompt, /<old_context>/u);
+  assert.match(compactionPrompt, /fold-start/u);
+  assert.match(compactionPrompt, /fold-end/u);
+  assert.match(
+    compactionPrompt,
+    /middle of old context omitted; recent tail follows/u,
   );
+  assert.match(promptUserText(model.doGenerateCalls[2]), /<compacted_context>/u);
+  const compacted = fixture.logs.find(
+    (record) => record.event === "bot.agent.context_compacted",
+  );
+  assert.ok(compacted);
+  assert.ok(Number(compacted.beforeTokens) >= 600_000);
 });
 
 test("reports safe thinking boundaries around model and tool steps", async () => {

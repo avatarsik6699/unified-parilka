@@ -1,7 +1,18 @@
 import { generateText, pruneMessages, type LanguageModel, type ModelMessage } from "ai";
 import type { ProviderOptions } from "@ai-sdk/provider-utils";
 
-export const MODEL_CONTEXT_COMPACTION_TRIGGER_CHARS = 120_000;
+/**
+ * The provider advertises a roughly million-token context, but this service
+ * deliberately compacts before the hard provider boundary. There is no
+ * Qwen tokenizer in the runtime dependency set, so token counts below are a
+ * conservative estimate from serialized prompt characters.
+ */
+export const MODEL_CONTEXT_ESTIMATED_CHARS_PER_TOKEN = 3;
+export const MODEL_CONTEXT_COMPACTION_TRIGGER_TOKENS = 600_000;
+export const MODEL_CONTEXT_FINALIZATION_TOKENS = 900_000;
+export const MODEL_CONTEXT_COMPACTION_SOURCE_MAX_CHARS =
+  MODEL_CONTEXT_COMPACTION_TRIGGER_TOKENS *
+  MODEL_CONTEXT_ESTIMATED_CHARS_PER_TOKEN;
 export const MODEL_CONTEXT_COMPACTION_MAX_OUTPUT_TOKENS = 8_192;
 export const MODEL_CONTEXT_COMPACTION_KEEP_MESSAGES = 6;
 export const MODEL_CONTEXT_COMPACTION_MAX_RUNS = 4;
@@ -30,6 +41,8 @@ export interface AutomaticModelCompactionResult {
   messages: ModelMessage[];
   beforeChars: number;
   contextChars: number;
+  beforeTokens: number;
+  contextTokens: number;
   compactionNumber?: number;
   usage?: ModelContextCompactionResult["usage"];
   error?: unknown;
@@ -49,7 +62,10 @@ export async function compactModelContext(
   options: ModelContextCompactionOptions,
 ): Promise<ModelContextCompactionResult> {
   const sourceMessages = compactModelMessages(options.messages);
-  const source = renderCompactionSource(sourceMessages);
+  const source = renderCompactionSource(
+    sourceMessages,
+    MODEL_CONTEXT_COMPACTION_SOURCE_MAX_CHARS,
+  );
   const result = await generateText({
     model: options.model,
     providerOptions: options.providerOptions,
@@ -109,25 +125,42 @@ export async function compactModelContextIfNeeded(
 ): Promise<AutomaticModelCompactionResult> {
   const messages = compactModelMessages(options.messages);
   const beforeChars = estimateModelMessageChars(messages);
+  const beforeTokens = estimateModelMessageTokens(messages);
   if (
-    beforeChars < MODEL_CONTEXT_COMPACTION_TRIGGER_CHARS ||
+    beforeTokens < MODEL_CONTEXT_COMPACTION_TRIGGER_TOKENS ||
     options.toolLimitReached ||
     options.remainingMs <= MODEL_CONTEXT_COMPACTION_MIN_REMAINING_MS ||
     options.contextCompactions >= MODEL_CONTEXT_COMPACTION_MAX_RUNS
   ) {
-    return { messages, beforeChars, contextChars: beforeChars };
+    return {
+      messages,
+      beforeChars,
+      contextChars: beforeChars,
+      beforeTokens,
+      contextTokens: beforeTokens,
+    };
   }
   try {
     const compacted = await compactModelContext(options);
+    const contextChars = estimateModelMessageChars(compacted.messages);
     return {
       messages: compacted.messages,
       beforeChars,
-      contextChars: estimateModelMessageChars(compacted.messages),
+      contextChars,
+      beforeTokens,
+      contextTokens: estimateModelMessageTokens(compacted.messages),
       compactionNumber: options.contextCompactions + 1,
       usage: compacted.usage,
     };
   } catch (error) {
-    return { messages, beforeChars, contextChars: beforeChars, error };
+    return {
+      messages,
+      beforeChars,
+      contextChars: beforeChars,
+      beforeTokens,
+      contextTokens: beforeTokens,
+      error,
+    };
   }
 }
 
@@ -137,6 +170,15 @@ export function estimateModelMessageChars(
   return messages.reduce(
     (total, message) => total + estimatePromptValue(message.content),
     0,
+  );
+}
+
+export function estimateModelMessageTokens(
+  messages: readonly ModelMessage[],
+): number {
+  return Math.ceil(
+    estimateModelMessageChars(messages) /
+      MODEL_CONTEXT_ESTIMATED_CHARS_PER_TOKEN,
   );
 }
 
@@ -170,21 +212,22 @@ function estimatePromptValue(value: unknown): number {
   return 16;
 }
 
-function renderCompactionSource(messages: readonly ModelMessage[]): string {
-  const maxChars = MODEL_CONTEXT_COMPACTION_TRIGGER_CHARS;
-  let remaining = maxChars;
-  const rows: string[] = [];
-  for (const message of messages) {
-    if (remaining <= 0) {
-      break;
-    }
-    const content = safeJson(message.content);
-    const row = `[${message.role}] ${content}`;
-    const bounded = row.slice(0, remaining);
-    rows.push(bounded);
-    remaining -= bounded.length + 1;
+function renderCompactionSource(
+  messages: readonly ModelMessage[],
+  maxChars: number,
+): string {
+  const serialized = messages
+    .map((message) => `[${message.role}] ${safeJson(message.content)}`)
+    .join("\n");
+  if (serialized.length <= maxChars) {
+    return serialized;
   }
-  return rows.join("\n");
+
+  const marker = "\n…[middle of old context omitted; recent tail follows]…\n";
+  const available = Math.max(0, maxChars - marker.length);
+  const headChars = Math.ceil(available * 0.6);
+  const tailChars = available - headChars;
+  return serialized.slice(0, headChars) + marker + serialized.slice(-tailChars);
 }
 
 function safeJson(value: unknown): string {

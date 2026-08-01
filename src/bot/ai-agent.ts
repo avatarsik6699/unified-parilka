@@ -44,8 +44,7 @@ import { ThinkingProgressTracker } from "./agent/thinking-progress.js";
 import { createBotToolCompletionObserver } from "./agent/tool-observer.js";
 import {
   compactModelContextIfNeeded,
-  compactModelMessages,
-  estimateModelMessageChars,
+  MODEL_CONTEXT_FINALIZATION_TOKENS,
 } from "./agent/model-context.js";
 import {
   createBotToolSet,
@@ -74,7 +73,6 @@ const DEFAULT_MAX_OUTPUT_TOKENS = 16_384;
 const DEFAULT_TOTAL_TIMEOUT_MS = 600_000;
 const DEFAULT_TOOL_TIMEOUT_MS = 15_000;
 const MAX_CONTEXT_CHARS = 200_000;
-const FINALIZATION_CONTEXT_CHARS = 160_000;
 const FINALIZATION_RESERVE_MS = 180_000;
 const MAX_LENGTH_FINALIZATION_RETRIES = 1;
 const MAX_TOOL_CALLS = 120;
@@ -452,24 +450,23 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
                     newFolds.length === 0
                       ? messages
                       : [...messages, ...newFolds.map(userMessage)];
-                  let compactedMessages = compactModelMessages(nextMessages);
-                  let contextChars = estimateModelMessageChars(compactedMessages);
                   const remainingMs = Math.max(0, agentDeadlineAtMs - Date.now());
                   const toolLimitGuard = allowedExecutions >= MAX_TOOL_CALLS;
                   const deadlineGuard = remainingMs <= FINALIZATION_RESERVE_MS;
                   const compacted = await compactModelContextIfNeeded({
                     model: candidate.model, providerOptions: candidate.providerOptions,
-                    messages: compactedMessages, signal: turnSignal,
+                    messages: nextMessages, signal: turnSignal,
                     contextCompactions, remainingMs, toolLimitReached: toolLimitGuard,
                   });
-                  compactedMessages = compacted.messages;
-                  contextChars = compacted.contextChars;
+                  const compactedMessages = compacted.messages;
+                  const contextChars = compacted.contextChars;
+                  const contextTokens = compacted.contextTokens;
                   contextCompactions = compacted.compactionNumber ?? contextCompactions;
                   if (compacted.compactionNumber !== undefined)
-                    this.#log("info", "bot.agent.context_compacted", { ...traceContext, candidate: candidate.reference, attempt: attemptNumber, compaction: contextCompactions, beforeChars: compacted.beforeChars, afterChars: contextChars });
+                    this.#log("info", "bot.agent.context_compacted", { ...traceContext, candidate: candidate.reference, attempt: attemptNumber, compaction: contextCompactions, beforeChars: compacted.beforeChars, afterChars: contextChars, beforeTokens: compacted.beforeTokens, afterTokens: contextTokens });
                   if (compacted.error !== undefined)
                     this.#log("warn", "bot.agent.context_compaction_failed", { ...traceContext, candidate: candidate.reference, attempt: attemptNumber, code: safeErrorCode(compacted.error) });
-                  const contextGuard = contextChars >= FINALIZATION_CONTEXT_CHARS;
+                  const contextGuard = contextTokens >= MODEL_CONTEXT_FINALIZATION_TOKENS;
                   const forceFinal =
                     finalizationRequested || contextGuard || deadlineGuard || toolLimitGuard;
                   if (forceFinal && !finalizationRequested) {
@@ -480,6 +477,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
                       attempt: attemptNumber,
                       reason: toolLimitGuard ? "tool_limit" : contextGuard ? "context" : "deadline",
                       estimatedContextChars: contextChars,
+                      estimatedContextTokens: contextTokens,
                       remainingMs,
                     });
                   }
