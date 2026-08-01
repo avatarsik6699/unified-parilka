@@ -6,7 +6,7 @@
       "protocol": "openai",
       "baseUrl": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
       "apiKeyEnv": "PARILKA_QWEN_API_KEY",
-      "reasoningEffort": "high"
+      "reasoningEffort": "max"
     },
     {
       "id": "qwen_summary",

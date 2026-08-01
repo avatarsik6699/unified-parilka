@@ -10,7 +10,6 @@ import {
   BOT_AGENT_CONTRACT,
   botResearchMinimumToolCalls,
   botResearchModeForText,
-  botToolCallBudget,
   buildBotSystemPrompt,
   renderFoldBatch,
   type BotSystemPromptOptions,
@@ -44,6 +43,11 @@ import { sanitizeFinalText } from "./agent/final-sanitizer.js";
 import { ThinkingProgressTracker } from "./agent/thinking-progress.js";
 import { createBotToolCompletionObserver } from "./agent/tool-observer.js";
 import {
+  compactModelContextIfNeeded,
+  compactModelMessages,
+  estimateModelMessageChars,
+} from "./agent/model-context.js";
+import {
   createBotToolSet,
   researchContinuationInstructions,
   type BotToolSetExecutionCompleted,
@@ -65,13 +69,15 @@ import {
   throwIfTurnAborted,
 } from "./agent/runtime-helpers.js";
 import type { ReadToolEvidence } from "./read-tools/contracts.js";
-
 const DEFAULT_CONTEXT_CHARS = 48_000;
-const DEFAULT_MAX_OUTPUT_TOKENS = 2_048;
+const DEFAULT_MAX_OUTPUT_TOKENS = 16_384;
 const DEFAULT_TOTAL_TIMEOUT_MS = 600_000;
 const DEFAULT_TOOL_TIMEOUT_MS = 15_000;
 const MAX_CONTEXT_CHARS = 200_000;
-
+const FINALIZATION_CONTEXT_CHARS = 160_000;
+const FINALIZATION_RESERVE_MS = 180_000;
+const MAX_LENGTH_FINALIZATION_RETRIES = 1;
+const MAX_TOOL_CALLS = 120;
 export interface TurnModelRouter {
   executeWithFallback<T>(
     role: ModelRole,
@@ -119,14 +125,7 @@ export class BotAgentProtocolError extends Error {
     this.modelFallback = fallbackEligible;
   }
 }
-
-/**
- * A non-streaming, read-only model loop.
- *
- * Correctness state (tool budget and folds) is shared across provider
- * attempts. Provider-specific assistant/tool messages are not: a fallback
- * starts from application-owned context plus bounded successful tool results.
- */
+/** A non-streaming, read-only model loop with durable tool accounting. */
 export class AiSdkBotTurnAgent implements BotTurnAgent {
   readonly #router: TurnModelRouter;
   readonly #readTools: BotReadTools;
@@ -139,11 +138,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
   readonly #contextCharLimit: number;
   readonly #maxOutputTokens: number;
   readonly #totalTimeoutMs: number;
-  /**
-   * Undefined deliberately means that only the whole-turn deadline applies.
-   * Qwen can legitimately take longer than a fixed per-step ceiling after a
-   * tool result, while the enclosing AbortSignal still bounds the turn.
-   */
+  /** Undefined means that only the whole-turn deadline applies. */
   readonly #stepTimeoutMs: number | undefined;
   readonly #toolTimeoutMs: number;
 
@@ -217,7 +212,6 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
       this.#memoryTools !== undefined &&
       this.#memoryTools.isWriteAuthorizer(request.trigger.senderId) &&
       botMemoryWriteAllowedForText(request.trigger.text);
-    const toolCallBudget = botToolCallBudget(researchMode);
     const folds: string[] = [];
     const carriedTools: CarriedToolResult[] = [];
     const toolEvidence: ReadToolEvidence[] = [];
@@ -231,6 +225,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
     let deniedExecutions = 0;
     let requestedExecutions = 0;
     let researchQualityRetries = 0;
+    let contextCompactions = 0;
     const thinkingProgress = new ThinkingProgressTracker(
       request.toolProgressPort,
     );
@@ -267,10 +262,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
     };
 
     if (isDirectAudioTranscriptionRequest(request.trigger.text)) {
-      // A reply + @mention saying "расшифруй" is an explicit local command,
-      // not a suggestion for a remote language model. It intentionally never
-      // sends the private transcript to a provider: the worker publishes the
-      // full result through its application-owned plain-text path instead.
+      // Explicit local transcription never sends the private transcript to a model.
       allowedExecutions += audioExecution.available ? 1 : 0;
       const directAudio = await audioExecution.runDirect({
         callId: `audio:auto:${request.turn.id}`,
@@ -301,7 +293,6 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
         deniedToolCalls: deniedExecutions,
         researchMode,
         memoryWriteAllowed,
-        toolCallBudget,
         researchMinimumToolCalls,
         researchQualityRetries,
       });
@@ -361,7 +352,6 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
             audioTranscriptionAvailable:
               audioExecution.available && !audioExecution.hasModelTranscription,
           });
-          let forceFinal = allowedExecutions >= toolCallBudget;
           const onToolCompleted = createBotToolCompletionObserver({
             traceContext,
             candidate: candidate.reference,
@@ -377,6 +367,8 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
             },
             log: (level, event, fields) => this.#log(level, event, fields),
           });
+          let finalizationRequested = false;
+          let lengthFinalizationRetries = 0;
           const { tools, toolOrder } = createBotToolSet({
             readTools: this.#readTools,
             memoryTools: this.#memoryTools,
@@ -418,7 +410,6 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
             while (true) {
               throwIfAgentAborted(request.signal, deadlineSignal);
               let foldCursor = folds.length;
-              forceFinal = allowedExecutions >= toolCallBudget;
               const activeInstructions = researchQualityRetries === 0
                 ? instructions
                 : researchContinuationInstructions(
@@ -438,36 +429,21 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
                 messages: attemptMessages,
                 tools,
                 toolOrder,
-                // Qwen's compatible Chat Completions endpoint rejects
-                // tool_choice="required" with 400. A bounded quality gate
-                // retries premature research finals while auto remains the
-                // supported wire mode.
+                // Qwen-compatible endpoint supports auto tool choice, not required.
                 toolChoice: "auto",
                 toolApproval: ({ toolCall }) => {
                   throwIfAgentAborted(request.signal, deadlineSignal);
                   requestedExecutions += 1;
-                  if (
-                    forceFinal ||
-                    allowedExecutions >= toolCallBudget
-                  ) {
+                  if (allowedExecutions >= MAX_TOOL_CALLS) {
                     deniedExecutions += 1;
-                    forceFinal = true;
-                    return {
-                      type: "denied",
-                      reason: "tool_budget_exhausted",
-                    };
+                    return { type: "denied", reason: "max_tool_calls" };
                   }
                   rememberFold("tool");
                   allowedExecutions += 1;
                   approvalOrder.set(toolCall.toolCallId, allowedExecutions);
-                  if (
-                    allowedExecutions >= toolCallBudget
-                  ) {
-                    forceFinal = true;
-                  }
                   return "not-applicable";
                 },
-                prepareStep: ({ steps, messages }) => {
+                prepareStep: async ({ messages }) => {
                   throwIfAgentAborted(request.signal, deadlineSignal);
                   rememberFold("model");
                   const newFolds = folds.slice(foldCursor);
@@ -476,35 +452,60 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
                     newFolds.length === 0
                       ? messages
                       : [...messages, ...newFolds.map(userMessage)];
-                  const observedToolRequests = steps.reduce(
-                    (count, step) => count + step.toolCalls.length,
-                    0,
-                  );
-                  forceFinal ||= (
-                    allowedExecutions >=
-                      toolCallBudget ||
-                    observedToolRequests >=
-                      toolCallBudget
-                  );
-                  return forceFinal
-                    ? {
-                        messages: nextMessages,
-                        activeTools: [],
-                        toolChoice: "none",
-                        instructions:
-                          `${activeInstructions}\n\n` +
-                          "Лимит инструментов исчерпан. Сейчас верни только " +
-                          "финальный ответ по уже полученным данным; новых " +
-                          "инструментов не вызывай.",
-                      }
-                    : {
-                        messages: nextMessages,
-                        toolChoice: "auto",
-                      };
+                  let compactedMessages = compactModelMessages(nextMessages);
+                  let contextChars = estimateModelMessageChars(compactedMessages);
+                  const remainingMs = Math.max(0, agentDeadlineAtMs - Date.now());
+                  const toolLimitGuard = allowedExecutions >= MAX_TOOL_CALLS;
+                  const deadlineGuard = remainingMs <= FINALIZATION_RESERVE_MS;
+                  const compacted = await compactModelContextIfNeeded({
+                    model: candidate.model, providerOptions: candidate.providerOptions,
+                    messages: compactedMessages, signal: turnSignal,
+                    contextCompactions, remainingMs, toolLimitReached: toolLimitGuard,
+                  });
+                  compactedMessages = compacted.messages;
+                  contextChars = compacted.contextChars;
+                  contextCompactions = compacted.compactionNumber ?? contextCompactions;
+                  if (compacted.compactionNumber !== undefined)
+                    this.#log("info", "bot.agent.context_compacted", { ...traceContext, candidate: candidate.reference, attempt: attemptNumber, compaction: contextCompactions, beforeChars: compacted.beforeChars, afterChars: contextChars });
+                  if (compacted.error !== undefined)
+                    this.#log("warn", "bot.agent.context_compaction_failed", { ...traceContext, candidate: candidate.reference, attempt: attemptNumber, code: safeErrorCode(compacted.error) });
+                  const contextGuard = contextChars >= FINALIZATION_CONTEXT_CHARS;
+                  const forceFinal =
+                    finalizationRequested || contextGuard || deadlineGuard || toolLimitGuard;
+                  if (forceFinal && !finalizationRequested) {
+                    finalizationRequested = true;
+                    this.#log("warn", "bot.agent.finalization_guard", {
+                      ...traceContext,
+                      candidate: candidate.reference,
+                      attempt: attemptNumber,
+                      reason: toolLimitGuard ? "tool_limit" : contextGuard ? "context" : "deadline",
+                      estimatedContextChars: contextChars,
+                      remainingMs,
+                    });
+                  }
+                  const finalizationInstructions =
+                    `${activeInstructions}\n\n` +
+                    "Сейчас обязательно верни полный финальный ответ по уже " +
+                    "собранным данным. Новые инструменты не вызывай. Если " +
+                    "каких-то данных не хватило, честно обозначь ограничение " +
+                    "в самом ответе.";
+                  return {
+                    messages: compactedMessages,
+                    ...(forceFinal
+                      ? {
+                          activeTools: [],
+                          toolChoice: "none" as const,
+                          instructions: finalizationInstructions,
+                          maxOutputTokens: this.#maxOutputTokens,
+                        }
+                      : {
+                          toolChoice: "auto" as const,
+                          maxOutputTokens: this.#maxOutputTokens,
+                        }),
+                  };
                 },
-                // Do not impose an artificial count of model steps. The model
-                // stops naturally after a final response; tool execution stays
-                // bounded by toolCallBudget and the entire turn by turnSignal.
+                // The model may take as many steps as needed, bounded by the
+                // whole-turn deadline and the explicit 120-call tool guard.
                 stopWhen: () => false,
                 maxRetries: 0,
                 abortSignal: turnSignal,
@@ -566,6 +567,22 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
                   "Provider blocked the generated response.",
                 );
               }
+              if (
+                result.finishReason === "length" &&
+                result.toolCalls.length === 0 &&
+                lengthFinalizationRetries < MAX_LENGTH_FINALIZATION_RETRIES
+              ) {
+                lengthFinalizationRetries += 1;
+                finalizationRequested = true;
+                this.#log("warn", "bot.agent.finalization_retry", {
+                  ...traceContext,
+                  candidate: candidate.reference,
+                  attempt: attemptNumber,
+                  retry: lengthFinalizationRetries,
+                  finishReason: result.finishReason,
+                });
+                continue;
+              }
               if (result.finishReason !== "stop") {
                 throw new BotAgentProtocolError(
                   "incomplete_finish",
@@ -589,8 +606,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
               }
               if (
                 researchMinimumToolCalls > startedReadExecutions &&
-                researchQualityRetries < BOT_AGENT_CONTRACT.researchQualityRetries &&
-                allowedExecutions < toolCallBudget
+                researchQualityRetries < BOT_AGENT_CONTRACT.researchQualityRetries
               ) {
                 researchQualityRetries += 1;
                 this.#log("info", "bot.agent.research_depth_retry", {
@@ -647,7 +663,6 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
         deniedToolCalls: deniedExecutions,
         researchMode,
         memoryWriteAllowed,
-        toolCallBudget,
         researchMinimumToolCalls,
         researchQualityRetries,
       });
@@ -664,7 +679,6 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
         code: safeErrorCode(error),
         researchMode,
         memoryWriteAllowed,
-        toolCallBudget,
         researchMinimumToolCalls,
         researchQualityRetries,
       });

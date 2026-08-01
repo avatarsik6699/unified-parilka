@@ -35,7 +35,7 @@ footnotes, inline `$...$`, block `$$...$$` и fenced `math`. Установле�
 model final Markdown + telemetry footer
   -> TelegramPublication (транспортный контракт без content policy):
      обычный ответ — исходный Markdown;
-     local audio или >4096 UTF-16 — plain publication
+     local audio или >32768 UTF-8 bytes — plain publication
   -> rich:  { markdown, plainText }
        plain: { plainText }
   -> saveBotTurnDraft(plainText)
@@ -63,7 +63,9 @@ mapping. Это повторяет основную ошибку 004 (локал
 Обычный финал передаётся Telegram нативно как есть. `skip_entity_detection:
 true` остаётся параметром Rich Messages, а не локальной policy-проверкой;
 текстовая публикация выбирается только для local audio и для ответа длиннее
-документированного лимита Telegram в 4096 UTF-16 единиц.
+документированного Rich Message лимита Telegram в 32768 UTF-8 bytes. Если
+Rich API отклоняет payload до ACK по причине разбора, plain fallback по-прежнему
+использует классический лимит 4096 UTF-16 единиц.
 
 ### Canonical plain text
 

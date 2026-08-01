@@ -50,6 +50,22 @@ test("returns only the final step text, never reasoning or an intermediate draft
   );
 });
 
+test("a length-limited final gets one tool-free recovery pass", async () => {
+  const model = mockModel([
+    response([{ type: "text", text: "обрезанный черновик" }], "length"),
+    response([{ type: "text", text: "полный финальный ответ" }], "stop"),
+  ]);
+  const fixture = makeAgent([candidate("primary:test", model)]);
+
+  const result = await fixture.agent.run(request());
+
+  assert.equal(result.text, "полный финальный ответ");
+  assert.equal(model.doGenerateCalls.length, 2);
+  assert.equal(model.doGenerateCalls[0]?.maxOutputTokens, 16_384);
+  assert.equal(model.doGenerateCalls[1]?.tools, undefined);
+  assert.deepEqual(model.doGenerateCalls[1]?.toolChoice, { type: "none" });
+});
+
 test("executes a read tool and wraps its output as untrusted data without attaching quote evidence to the final", async () => {
   const exactQuote = "эта реплика действительно была в истории";
   const model = mockModel([
@@ -90,6 +106,47 @@ test("executes a read tool and wraps its output as untrusted data without attach
   assert.match(secondPrompt, /chat_message/);
 });
 
+test("compacts an oversized tool context through the selected model", async () => {
+  const calls = Array.from({ length: 32 }, (_, index) =>
+    toolCall(`compact-${index}`, "search_chat", {
+      query: `compact-${index}`,
+      limit: 1,
+    }),
+  );
+  const model = mockModel([
+    toolResponse(calls),
+    response([{ type: "text", text: "сводка старого контекста" }], "stop"),
+    response([{ type: "text", text: "финал после автокомпакта" }], "stop"),
+  ]);
+  const providerOptions = {
+    openai: { reasoningEffort: "max" as const },
+  };
+  const fixture = makeAgent(
+    [candidate("primary:test", model, providerOptions)],
+    {
+      searchResults: [
+        storedMessage(78, "доказательство ".repeat(600), "42", "Коля"),
+      ],
+    },
+  );
+
+  const result = await fixture.agent.run(
+    request({
+      trigger: storedMessage(103, "исследуй и сожми длинный контекст", "42", "Коля"),
+    }),
+  );
+
+  assert.equal(result.text, "финал после автокомпакта");
+  assert.equal(fixture.searchCalls, 32);
+  assert.equal(model.doGenerateCalls.length, 3);
+  assert.deepEqual(model.doGenerateCalls[1]?.providerOptions, providerOptions);
+  assert.match(promptUserText(model.doGenerateCalls[1]), /<old_context>/u);
+  assert.match(promptUserText(model.doGenerateCalls[2]), /<compacted_context>/u);
+  assert.ok(
+    fixture.logs.some((record) => record.event === "bot.agent.context_compacted"),
+  );
+});
+
 test("reports safe thinking boundaries around model and tool steps", async () => {
   const model = mockModel([
     toolResponse([
@@ -119,7 +176,7 @@ test("reports safe thinking boundaries around model and tool steps", async () =>
   ]);
 });
 
-test("seven parallel requests execute exactly six tools and force a tool-free final step", async () => {
+test("seven parallel requests execute below the safety ceiling", async () => {
   const calls = Array.from({ length: 7 }, (_, index) =>
     toolCall(`parallel-${index}`, "search_chat", {
       query: `query-${index}`,
@@ -148,20 +205,18 @@ test("seven parallel requests execute exactly six tools and force a tool-free fi
   );
 
   assert.equal(result.text, "финал после лимита");
-  assert.equal(fixture.searchCalls, 6);
+  assert.equal(fixture.searchCalls, 7);
   assert.equal(model.doGenerateCalls.length, 2);
-  assert.equal(model.doGenerateCalls[1]?.tools, undefined);
-  assert.deepEqual(model.doGenerateCalls[1]?.toolChoice, {
-    type: "none",
-  });
+  assert.ok(model.doGenerateCalls[1]?.tools);
+  assert.deepEqual(model.doGenerateCalls[1]?.toolChoice, { type: "auto" });
   const completed = fixture.logs.find(
     (record) => record.event === "bot.agent.complete",
   );
   assert.equal(completed?.requestedToolCalls, 7);
-  assert.equal(completed?.allowedToolCalls, 6);
-  assert.equal(completed?.startedToolCalls, 6);
-  assert.equal(completed?.completedToolCalls, 6);
-  assert.equal(completed?.deniedToolCalls, 1);
+  assert.equal(completed?.allowedToolCalls, 7);
+  assert.equal(completed?.startedToolCalls, 7);
+  assert.equal(completed?.completedToolCalls, 7);
+  assert.equal(completed?.deniedToolCalls, 0);
   assert.equal(completed?.turnId, 1);
   assert.equal(completed?.updateId, 2);
   assert.equal(
@@ -172,7 +227,7 @@ test("seven parallel requests execute exactly six tools and force a tool-free fi
     ),
     true,
   );
-  assert.equal(toolDrains, 6);
+  assert.equal(toolDrains, 7);
 });
 
 test("research depth gate retries a premature final through Qwen-compatible auto tool choice", async () => {
@@ -220,9 +275,83 @@ test("research depth gate retries a premature final through Qwen-compatible auto
     (record) => record.event === "bot.agent.complete",
   );
   assert.equal(completed?.researchMode, "research");
-  assert.equal(completed?.toolCallBudget, 12);
   assert.equal(completed?.startedReadToolCalls, 4);
   assert.equal(completed?.researchQualityRetries, 1);
+});
+
+test("research requests can execute forty tool calls below the safety ceiling", async () => {
+  const calls = Array.from({ length: 40 }, (_, index) =>
+    toolCall(`research-${index}`, "search_chat", {
+      query: `research-${index}`,
+      limit: 1,
+    }),
+  );
+  const model = mockModel([
+    toolResponse(calls),
+    response([{ type: "text", text: "глубокий итог" }], "stop"),
+  ]);
+  const fixture = makeAgent([candidate("primary:test", model)]);
+
+  const result = await fixture.agent.run(
+    request({
+      trigger: storedMessage(
+        101,
+        "исследуй тему без поверхностного ответа",
+        "42",
+        "Коля",
+      ),
+    }),
+  );
+
+  assert.equal(result.text, "глубокий итог");
+  assert.equal(fixture.searchCalls, 40);
+  const completed = fixture.logs.find(
+    (record) => record.event === "bot.agent.complete",
+  );
+  assert.equal(completed?.researchMode, "research");
+  assert.equal(completed?.allowedToolCalls, 40);
+  assert.equal(completed?.deniedToolCalls, 0);
+});
+
+test("the 120-call safety ceiling denies excess calls and finalizes", async () => {
+  const calls = Array.from({ length: 121 }, (_, index) =>
+    toolCall(`capped-${index}`, "search_chat", {
+      query: `capped-${index}`,
+      limit: 1,
+    }),
+  );
+  const model = mockModel([
+    toolResponse(calls),
+    response([{ type: "text", text: "финал после safety ceiling" }], "stop"),
+  ]);
+  const fixture = makeAgent([candidate("primary:test", model)]);
+
+  const result = await fixture.agent.run(
+    request({
+      trigger: storedMessage(
+        102,
+        "исследуй тему с большим числом вызовов",
+        "42",
+        "Коля",
+      ),
+    }),
+  );
+
+  assert.equal(result.text, "финал после safety ceiling");
+  assert.equal(fixture.searchCalls, 120);
+  assert.equal(model.doGenerateCalls.length, 2);
+  assert.deepEqual(model.doGenerateCalls[1]?.toolChoice, { type: "none" });
+  const completed = fixture.logs.find(
+    (record) => record.event === "bot.agent.complete",
+  );
+  assert.equal(completed?.requestedToolCalls, 121);
+  assert.equal(completed?.allowedToolCalls, 120);
+  assert.equal(completed?.startedToolCalls, 120);
+  assert.equal(completed?.deniedToolCalls, 1);
+  const guard = fixture.logs.find(
+    (record) => record.event === "bot.agent.finalization_guard",
+  );
+  assert.equal(guard?.reason, "tool_limit");
 });
 
 test("malformed tool-call steps do not hit an arbitrary step ceiling", async () => {

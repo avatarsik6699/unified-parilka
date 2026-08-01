@@ -1,13 +1,16 @@
-/** Telegram's documented UTF-16 text payload limit. */
+/** Telegram's documented classic `sendMessage` UTF-16 text payload limit. */
 export const TELEGRAM_TEXT_LIMIT_UTF16 = 4_096;
+
+/** Telegram's documented native Rich Message UTF-8 payload limit. */
+export const TELEGRAM_RICH_TEXT_LIMIT_UTF8 = 32_768;
 
 /**
  * The exact model result that crosses the Telegram send boundary.
  *
  * This is deliberately a transport contract, not a content policy: model
- * text is neither inspected nor rewritten here. Short model replies use the
- * native rich path; local audio and rich payloads too long for one native
- * message use the classic plain path, which the publisher splits losslessly.
+ * text is neither inspected nor rewritten here. Model replies within the
+ * native Rich Message limit use the rich path; local audio and replies beyond
+ * that limit use the classic plain path, which the publisher splits losslessly.
  */
 export type TelegramPublication =
   | {
@@ -28,7 +31,7 @@ export function createTelegramPublication(
 ): TelegramPublication {
   if (
     responseOrigin === "local_audio" ||
-    utf16Length(text) > TELEGRAM_TEXT_LIMIT_UTF16
+    utf8Length(text) > TELEGRAM_RICH_TEXT_LIMIT_UTF8
   ) {
     return {
       mode: "plain",
@@ -46,6 +49,10 @@ export function createTelegramPublication(
 
 export function utf16Length(text: string): number {
   return text.length;
+}
+
+export function utf8Length(text: string): number {
+  return Buffer.byteLength(text, "utf8");
 }
 
 /**

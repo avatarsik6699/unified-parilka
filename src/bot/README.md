@@ -17,17 +17,24 @@ The public entry points remain thin compatibility files:
   partial/post-ACK failures never resend.
 - `ai-agent.ts` — the bounded, non-streaming model/tool loop. One complete
   turn has a 600-second deadline; it has no separate arbitrary model-step
-  ceiling, while every tool call remains bounded. Ordinary turns receive a
-  six-call ceiling; explicit research requests receive a 12-call ceiling, a
-  minimum of four real evidence calls, and up to two bounded continuation
-  rounds if the model tries to finalise too early. The prompt separates external
+  ceiling, while every tool call remains individually timed and abortable.
+  A turn has a hard safety ceiling of 120 requested tool executions; hitting
+  it disables tools and forces a final pass. Research requests still require a minimum of four real
+  evidence calls and allow up to two bounded continuation rounds if the model
+  tries to finalise too early. The prompt separates external
   evidence (`web_search`/`web_fetch`/`paper_search`) from facts in this chat
   (`search_chat`/digest/thread) and never treats chat search as an automatic
   supplement to an external lookup. `research_lookup` is private evidence and
   the sole tool-specific data-disclosure boundary: its model-facing description
   forbids personal extraction, and the executor rejects such queries before the
   Unix socket; results are always paraphrased and generalized, never quoted or
-  used to identify a person.
+  used to identify a person. Previous reasoning parts are compacted before the
+  next model step; when context reaches the bounded threshold, the selected
+  Qwen candidate summarizes old messages through the same provider, retaining
+  recent tool results. A context/deadline/limit guard can switch to a tool-free
+  final pass. A provider `length` finish gets one additional tool-free
+  finalization attempt before the turn is failed, and the default Qwen turn
+  output budget is 16,384 tokens.
 - `media-tools.ts` — the narrow per-turn Telegram media boundary. It may read
   only an addressed photo/audio attachment or its one direct reply; Telegram
   `file_id`, download path and authenticated URL never enter a model prompt,
@@ -45,9 +52,9 @@ The public entry points remain thin compatibility files:
   model; writes remain source-attributed to that trigger.
 - `telegram-publication.ts` — narrow transport contract for the final text:
   normal model replies keep their original Markdown for native
-  `sendRichMessage`; local audio and replies over Telegram's UTF-16 limit use
-  lossless classic plain-message chunks. It applies no content policy and does
-  not rewrite model text.
+  `sendRichMessage` up to Telegram's 32,768-byte Rich Message limit; local
+  audio and replies beyond that limit use lossless classic plain-message
+  chunks. It applies no content policy and does not rewrite model text.
 - `telemetry.ts` — per-turn usage accumulation and footer rendering.
 - `typing.ts` — best-effort typing heartbeat.
 - `tool-progress.ts` — persisted single-message model/tool timeline: safe
@@ -84,7 +91,7 @@ Their implementation is split by ownership:
   reference.
 - `telegram-publication.ts`: the transport contract described above. Telegram
   renders the rich payload natively; the only local fallback is a lossless
-  4096-char plain splitter.
+  4096 UTF-16-unit plain splitter.
 - `runtime-config/`: public contracts, environment rules, cross-field
   validation, optional web-search loading, and redacted inspection.
 - `../bot-daemon/`: dependency composition, production adapters, trace wiring,

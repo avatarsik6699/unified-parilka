@@ -16,11 +16,8 @@ export const LONG_MEMORY_INDEX_LABEL = "ИНДЕКС_ДОЛГОЙ_ПАМЯТИ";
 export const SKILL_INDEX_LABEL = "ИНДЕКС_НАВЫКОВ";
 
 export const BOT_AGENT_CONTRACT = Object.freeze({
-  maxToolCalls: 6,
-  researchMaxToolCalls: 12,
   researchMinToolCalls: 4,
   researchQualityRetries: 2,
-  forcedFinalAfterToolBudget: true,
   toolNames: [
     "search_chat",
     "day_digest",
@@ -40,18 +37,12 @@ const RESEARCH_REQUEST_PATTERN =
 
 /**
  * Only the authoritative trigger selects research mode. Folded chat context
- * remains untrusted data and must not be able to expand the tool budget.
+ * remains untrusted data and must not change the research contract.
  */
 export function botResearchModeForText(value: string): BotResearchMode {
   return RESEARCH_REQUEST_PATTERN.test(value)
     ? "research"
     : "standard";
-}
-
-export function botToolCallBudget(mode: BotResearchMode): number {
-  return mode === "research"
-    ? BOT_AGENT_CONTRACT.researchMaxToolCalls
-    : BOT_AGENT_CONTRACT.maxToolCalls;
 }
 
 export function botResearchMinimumToolCalls(mode: BotResearchMode): number {
@@ -129,7 +120,8 @@ export function buildBotSystemPrompt(options: BotSystemPromptOptions): string {
     writeAllowed: options.memoryWriteAllowed === true,
   });
   const researchMode = options.researchMode ?? "standard";
-  const toolCallBudget = botToolCallBudget(researchMode);
+  const toolBudgetSection =
+    "В этом ходе доступно до 120 вызовов инструментов суммарно: продолжай до завершения задачи, но не зацикливайся после исчерпания safety ceiling. Не экономь вызов ценой пустой уверенности: несколько разных запросов и проверка первоисточника полезнее одного случайного совпадения.";
   const researchSection = renderResearchSection(researchMode);
   const mediaSection = renderMediaSection({
     imageAttached: options.imageAttached === true,
@@ -283,11 +275,7 @@ ${mediaSection}
   корпус для такого не используется. Не пытайся обойти правило другим запросом
   или намёком.
 
-${memorySection}${knowledgeSections}${memoryToolSection}В одном ходе разрешено не больше ${toolCallBudget} вызовов
-инструментов суммарно. Не экономь вызов ценой пустой уверенности: несколько
-разных запросов и проверка первоисточника полезнее одного случайного совпадения.
-Когда лимит исчерпан, сформулируй финальный ответ по уже полученным данным без
-нового инструмента; не зацикливайся и не обещай поиск, который уже не сделаешь.
+${memorySection}${knowledgeSections}${memoryToolSection}${toolBudgetSection}
 
 Вопрос про прошлое чата или «кто что говорил» — сначала \`search_chat\`. Фрагмент
 непонятен без окружения — возьми \`thread_context\`. Относительная дата считается
@@ -478,7 +466,8 @@ ${BOT_AGENT_CONTRACT.researchMinToolCalls} реальных вызова инс�
 можно использовать \`research_lookup\`, но соблюдай его приватную границу и не
 подменяй им свежую проверку рынка.
 Преждевременный финал не считается завершением исследования — продолжай собирать
-и проверять данные, пока не выполнен этот контракт либо не исчерпан лимит.\n\n`;
+и проверять данные, пока не выполнен этот контракт либо не прерваны общий таймаут
+или отмена хода.\n\n`;
 }
 
 function renderMediaSection(input: {

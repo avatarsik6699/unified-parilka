@@ -173,6 +173,38 @@ model-step deadline больше нет: AI SDK loop останавливает�
 а tool execution budget — четырьмя для обычного и восемью для исследовательского
 хода.
 
+### Addendum 2026-08-01: research call ceiling removed
+
+Предыдущее предложение про budget для обычного и исследовательского хода
+относится к прежней реализации и заменено. Исследовательский ход больше не
+имеет отдельного фиксированного числа tool-вызовов: модель может продолжать
+сбор evidence до естественного финала.
+Непреодолимыми границами остаются общий deadline хода (600 секунд по умолчанию),
+отмена исходного запроса и timeout каждого инструмента (15 секунд по умолчанию).
+Обычные и исследовательские ходы одинаково не имеют фиксированного budget по
+числу вызовов; модель завершает их естественным финалом либо по этим границам.
+
+### Addendum 2026-08-01: maximum-reasoning finalization
+
+Production `turn` uses the Qwen profile with `reasoningEffort=max`. The turn
+output budget is 16,384 tokens so a maximum-reasoning final answer is not cut
+off by the former 2,048-token default. The loop removes prior hidden reasoning
+parts before the next step, uses a hard safety ceiling of 120 tool executions,
+and switches to a tool-free final pass when the serialized context, deadline,
+or ceiling requires it. If a provider returns `finishReason=length` without
+tool calls, the agent retries one tool-free final pass before surfacing a
+failure.
+
+### Addendum 2026-08-01: Qwen context compaction and tool safety ceiling
+
+The previous unbounded-call wording is superseded by a 120-execution safety
+ceiling. Before a subsequent tool-capable step, the agent estimates the
+serialized context; at 120,000 characters the selected turn candidate (the
+same Qwen model/provider profile) summarizes the old messages, while recent
+tool results are retained. Up to four compaction passes are allowed per turn.
+If compaction fails or the deadline is close, tools are disabled and the agent
+must produce a final answer rather than growing context toward provider limits.
+
 Память и единственный разрешённый stateful model-tool contract определены в
 [ADR 0003](0003-layered-chat-memory.md). Они не дают модели доступа к operator
 MCP write/sync tools и не меняют durable send semantics.

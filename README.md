@@ -212,8 +212,8 @@ fallback-провайдера. Роль `summary` использует втор�
 
 Bot turn использует роль `turn`; `parilka-digests` использует роль `summary`.
 В production обе роли содержат ровно один Qwen candidate: это покрывает ответы
-агента, day/ISO-weekly summaries и dream-консолидацию памяти; `turn` сохраняет
-high-effort профиль, `summary` использует low-effort профиль. Month rows можно
+агента, day/ISO-weekly summaries и dream-консолидацию памяти; `turn` использует
+максимальный reasoning-профиль, `summary` использует low-effort профиль. Month rows можно
 импортировать и хранить через низкоуровневый store, но текущий bot read tool
 их не читает и автоматически не генерирует.
 
