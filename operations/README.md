@@ -85,25 +85,45 @@ protection, Origin/Host allowlist), но не изолирует процесс�
 
 ## Логи
 
-Parilka пишет structured JSON в stderr; systemd направляет в journald.
-Application log-файлы не создаются. Ротация/retention — в journald.
+Parilka пишет структурированный JSON в stderr; systemd направляет его в
+journald. Приложение не пишет файлов логов: размер, ограничение частоты,
+ротация и срок хранения целиком принадлежат journald. Этот документ не
+выбирает и не устанавливает общесистемные лимиты.
 
 ```bash
-# Follow bot logs
+# Следить за логами bot
 journalctl --user -u parilka-bot.service -f -o cat
 
-# Trace one turn by turnId
-journalctl --user -u parilka-bot.service -o json | jq 'select(.turnId == "N")'
+# Найти один числовой durable turnId. `-o json` оборачивает JSON приложения в MESSAGE.
+turn_id=42
+journalctl --user -u parilka-bot.service -o json | \
+  jq --argjson turnId "$turn_id" \
+    '(.MESSAGE? | fromjson?) as $event | select($event.turnId == $turnId) | $event'
 
-# Recent errors (level >= 50)
-journalctl --user -u parilka-bot.service -o json | jq 'select(.level >= 50)'
+# Последние ошибки (level >= 50)
+journalctl --user -u parilka-bot.service -o json | \
+  jq '(.MESSAGE? | fromjson?) as $event | select(($event.level // 0) >= 50) | $event'
 
-# Sync shutdown evidence
-journalctl --user -u parilka-sync.service -o json | jq 'select(.event == "sync.shutdown_completed")'
+# Подтверждение штатного завершения sync
+journalctl --user -u parilka-sync.service -o json | \
+  jq '(.MESSAGE? | fromjson?) as $event | select($event.event == "sync.shutdown_completed") | $event'
 
-# Проверить disk usage журнала
-journalctl --user --disk-usage
+# Read-only объём журналов (system и user на этом host)
+journalctl --disk-usage
+
+# Только чтение: compiled defaults и effective настройки journald. Последнее
+# активное (незакомментированное) значение ключа в main/drop-in файлах
+# побеждает; если все значения закомментированы, действует compiled default.
+systemd-analyze cat-config systemd/journald.conf | \
+  rg -n '^[[:space:]]*#?[[:space:]]*(SystemMaxUse|RuntimeMaxUse|SystemKeepFree|RuntimeKeepFree|MaxRetentionSec|RateLimitIntervalSec|RateLimitBurst)='
 ```
+
+`turnId` в JSON приложения — число, не строка. Для trace coordinator рядом
+пишется строковый `coordinatorTurnId`; он нужен только для связи с универсальным
+контрактом coordinator. Tool lifecycle (`bot.agent.tool_started` и
+`bot.agent.tool`) ограничен тем же ceiling в 120 вызовов на turn и содержит
+только correlation metadata, без call ID, input/output, query, model messages,
+reasoning или provider payload.
 
 ## Bot диагностика без polling
 

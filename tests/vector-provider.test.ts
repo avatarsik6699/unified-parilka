@@ -87,6 +87,48 @@ test("embedding API retry honors retry-after for 429 responses", async (t) => {
   assert.equal(result.chunksCreated, 1);
 });
 
+test("embedding provider bodies and network messages are never kept in ToolError text", async (t) => {
+  const marker = "EMBEDDING_PROVIDER_MARKER_DO_NOT_LEAK";
+  const hostile = `${marker} https://user:pass@provider.test/v1?api_key=unit-marker Bearer unit-marker`;
+  let mode: "http" | "network" = "http";
+  mockFetch(t, async () => {
+    if (mode === "http") {
+      return new Response(
+        JSON.stringify({ error: { message: hostile } }),
+        {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }
+    throw new Error(hostile);
+  });
+  const client = new EmbeddingClient(config({ maxRetries: 0 }));
+
+  await assert.rejects(
+    () => client.embedTexts(["first"]),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal(error.message, "Embedding API request failed with HTTP 500.");
+      assert.doesNotMatch(error.message, new RegExp(marker));
+      assert.doesNotMatch(error.message, /provider\.test|Bearer unit-marker/u);
+      return true;
+    },
+  );
+
+  mode = "network";
+  await assert.rejects(
+    () => client.embedTexts(["first"]),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal(error.message, "Embedding API request failed.");
+      assert.doesNotMatch(error.message, new RegExp(marker));
+      assert.doesNotMatch(error.message, /provider\.test|Bearer unit-marker/u);
+      return true;
+    },
+  );
+});
+
 test("embedding API clamps a hostile retry-after before retrying", async (t) => {
   let calls = 0;
   mockFetch(t, async (_url, init) => {

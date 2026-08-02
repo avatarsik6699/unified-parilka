@@ -3,6 +3,13 @@ import { redactUrlCredentials } from "../config/redaction.js";
 import { ok } from "../errors.js";
 import {
   healthSummary,
+  publicChatStats,
+  publicDaemonStatus,
+  publicEmbeddingStats,
+  publicMaintenance,
+  publicSyncOnceResult,
+  publicSyncResult,
+  publicSyncState,
   recentCatchupSummary,
   syncOnceStatus,
 } from "./cache-metadata.js";
@@ -66,6 +73,7 @@ export function getStatus(
   const chat = context.cacheChat(args.chat);
   const status = context.store.getChatStatus(chat.chatId);
   const durableQueue = context.store.getDurableQueueStatus(chat.chatId);
+  const syncState = publicSyncState(status.syncState);
   return ok({
     health: healthSummary(
       status,
@@ -97,16 +105,19 @@ export function getStatus(
       lastRecentSyncAt: status.syncState?.lastRecentSyncAt,
       lastBackfillAt:
         status.syncState?.lastBackfillAt,
-      lastError: status.syncState?.lastError,
+      lastError: status.syncState?.lastError
+        ? "A sync failure was recorded."
+        : undefined,
+      hasLastError: Boolean(status.syncState?.lastError),
       backfillExhausted: Boolean(
         status.syncState?.backfillExhaustedAt,
       ),
       backfillExhaustedAt:
         status.syncState?.backfillExhaustedAt,
       recentCatchup: recentCatchupSummary(status.syncState),
-      state: status.syncState,
+      state: syncState,
     },
-    daemon: status.daemonStatus,
+    daemon: publicDaemonStatus(status.daemonStatus),
     durableQueue,
     embeddings: {
       enabled: context.config.embeddings.enabled,
@@ -115,9 +126,9 @@ export function getStatus(
       ),
       model: context.config.embeddings.model,
       dimensions: context.config.embeddings.dimensions,
-      coverage: status.embeddings,
+      coverage: publicEmbeddingStats(status.embeddings),
     },
-    maintenance: status.maintenance,
+    maintenance: publicMaintenance(status.maintenance),
   });
 }
 
@@ -146,7 +157,9 @@ export async function getChatInfo(
   context.store.upsertChat(resolved.info);
   return ok({
     chat: resolved.info,
-    stats: context.store.getStats(resolved.info.chatId),
+    stats: publicChatStats(
+      context.store.getStats(resolved.info.chatId),
+    ),
   });
 }
 
@@ -187,11 +200,13 @@ export async function syncHistory(
         result.chat == null
           ? undefined
           : { chatId: result.chat },
-      result,
+      result: publicSyncOnceResult(result),
       stats:
         result.chat == null
           ? undefined
-          : context.store.getStats(result.chat),
+          : publicChatStats(
+              context.store.getStats(result.chat),
+            ),
     });
   }
 
@@ -210,7 +225,9 @@ export async function syncHistory(
   return ok({
     status: result.status,
     chat: result.chat,
-    result,
-    stats: context.store.getStats(result.chat.chatId),
+    result: publicSyncResult(result),
+    stats: publicChatStats(
+      context.store.getStats(result.chat.chatId),
+    ),
   });
 }

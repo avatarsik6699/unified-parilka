@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import {
+  GENERIC_PUBLIC_ERROR_MESSAGE,
+  ToolError,
+} from "../src/errors.js";
+import { toolFailure } from "../src/mcp-tools/response.js";
 import { MessageStore } from "../src/store.js";
 import {
   callTool,
@@ -36,6 +41,54 @@ test("failed tool results set MCP isError while preserving JSON payload", async 
 
   assert.equal(success.isError, undefined);
   assert.equal(successPayload.ok, true);
+});
+
+test("generic MCP failures never serialize upstream error text", () => {
+  const marker = "UPSTREAM_RAW_BODY_WITHOUT_URL";
+  const failure = toolFailure(
+    new Error(
+      `${marker} https://user:pass@provider.test/v1?api_key=unit-marker Bearer unit-marker`,
+    ),
+  );
+  const text = failure.content[0]!.text;
+  const payload = parseToolPayload(failure);
+  const error = payload.error as {
+    category: string;
+    retryable: boolean;
+    message: string;
+  };
+
+  assert.equal(failure.isError, true);
+  assert.equal(error.category, "internal");
+  assert.equal(error.retryable, false);
+  assert.equal(error.message, GENERIC_PUBLIC_ERROR_MESSAGE);
+  assert.doesNotMatch(text, new RegExp(marker));
+  assert.doesNotMatch(text, /provider\.test|Bearer unit-marker/u);
+
+  const wrapped = toolFailure(
+    new ToolError({
+      category: "internal",
+      retryable: true,
+      message: `${marker} from a wrapped provider failure`,
+    }),
+  );
+  assert.equal(
+    (parseToolPayload(wrapped).error as { message: string }).message,
+    GENERIC_PUBLIC_ERROR_MESSAGE,
+  );
+  assert.doesNotMatch(wrapped.content[0]!.text, new RegExp(marker));
+
+  const safeLocalFailure = toolFailure(
+    new ToolError({
+      category: "permission",
+      retryable: false,
+      message: "Live send requires approval_id from preview_message.",
+    }),
+  );
+  assert.equal(
+    (parseToolPayload(safeLocalFailure).error as { message: string }).message,
+    "Live send requires approval_id from preview_message.",
+  );
 });
 
 test("get_config redacts credentials in embeddings base URL", async () => {

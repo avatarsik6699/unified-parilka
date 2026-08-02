@@ -1,18 +1,28 @@
 import type { ToolProgressPort } from "../tool-progress.js";
 import type { ReadToolEvidence } from "../read-tools/contracts.js";
-import type { BotToolSetExecutionCompleted } from "./tool-set.js";
+import type {
+  BotToolSetExecutionCompleted,
+  BotToolSetExecutionStarted,
+} from "./tool-set.js";
 import { boundedSerialize, type CarriedToolResult } from "./evidence.js";
 
-export interface BotToolCompletionObserverOptions {
-  readonly traceContext: Readonly<Record<string, unknown>>;
+export interface BotToolTraceContext {
+  readonly turnId: number;
+  readonly updateId: number;
+}
+
+export interface BotToolExecutionObserverOptions {
+  readonly traceContext: BotToolTraceContext;
   readonly candidate: string;
   readonly attempt: number;
   readonly approvalOrder: ReadonlyMap<string, number>;
-  readonly allowedExecutions: () => number;
+  readonly maxSequence: number;
   readonly carriedTools: CarriedToolResult[];
   readonly toolEvidence: ReadToolEvidence[];
   readonly readToolFailures: Array<{ name: string; code: string }>;
   readonly toolProgressPort?: ToolProgressPort;
+  readonly onStarted: (execution: BotToolSetExecutionStarted) => void;
+  readonly finishThinking: () => void;
   readonly onCompleted: (execution: BotToolSetExecutionCompleted) => void;
   readonly log: (
     level: "info" | "warn",
@@ -21,48 +31,99 @@ export interface BotToolCompletionObserverOptions {
   ) => void;
 }
 
+export interface BotToolExecutionObserver {
+  readonly onExecutionStarted: (execution: BotToolSetExecutionStarted) => void;
+  readonly onExecutionCompleted: (execution: BotToolSetExecutionCompleted) => void;
+}
+
 /**
- * Keeps tool evidence and progress bookkeeping outside the turn-loop barrel.
- * The arrays intentionally belong to the whole turn so provider fallback and
- * research retries retain one bounded evidence set.
+ * Keeps tool accounting, UI progress, and metadata-only logs outside the
+ * turn-loop barrel. The arrays intentionally belong to the whole turn so
+ * provider fallback and research retries retain one bounded evidence set.
  */
-export function createBotToolCompletionObserver(
-  options: BotToolCompletionObserverOptions,
-): (execution: BotToolSetExecutionCompleted) => void {
-  return (execution): void => {
-    options.onCompleted(execution);
-    options.toolProgressPort?.onToolCompleted(
-      { toolName: execution.name, callId: execution.callId },
-      execution.output.ok,
-    );
-    const sequence =
-      options.approvalOrder.get(execution.callId) ??
-      options.allowedExecutions() + options.carriedTools.length + 1;
-    if (execution.kind === "read" && execution.output.ok) {
-      options.toolEvidence.push(...execution.output.evidence);
+export function createBotToolExecutionObserver(
+  options: BotToolExecutionObserverOptions,
+): BotToolExecutionObserver {
+  const fallbackSequences = new Map<string, number>();
+  const maxSequence = boundedSequence(options.maxSequence, 120);
+  let nextFallbackSequence = 0;
+
+  const sequenceFor = (callId: string): number => {
+    const approved = options.approvalOrder.get(callId);
+    if (approved !== undefined) {
+      const sequence = boundedSequence(approved, maxSequence);
+      nextFallbackSequence = Math.max(nextFallbackSequence, sequence);
+      return sequence;
     }
-    if (execution.kind === "read" && !execution.output.ok) {
-      options.readToolFailures.push({
-        name: execution.name,
-        code: execution.output.error.code,
-      });
+    const known = fallbackSequences.get(callId);
+    if (known !== undefined) {
+      return known;
     }
-    options.carriedTools.push({
-      sequence,
-      name: execution.name,
-      serialized: boundedSerialize(execution.output),
-    });
-    options.log("info", "bot.agent.tool", {
-      ...options.traceContext,
-      candidate: options.candidate,
-      attempt: options.attempt,
-      tool: execution.name,
-      durationMs: Math.max(0, Date.now() - execution.startedAt),
-      ok: execution.output.ok,
-      status: execution.output.ok ? execution.output.status : undefined,
-      errorCode: execution.output.ok
-        ? undefined
-        : execution.output.error.code,
-    });
+    nextFallbackSequence = Math.min(maxSequence, nextFallbackSequence + 1);
+    fallbackSequences.set(callId, nextFallbackSequence);
+    return nextFallbackSequence;
   };
+
+  return {
+    onExecutionStarted(execution): void {
+      const sequence = sequenceFor(execution.callId);
+      options.onStarted(execution);
+      options.finishThinking();
+      options.toolProgressPort?.onToolStarted({
+        toolName: execution.name,
+        callId: execution.callId,
+        input: execution.input,
+      });
+      options.log("info", "bot.agent.tool_started", {
+        ...options.traceContext,
+        candidate: options.candidate,
+        attempt: options.attempt,
+        tool: execution.name,
+        kind: execution.kind,
+        sequence,
+      });
+    },
+    onExecutionCompleted(execution): void {
+      const sequence = sequenceFor(execution.callId);
+      options.onCompleted(execution);
+      options.toolProgressPort?.onToolCompleted(
+        { toolName: execution.name, callId: execution.callId },
+        execution.output.ok,
+      );
+      if (execution.kind === "read" && execution.output.ok) {
+        options.toolEvidence.push(...execution.output.evidence);
+      }
+      if (execution.kind === "read" && !execution.output.ok) {
+        options.readToolFailures.push({
+          name: execution.name,
+          code: execution.output.error.code,
+        });
+      }
+      options.carriedTools.push({
+        sequence,
+        name: execution.name,
+        serialized: boundedSerialize(execution.output),
+      });
+      options.log("info", "bot.agent.tool", {
+        ...options.traceContext,
+        candidate: options.candidate,
+        attempt: options.attempt,
+        tool: execution.name,
+        kind: execution.kind,
+        sequence,
+        durationMs: Math.max(0, Date.now() - execution.startedAt),
+        ok: execution.output.ok,
+        ...(execution.output.ok
+          ? { status: execution.output.status }
+          : { errorCode: execution.output.error.code }),
+      });
+    },
+  };
+}
+
+function boundedSequence(value: number, maximum: number): number {
+  if (!Number.isSafeInteger(value)) {
+    return 1;
+  }
+  return Math.min(Math.max(1, value), maximum);
 }

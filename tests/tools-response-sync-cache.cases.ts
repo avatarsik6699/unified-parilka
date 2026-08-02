@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MessageStore } from "../src/store.js";
-import type { HistorySyncPort } from "../src/sync-engine.js";
+import type { HistorySyncPort, SyncResult } from "../src/sync-engine.js";
 import { TelegramTools } from "../src/tools.js";
 import type { TelegramService } from "../src/telegram-client.js";
 import {
@@ -82,6 +82,8 @@ test("sync_history forwards the MCP request AbortSignal to the history lane", as
 });
 
 test("get_status reports cache health without Telegram network calls", async () => {
+  const marker = "PERSISTED_STATUS_MARKER_DO_NOT_LEAK";
+  const hostile = `${marker} https://user:pass@provider.test/v1?api_key=unit-marker Bearer unit-marker`;
   const store = new MessageStore(":memory:");
   store.upsertMessages(CHAT, [
     {
@@ -95,7 +97,7 @@ test("get_status reports cache health without Telegram network calls", async () 
     newestMessageId: 42,
     syncedCount: 1,
     mode: "recent",
-    error: "transient sync issue",
+    error: hostile,
     recentCatchup: {
       minMessageId: 42,
       nextOffsetId: 100,
@@ -104,9 +106,11 @@ test("get_status reports cache health without Telegram network calls", async () 
   });
   store.setBackfillExhausted(CHAT, true);
   store.recordDaemonTickStarted();
-  store.recordDaemonTickFailure("rate_limit: FLOOD_WAIT_30");
+  store.recordDaemonTickFailure(hostile);
 
-  const result = await callTool(makeTools(store), "get_status", {});
+  const tools = makeTools(store);
+  const response = await tools.callTool("get_status", {});
+  const result = parseToolPayload(response);
 
   assert.equal(result.ok, true);
   assert.equal((result.health as { status: string }).status, "degraded");
@@ -115,12 +119,118 @@ test("get_status reports cache health without Telegram network calls", async () 
   assert.equal((result.cache as { messageCount: number }).messageCount, 1);
   assert.equal((result.cache as { oldestMessageId: number }).oldestMessageId, 42);
   assert.equal((result.sync as { backfillExhausted: boolean }).backfillExhausted, true);
-  assert.equal((result.sync as { lastError?: string }).lastError, "transient sync issue");
+  assert.equal((result.sync as { lastError?: string }).lastError, "A sync failure was recorded.");
   const recentCatchup = (result.sync as { recentCatchup?: { status: string; nextOffsetId: number } }).recentCatchup;
   assert.equal(recentCatchup?.status, "catching_up");
   assert.equal(recentCatchup?.nextOffsetId, 100);
-  assert.equal((result.daemon as { lastError?: string }).lastError, "rate_limit: FLOOD_WAIT_30");
+  assert.equal((result.daemon as { lastError?: string }).lastError, "A daemon failure was recorded.");
   assert.equal(Array.isArray((result.embeddings as { coverage?: unknown }).coverage), true);
+  assertNoHostileText(response.content[0]!.text, marker);
+});
+
+test("cache, stats, and sync result projections discard persisted error text", async () => {
+  const marker = "PERSISTED_PROJECTION_MARKER_DO_NOT_LEAK";
+  const hostile = `${marker} https://user:pass@provider.test/v1?api_key=unit-marker Bearer unit-marker`;
+  const store = new MessageStore(":memory:");
+  store.upsertMessages(CHAT, [
+    { chatId: CHAT.chatId, messageId: 10, text: "cached ten" },
+  ]);
+  store.updateSyncState(CHAT, {
+    oldestMessageId: 10,
+    newestMessageId: 10,
+    syncedCount: 1,
+    mode: "recent",
+    error: hostile,
+  });
+  store.recordDaemonTickStarted();
+  store.recordDaemonTickFailure(hostile);
+  const tools = makeTools(store);
+
+  const historyResponse = await tools.callTool("read_history", {
+    limit: 5,
+  });
+  const contextResponse = await tools.callTool("get_thread_context", {
+    message_id: 10,
+    before: 0,
+    after: 0,
+  });
+  const chatInfoResponse = await tools.callTool("get_chat_info", {});
+  for (const response of [
+    historyResponse,
+    contextResponse,
+    chatInfoResponse,
+  ]) {
+    assertNoHostileText(response.content[0]!.text, marker);
+  }
+
+  const history = parseToolPayload(historyResponse);
+  const historyCache = history.cache as {
+    sync_state: { lastError?: string; hasLastError?: boolean };
+  };
+  assert.equal(
+    historyCache.sync_state.lastError,
+    "A sync failure was recorded.",
+  );
+  assert.equal(historyCache.sync_state.hasLastError, true);
+
+  const chatInfo = parseToolPayload(chatInfoResponse);
+  const stats = chatInfo.stats as {
+    syncState: { last_error?: string; has_last_error?: boolean };
+    daemonStatus: { lastError?: string; hasLastError?: boolean };
+  };
+  assert.equal(stats.syncState.last_error, "A sync failure was recorded.");
+  assert.equal(stats.syncState.has_last_error, true);
+  assert.equal(stats.daemonStatus.lastError, "A daemon failure was recorded.");
+  assert.equal(stats.daemonStatus.hasLastError, true);
+
+  const syncFailure: SyncResult = {
+    mode: "recent",
+    status: "failed",
+    chat: { chatId: CHAT.chatId },
+    jobId: "sync-test",
+    requested: 10,
+    fetched: 2,
+    saved: 1,
+    batches: 1,
+    error: {
+      category: "rate_limit",
+      telegramCode: 420,
+      telegramType: hostile,
+      retryAfterSec: 999_999,
+      retryable: true,
+      message: hostile,
+    },
+  };
+  const syncer: HistorySyncPort = {
+    async syncOnce() {
+      return { chat: CHAT.chatId, recent: syncFailure };
+    },
+    async syncDirection() {
+      return syncFailure;
+    },
+  };
+  const syncTools = new TelegramTools(
+    config(),
+    new FakeTelegram() as unknown as TelegramService,
+    store,
+    syncer,
+  );
+  const syncResponse = await syncTools.callTool("sync_history", {
+    mode: "both",
+    limit: 10,
+    batch_size: 5,
+  });
+  assertNoHostileText(syncResponse.content[0]!.text, marker);
+  const sync = parseToolPayload(syncResponse);
+  const nestedError = ((sync.result as {
+    recent: { error: Record<string, unknown> };
+  }).recent.error);
+  assert.equal(nestedError.category, "rate_limit");
+  assert.equal(nestedError.retryable, true);
+  assert.equal(nestedError.telegramCode, 420);
+  assert.equal(nestedError.retryAfterSec, 86_400);
+  assert.equal(nestedError.message, "The tool could not complete.");
+  assert.equal("telegramType" in nestedError, false);
 });
 
 test("read_history reports applied filters and outside cache range", async () => {
@@ -270,3 +380,8 @@ test("get_thread_context reports outside-range and within-gap empty reasons", as
   assert.equal(cacheMeta(withinGap).relation.completeness, "within_cached_range");
   assert.equal(cacheMeta(withinGap).empty_reason, "no_cached_rows_in_requested_range");
 });
+
+function assertNoHostileText(text: string, marker: string): void {
+  assert.doesNotMatch(text, new RegExp(marker));
+  assert.doesNotMatch(text, /provider\.test|Bearer unit-marker/u);
+}

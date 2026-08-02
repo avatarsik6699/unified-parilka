@@ -1,9 +1,19 @@
 import { z } from "zod";
-import { ok } from "../errors.js";
+import { ok, ToolError } from "../errors.js";
+import type {
+  KeywordSearchHit,
+  StoredMessage,
+} from "../store.js";
 import { embeddingEstimateRequiresConfirmation } from "../vector-rag.js";
+import type {
+  HybridSearchHit,
+  VectorSearchHit,
+  VectorSearchResult,
+} from "../vector/types.js";
 import {
   contextCacheMetadata,
   historyCacheMetadata,
+  publicEmbeddingStats,
 } from "./cache-metadata.js";
 import {
   chatSchema,
@@ -11,6 +21,10 @@ import {
   type TelegramToolContext,
 } from "./contracts.js";
 import { throwIfToolAborted } from "./response.js";
+
+const VECTOR_PROVIDER_FAILURE_MESSAGE =
+  "Vector search is temporarily unavailable. Try again later.";
+const MAX_PUBLIC_VECTOR_CANDIDATE_LIMIT = 1_000_000;
 
 export async function readHistory(
   context: TelegramToolContext,
@@ -49,7 +63,7 @@ export async function readHistory(
       afterId: args.after_id,
       returnedCount: messages.length,
     }),
-    messages,
+    messages: messages.map(publicStoredMessage),
   });
 }
 
@@ -86,8 +100,10 @@ export async function searchMessages(
     beforeId: args.before_id,
     afterId: args.after_id,
   });
-  const vector = await context.vectorRag
-    .search({
+  let vectorResult: VectorSearchResult;
+  let vector: VectorSearchResult;
+  try {
+    vectorResult = await context.vectorRag.search({
       chatId: chat.chatId,
       query: args.query,
       limit: vectorLimit,
@@ -95,55 +111,52 @@ export async function searchMessages(
       afterId: args.after_id,
       includeMessages: true,
       signal,
-    })
-    .catch((error) => {
-      throwIfToolAborted(signal);
-      return {
-        available: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : String(error),
-        stats: context.store.getEmbeddingStats(chat.chatId),
-        hits: [],
-      };
     });
+    vector = publicVectorSearchResult(context, vectorResult);
+  } catch (error) {
+    throwIfToolAborted(signal);
+    vector = publicVectorFailure(context, error, chat.chatId);
+    vectorResult = vector;
+  }
   const hybridHits = context.vectorRag.hybrid(
     keywordHits,
-    vector.hits,
+    vectorResult.hits,
     hybridLimit,
   );
+  const publicKeywordHits = keywordHits.map(publicKeywordSearchHit);
+  const publicHybridHits = hybridHits.map(publicHybridSearchHit);
+  const vectorReason =
+    vector.error ?? VECTOR_PROVIDER_FAILURE_MESSAGE;
   const degradedChannels = vector.available
     ? []
     : [
         {
           channel: "vector",
-          reason:
-            vector.error ?? "Vector search is unavailable.",
+          reason: vectorReason,
         },
       ];
   return ok({
     status: degradedChannels.length > 0 ? "partial" : "done",
     chat,
     query: args.query,
-    result_count: hybridHits.length,
-    results: hybridHits,
+    result_count: publicHybridHits.length,
+    results: publicHybridHits,
     degraded_channels: degradedChannels,
     partial_failure:
       degradedChannels.length > 0
         ? { degraded_channels: degradedChannels }
         : null,
-    messages: keywordHits.map((hit) => hit.message),
+    messages: publicKeywordHits.map((hit) => hit.message),
     keyword: {
       count: keywordHits.length,
-      hits: keywordHits,
+      hits: publicKeywordHits,
     },
     vector,
     hybrid: {
       count: hybridHits.length,
       raw_candidate_count:
-        keywordHits.length + vector.hits.length,
-      hits: hybridHits,
+        keywordHits.length + vectorResult.hits.length,
+      hits: publicHybridHits,
     },
   });
 }
@@ -166,10 +179,9 @@ export async function semanticSearchMessages(
     .strict()
     .parse(rawArgs ?? {});
   const chat = context.cacheChat(args.chat);
-  return ok({
-    chat,
-    query: args.query,
-    vector: await context.vectorRag.search({
+  const vector = publicVectorSearchResult(
+    context,
+    await context.vectorRag.search({
       chatId: chat.chatId,
       query: args.query,
       limit: args.limit,
@@ -178,6 +190,11 @@ export async function semanticSearchMessages(
       includeMessages: args.include_messages,
       signal,
     }),
+  );
+  return ok({
+    chat,
+    query: args.query,
+    vector,
   });
 }
 
@@ -291,6 +308,194 @@ export async function getThreadContext(
       after: args.after,
       returnedCount: messages.length,
     }),
-    messages,
+    messages: messages.map(publicStoredMessage),
   });
+}
+
+function publicStoredMessage(message: StoredMessage): StoredMessage {
+  const publicMessage: StoredMessage = {
+    chatId: message.chatId,
+    messageId: message.messageId,
+    text: message.text,
+  };
+  if (message.date != null) {
+    publicMessage.date = message.date;
+  }
+  if (message.senderId != null) {
+    publicMessage.senderId = message.senderId;
+  }
+  if (message.senderName != null) {
+    publicMessage.senderName = message.senderName;
+  }
+  if (message.replyToMessageId != null) {
+    publicMessage.replyToMessageId = message.replyToMessageId;
+  }
+  if (message.topicId != null) {
+    publicMessage.topicId = message.topicId;
+  }
+  if (message.deletedAt != null) {
+    publicMessage.deletedAt = message.deletedAt;
+  }
+  return publicMessage;
+}
+
+function publicKeywordSearchHit(
+  hit: KeywordSearchHit,
+): KeywordSearchHit {
+  return {
+    rank: hit.rank,
+    message: publicStoredMessage(hit.message),
+  };
+}
+
+function publicVectorSearchHit(hit: VectorSearchHit): VectorSearchHit {
+  return {
+    rank: hit.rank,
+    score: hit.score,
+    chunk: {
+      id: hit.chunk.id,
+      startMessageId: hit.chunk.startMessageId,
+      endMessageId: hit.chunk.endMessageId,
+      messageCount: hit.chunk.messageCount,
+      messageIds: [...hit.chunk.messageIds],
+      text: hit.chunk.text,
+      namespace: hit.chunk.namespace,
+      model: hit.chunk.model,
+      dimensions: hit.chunk.dimensions,
+    },
+    messages: hit.messages.map(publicStoredMessage),
+  };
+}
+
+function publicHybridSearchHit(hit: HybridSearchHit): HybridSearchHit {
+  const publicHit: HybridSearchHit = {
+    rank: hit.rank,
+    source: hit.source,
+    sources: [...hit.sources],
+    score: hit.score,
+    text: hit.text,
+  };
+  if (hit.messageId != null) {
+    publicHit.messageId = hit.messageId;
+  }
+  if (hit.startMessageId != null) {
+    publicHit.startMessageId = hit.startMessageId;
+  }
+  if (hit.endMessageId != null) {
+    publicHit.endMessageId = hit.endMessageId;
+  }
+  return publicHit;
+}
+
+function publicVectorSearchResult(
+  context: TelegramToolContext,
+  result: VectorSearchResult,
+): VectorSearchResult {
+  const stats = publicEmbeddingStats(result.stats);
+  const available = result.available === true;
+  const publicResult: VectorSearchResult = {
+    available,
+    stats,
+    hits: result.hits.map(publicVectorSearchHit),
+  };
+  if (available) {
+    const candidateLimit = publicVectorCandidateLimit(
+      result.candidateLimit,
+      context.config.embeddings.vectorCandidateLimit,
+    );
+    if (candidateLimit != null) {
+      publicResult.candidateLimit = candidateLimit;
+      const candidateCount = publicVectorCandidateCount(
+        result.candidateCount,
+        candidateLimit,
+      );
+      if (candidateCount != null) {
+        publicResult.candidateCount = candidateCount;
+      }
+    }
+    return publicResult;
+  }
+  publicResult.error = localVectorUnavailableReason(context, stats);
+  return publicResult;
+}
+
+function publicVectorFailure(
+  context: TelegramToolContext,
+  error: unknown,
+  chatId: string,
+): VectorSearchResult {
+  return {
+    available: false,
+    error: vectorFailureReason(context, error),
+    stats: publicEmbeddingStats(context.store.getEmbeddingStats(chatId)),
+    hits: [],
+  };
+}
+
+function publicVectorCandidateLimit(
+  value: unknown,
+  expected: number,
+): number | undefined {
+  return typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 1 &&
+    value <= MAX_PUBLIC_VECTOR_CANDIDATE_LIMIT &&
+    value === expected
+    ? value
+    : undefined;
+}
+
+function publicVectorCandidateCount(
+  value: unknown,
+  candidateLimit: number,
+): number | undefined {
+  return typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 0 &&
+    value <= candidateLimit
+    ? value
+    : undefined;
+}
+
+function vectorFailureReason(
+  context: TelegramToolContext,
+  error: unknown,
+): string {
+  if (isCandidateLimitFailure(error, context)) {
+    return `Vector search candidate limit ${context.config.embeddings.vectorCandidateLimit} exceeded. Narrow the search with before_id/after_id or raise TELEGRAM_EMBEDDINGS_VECTOR_CANDIDATE_LIMIT after benchmarking.`;
+  }
+  return VECTOR_PROVIDER_FAILURE_MESSAGE;
+}
+
+function isCandidateLimitFailure(
+  error: unknown,
+  context: TelegramToolContext,
+): boolean {
+  return error instanceof ToolError &&
+    error.normalized.message.startsWith(
+      `Vector search candidate limit ${context.config.embeddings.vectorCandidateLimit} exceeded`,
+    );
+}
+
+function localVectorUnavailableReason(
+  context: TelegramToolContext,
+  stats: Array<Record<string, unknown>>,
+): string {
+  if (
+    context.store.isMaintenanceJobPending(
+      "embedding_chunk_membership_backfill",
+    )
+  ) {
+    return "Vector search is temporarily unavailable while chunk membership backfill is pending. Run state maintenance with --apply.";
+  }
+  if (!context.config.embeddings.enabled) {
+    return "Embeddings are disabled. Set TELEGRAM_EMBEDDINGS_ENABLED=true.";
+  }
+  if (!context.config.embeddings.apiKey) {
+    return "Embedding API key is missing. Set OPENAI_API_KEY or TELEGRAM_EMBEDDINGS_API_KEY.";
+  }
+  if (stats.length === 0) {
+    return "No vector chunks indexed yet. Run index_embeddings first.";
+  }
+  return "Vector search is unavailable.";
 }

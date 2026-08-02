@@ -1,4 +1,4 @@
-import { fail } from "../errors.js";
+import { publicFailure } from "../errors.js";
 import { stringify } from "../json.js";
 import type { ToolContent } from "./contracts.js";
 
@@ -10,7 +10,7 @@ export function jsonTool(payload: unknown): ToolContent {
 }
 
 export function toolFailure(error: unknown): ToolContent {
-  return jsonTool(fail(error));
+  return jsonTool(publicFailure(error));
 }
 
 export function throwIfToolAborted(

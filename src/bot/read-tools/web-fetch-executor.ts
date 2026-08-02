@@ -22,6 +22,30 @@ export const DEFAULT_WEB_FETCH_TIMEOUT_MS = 30_000;
 const MAX_WEB_FETCH_RESPONSE_BYTES = 1_000_000;
 const WEB_FETCH_ACCEPT =
   "text/markdown, text/html;q=0.9, text/plain;q=0.8, application/json;q=0.5";
+type Ipv6Prefix = readonly [readonly number[], number];
+
+// Static snapshot of IANA's IPv6 unicast allocation table. Unlisted space
+// fails closed rather than assuming every address in a global-unicast block is
+// public. Special-purpose destinations are rejected separately below.
+const ALLOCATED_PUBLIC_IPV6_PREFIXES: readonly Ipv6Prefix[] = [
+  [[0x2001, 0x0000], 23], [[0x2001, 0x0200], 23],
+  [[0x2001, 0x0400], 23], [[0x2001, 0x0600], 23],
+  [[0x2001, 0x0800], 22], [[0x2001, 0x0c00], 23],
+  [[0x2001, 0x0e00], 23], [[0x2001, 0x1200], 23],
+  [[0x2001, 0x1400], 22], [[0x2001, 0x1800], 23],
+  [[0x2001, 0x1a00], 23], [[0x2001, 0x1c00], 22],
+  [[0x2001, 0x2000], 19], [[0x2001, 0x4000], 23],
+  [[0x2001, 0x4200], 23], [[0x2001, 0x4400], 23],
+  [[0x2001, 0x4600], 23], [[0x2001, 0x4800], 23],
+  [[0x2001, 0x4a00], 23], [[0x2001, 0x4c00], 23],
+  [[0x2001, 0x5000], 20], [[0x2001, 0x8000], 19],
+  [[0x2001, 0xa000], 20], [[0x2001, 0xb000], 20],
+  [[0x2002], 16], [[0x2003, 0x0000], 18],
+  [[0x2400], 12], [[0x2410], 12], [[0x2600], 12],
+  [[0x2610, 0x0000], 23], [[0x2620, 0x0000], 23],
+  [[0x2630], 12], [[0x2800], 12], [[0x2a00], 12],
+  [[0x2a10], 12], [[0x2c00], 12],
+];
 
 interface ResolvedAddress {
   address: string;
@@ -342,8 +366,7 @@ function isPublicAddress(value: ResolvedAddress): boolean {
     return false;
   }
   if (value.family === 6) {
-    const address = value.address.toLowerCase();
-    return (/^[23]/u.test(address) && !address.startsWith("2001:db8:"));
+    return isPublicIpv6Address(value.address);
   }
   const octets = value.address.split(".").map(Number);
   const [first, second, third] = octets;
@@ -361,6 +384,88 @@ function isPublicAddress(value: ResolvedAddress): boolean {
     )) &&
     !(first === 198 && (second === 18 || second === 19 || (second === 51 && third === 100))) &&
     !(first === 203 && second === 0 && third === 113);
+}
+
+function isPublicIpv6Address(value: string): boolean {
+  const hextets = parseIpv6Hextets(value);
+  if (hextets === undefined) {
+    return false;
+  }
+  return ALLOCATED_PUBLIC_IPV6_PREFIXES.some(([prefix, bits]) =>
+    hasIpv6Prefix(hextets, prefix, bits),
+  ) && !isSpecialIpv6Address(hextets);
+}
+
+function parseIpv6Hextets(value: string): readonly number[] | undefined {
+  // DNS returns unbracketed addresses. Deliberately reject IPv4-embedded
+  // spelling too: it cannot establish that the mapped IPv4 target is public.
+  if (value.includes(".")) {
+    return undefined;
+  }
+  const halves = value.toLowerCase().split("::");
+  if (halves.length > 2) {
+    return undefined;
+  }
+  const head = parseIpv6Half(halves[0]!);
+  const tail = parseIpv6Half(halves[1] ?? "");
+  if (head === undefined || tail === undefined) {
+    return undefined;
+  }
+  if (halves.length === 1) {
+    return head.length === 8 ? head : undefined;
+  }
+  const omitted = 8 - head.length - tail.length;
+  return omitted > 0
+    ? [...head, ...Array<number>(omitted).fill(0), ...tail]
+    : undefined;
+}
+
+function parseIpv6Half(value: string): number[] | undefined {
+  if (!value) {
+    return [];
+  }
+  const parts = value.split(":");
+  if (parts.some((part) => !/^[0-9a-f]{1,4}$/iu.test(part))) {
+    return undefined;
+  }
+  return parts.map((part) => Number.parseInt(part, 16));
+}
+
+function isSpecialIpv6Address(hextets: readonly number[]): boolean {
+  return (
+    // IETF protocol assignments, including 2001:0000::/32 Teredo.
+    hasIpv6Prefix(hextets, [0x2001, 0x0000], 23) ||
+    // Documentation address space.
+    hasIpv6Prefix(hextets, [0x2001, 0x0db8]) ||
+    // 6to4 and the AS112 special-use service.
+    hasIpv6Prefix(hextets, [0x2002]) ||
+    hasIpv6Prefix(hextets, [0x2620, 0x004f, 0x8000]) ||
+    // Documentation space added beyond the original 2001:db8::/32 block.
+    hasIpv6Prefix(hextets, [0x3fff, 0x0000], 20)
+  );
+}
+
+function hasIpv6Prefix(
+  address: readonly number[],
+  prefix: readonly number[],
+  bits = prefix.length * 16,
+): boolean {
+  const wholeHextets = Math.floor(bits / 16);
+  const partialBits = bits % 16;
+  if (prefix.length < wholeHextets + (partialBits === 0 ? 0 : 1)) {
+    return false;
+  }
+  for (let index = 0; index < wholeHextets; index += 1) {
+    if (address[index] !== prefix[index]) {
+      return false;
+    }
+  }
+  if (partialBits === 0) {
+    return true;
+  }
+  const mask = (0xffff << (16 - partialBits)) & 0xffff;
+  return (address[wholeHextets]! & mask) ===
+    (prefix[wholeHextets]! & mask);
 }
 
 function boundedStatus(value: number): number {

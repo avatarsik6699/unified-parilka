@@ -16,7 +16,10 @@ import {
 
 const DEFAULT_PAPER_TIMEOUT_MS = 30_000;
 const DEFAULT_PAPER_RATE_LIMIT_MS = 3_000;
-const ARXIV_BASE_URL = "http://export.arxiv.org/api/query";
+// Ten Atom/JSON records, including their abstracts, fit comfortably within this
+// bound while keeping an untrusted provider response small enough to parse.
+const MAX_PAPER_RESPONSE_BYTES = 512 * 1024;
+const ARXIV_BASE_URL = "https://export.arxiv.org/api/query";
 const EUROPEPMC_BASE_URL =
   "https://www.ebi.ac.uk/europepmc/webservices/rest/search";
 
@@ -30,6 +33,47 @@ async function callPaperProvider(params: {
   timeoutMs: number;
   externalSignal?: AbortSignal;
 }): Promise<PaperSearchResponse> {
+  return callPaperOperation({
+    timeoutMs: params.timeoutMs,
+    externalSignal: params.externalSignal,
+    operation: (signal) =>
+      params.provider.search({
+        query: params.query,
+        source: params.source,
+        maxResults: params.maxResults,
+        signal,
+      }),
+  });
+}
+
+async function callPublicPaperSearch(params: {
+  query: string;
+  source: "arxiv" | "europepmc";
+  maxResults: number;
+  timeoutMs: number;
+  rateLimitMs: number;
+  externalSignal?: AbortSignal;
+}): Promise<PaperSearchResponse> {
+  return callPaperOperation({
+    timeoutMs: params.timeoutMs,
+    externalSignal: params.externalSignal,
+    operation: (signal) =>
+      searchPublicPapers(
+        params.query,
+        params.source,
+        params.maxResults,
+        params.rateLimitMs,
+        signal,
+      ),
+  });
+}
+
+async function callPaperOperation(params: {
+  timeoutMs: number;
+  externalSignal?: AbortSignal;
+  operation: (signal: AbortSignal) => Promise<PaperSearchResponse>;
+}): Promise<PaperSearchResponse> {
+  const deadline = performance.now() + params.timeoutMs;
   if (params.externalSignal?.aborted) {
     const timedOut = abortSignalTimedOut(params.externalSignal);
     throw new ReadToolExecutionError(
@@ -83,25 +127,19 @@ async function callPaperProvider(params: {
   });
 
   try {
-    return await Promise.race([
-      Promise.resolve().then(() =>
-        params.provider.search({
-          query: params.query,
-          source: params.source,
-          maxResults: params.maxResults,
-          signal: controller.signal,
-        }),
-      ),
+    const response = await Promise.race([
+      Promise.resolve().then(() => params.operation(controller.signal)),
       aborted,
     ]);
-  } catch (error) {
-    if (timedOut) {
+    if (performance.now() >= deadline) {
       throw new ReadToolExecutionError(
         "timeout",
         true,
         `Paper search exceeded ${params.timeoutMs} ms.`,
       );
     }
+    return response;
+  } catch (error) {
     if (params.externalSignal?.aborted) {
       throw new ReadToolExecutionError(
         externalTimedOut ? "timeout" : "aborted",
@@ -109,6 +147,13 @@ async function callPaperProvider(params: {
         externalTimedOut
           ? "Paper search timed out."
           : "Paper search was aborted.",
+      );
+    }
+    if (timedOut || performance.now() >= deadline) {
+      throw new ReadToolExecutionError(
+        "timeout",
+        true,
+        `Paper search exceeded ${params.timeoutMs} ms.`,
       );
     }
     if (error instanceof ReadToolExecutionError) {
@@ -156,14 +201,14 @@ export async function executePaperSearch(
         timeoutMs,
         externalSignal,
       })
-    : await searchPublicPapers(
-        args.query,
-        args.source,
-        args.max_results,
+    : await callPublicPaperSearch({
+        query: args.query,
+        source: args.source,
+        maxResults: args.max_results,
         timeoutMs,
         rateLimitMs,
         externalSignal,
-      );
+      });
 
   const parsed = paperSearchResponseSchema.safeParse(response);
   if (!parsed.success) {
@@ -206,37 +251,33 @@ async function searchPublicPapers(
   query: string,
   source: "arxiv" | "europepmc",
   maxResults: number,
-  timeoutMs: number,
   rateLimitMs: number,
-  externalSignal: AbortSignal | undefined,
+  signal: AbortSignal,
 ): Promise<PaperSearchResponse> {
   if (source === "arxiv") {
     return searchArxiv(
       query,
       maxResults,
-      timeoutMs,
       rateLimitMs,
-      externalSignal,
+      signal,
     );
   }
   return searchEuropePMC(
     query,
     maxResults,
-    timeoutMs,
-    externalSignal,
+    signal,
   );
 }
 
 async function searchArxiv(
   query: string,
   maxResults: number,
-  timeoutMs: number,
   rateLimitMs: number,
-  externalSignal: AbortSignal | undefined,
+  signal: AbortSignal,
 ): Promise<PaperSearchResponse> {
   const elapsed = Date.now() - lastArxivCallMs;
   if (elapsed < rateLimitMs) {
-    await sleep(rateLimitMs - elapsed, externalSignal);
+    await sleep(rateLimitMs - elapsed, signal);
   }
 
   const url = new URL(ARXIV_BASE_URL);
@@ -246,22 +287,24 @@ async function searchArxiv(
   url.searchParams.set("sortBy", "relevance");
   url.searchParams.set("sortOrder", "descending");
 
-  const response = await fetchWithTimeout(
+  const response = await fetchPaperResponse(
     url.toString(),
-    timeoutMs,
-    externalSignal,
+    signal,
   );
   lastArxivCallMs = Date.now();
 
+  rejectPaperRedirect(response, "arXiv");
   if (!response.ok) {
+    void response.body?.cancel().catch(() => undefined);
     throw new ReadToolExecutionError(
       "provider_error",
       true,
       `arXiv returned ${response.status}.`,
     );
   }
-  const atom = await response.text();
+  const atom = await readBoundedPaperBody(response, signal);
   const papers = parseArxivAtom(atom, maxResults);
+  throwIfPaperSearchAborted(signal);
   return {
     query,
     source: "arxiv",
@@ -272,28 +315,31 @@ async function searchArxiv(
 async function searchEuropePMC(
   query: string,
   maxResults: number,
-  timeoutMs: number,
-  externalSignal: AbortSignal | undefined,
+  signal: AbortSignal,
 ): Promise<PaperSearchResponse> {
   const url = new URL(EUROPEPMC_BASE_URL);
   url.searchParams.set("query", query);
   url.searchParams.set("format", "json");
   url.searchParams.set("pageSize", String(maxResults));
 
-  const response = await fetchWithTimeout(
+  const response = await fetchPaperResponse(
     url.toString(),
-    timeoutMs,
-    externalSignal,
+    signal,
   );
+  rejectPaperRedirect(response, "Europe PMC");
   if (!response.ok) {
+    void response.body?.cancel().catch(() => undefined);
     throw new ReadToolExecutionError(
       "provider_error",
       true,
       `Europe PMC returned ${response.status}.`,
     );
   }
-  const json = (await response.json()) as Record<string, unknown>;
+  const json = JSON.parse(
+    await readBoundedPaperBody(response, signal),
+  ) as Record<string, unknown>;
   const papers = parseEuropePMC(json, maxResults);
+  throwIfPaperSearchAborted(signal);
   return {
     query,
     source: "europepmc",
@@ -301,28 +347,100 @@ async function searchEuropePMC(
   };
 }
 
-async function fetchWithTimeout(
+async function fetchPaperResponse(
   url: string,
-  timeoutMs: number,
-  externalSignal: AbortSignal | undefined,
+  signal: AbortSignal,
 ): Promise<Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(new Error("timeout")),
-    timeoutMs,
-  );
-  const onExternalAbort = () => controller.abort(externalSignal?.reason);
-  externalSignal?.addEventListener("abort", onExternalAbort, {
-    once: true,
+  return fetch(url, {
+    signal,
+    headers: { Accept: "application/atom+xml, application/json" },
+    // The built-in endpoints are fixed HTTPS origins. Do not let a redirect
+    // turn a paper lookup into a request to an unvalidated second target.
+    redirect: "error",
   });
+}
+
+function rejectPaperRedirect(response: Response, provider: string): void {
+  if (response.status >= 300 && response.status < 400) {
+    void response.body?.cancel().catch(() => undefined);
+    throw new ReadToolExecutionError(
+      "provider_error",
+      true,
+      `${provider} redirected the request.`,
+    );
+  }
+}
+
+async function readBoundedPaperBody(
+  response: Response,
+  signal: AbortSignal,
+): Promise<string> {
+  const contentLength = response.headers.get("content-length");
+  if (/^\d+$/u.test(contentLength ?? "")) {
+    const declared = Number(contentLength);
+    if (
+      !Number.isSafeInteger(declared) ||
+      declared > MAX_PAPER_RESPONSE_BYTES
+    ) {
+      void response.body?.cancel().catch(() => undefined);
+      throw paperResponseTooLarge();
+    }
+  }
+  if (!response.body) {
+    return "";
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  const parts: string[] = [];
+  let bytes = 0;
+  const cancelOnAbort = (): void => {
+    void reader.cancel(signal.reason).catch(() => undefined);
+  };
+  signal.addEventListener("abort", cancelOnAbort, { once: true });
   try {
-    return await fetch(url, {
-      signal: controller.signal,
-      headers: { Accept: "application/atom+xml, application/json" },
-    });
+    for (;;) {
+      throwIfPaperSearchAborted(signal);
+      const chunk = await reader.read();
+      throwIfPaperSearchAborted(signal);
+      if (chunk.done) {
+        break;
+      }
+      bytes += chunk.value.byteLength;
+      if (bytes > MAX_PAPER_RESPONSE_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw paperResponseTooLarge();
+      }
+      parts.push(decoder.decode(chunk.value, { stream: true }));
+    }
+    parts.push(decoder.decode());
+    return parts.join("");
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    throw error;
   } finally {
-    clearTimeout(timeout);
-    externalSignal?.removeEventListener("abort", onExternalAbort);
+    signal.removeEventListener("abort", cancelOnAbort);
+    reader.releaseLock();
+  }
+}
+
+function paperResponseTooLarge(): ReadToolExecutionError {
+  return new ReadToolExecutionError(
+    "provider_error",
+    false,
+    "Paper search response exceeded the 512 KiB limit.",
+  );
+}
+
+function throwIfPaperSearchAborted(signal: AbortSignal): void {
+  if (signal.aborted) {
+    throw signal.reason instanceof Error
+      ? signal.reason
+      : new ReadToolExecutionError(
+          "aborted",
+          false,
+          "Paper search was aborted.",
+        );
   }
 }
 
@@ -452,25 +570,32 @@ function formatPaperResults(
 
 function sleep(
   ms: number,
-  signal: AbortSignal | undefined,
+  signal: AbortSignal,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
+    const cleanup = (): void => {
+      signal.removeEventListener("abort", onAbort);
+    };
     const onAbort = () => {
       clearTimeout(timer);
+      cleanup();
       reject(
-        new ReadToolExecutionError(
+        signal.reason ?? new ReadToolExecutionError(
           "aborted",
           false,
           "Paper search was aborted during rate-limit wait.",
         ),
       );
     };
-    if (signal?.aborted) {
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+    if (signal.aborted) {
       onAbort();
       return;
     }
-    signal?.addEventListener("abort", onAbort, { once: true });
+    signal.addEventListener("abort", onAbort, { once: true });
   });
 }
 

@@ -162,9 +162,7 @@ export class EmbeddingClient {
           retryAfterSec: parseRetryAfterSec(
             response.headers.get("retry-after"),
           ),
-          message:
-            payload.error?.message ||
-            `Embedding API request failed with HTTP ${response.status}.`,
+          message: `Embedding API request failed with HTTP ${response.status}.`,
         });
       }
 
@@ -203,7 +201,7 @@ export class EmbeddingClient {
       throw new ToolError({
         category: "internal",
         retryable: true,
-        message: `Embedding API request failed: ${error instanceof Error ? error.message : String(error)}`,
+        message: "Embedding API request failed.",
       });
     } finally {
       clearTimeout(timer);

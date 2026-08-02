@@ -11,6 +11,7 @@ import {
   type CarriedToolResult,
 } from "./evidence.js";
 import { ThinkingProgressTracker } from "./thinking-progress.js";
+import type { BotToolTraceContext } from "./tool-observer.js";
 
 const MODEL_AUDIO_FINAL_RESERVE_MS = 10_000;
 const MIN_MODEL_AUDIO_EXECUTION_MS = 1_000;
@@ -24,6 +25,7 @@ export interface AudioTranscriptionExecutionOptions {
   readonly onStarted: () => void;
   readonly onCompleted: () => void;
   readonly getSequence: (callId: string) => number;
+  readonly maxSequence: number;
   /** Milliseconds left in the model turn, excluding post-turn publication. */
   readonly remainingTurnMs: () => number;
   readonly log: (
@@ -31,7 +33,7 @@ export interface AudioTranscriptionExecutionOptions {
     event: string,
     fields: Record<string, unknown>,
   ) => void;
-  readonly traceContext: Readonly<Record<string, unknown>>;
+  readonly traceContext: BotToolTraceContext;
 }
 
 /**
@@ -71,7 +73,11 @@ export class AudioTranscriptionExecution {
     if (this.#modelTranscription) {
       return this.#modelTranscription;
     }
-    const startedAt = this.#start(input.callId);
+    const started = this.#start({
+      callId: input.callId,
+      candidate: input.candidate?.reference ?? "local",
+      attempt: input.attempt ?? 1,
+    });
     const remainingMs = this.#modelAudioExecutionMs();
     const output = remainingMs === undefined
       ? Promise.resolve(modelAudioReserveFailure())
@@ -87,21 +93,22 @@ export class AudioTranscriptionExecution {
           output.ok,
         );
         this.#options.carriedTools.push({
-          sequence: this.#options.getSequence(input.callId),
+          sequence: started.sequence,
           name: "audio_transcribe",
           serialized: boundedSerialize(output),
         });
         this.#options.log("info", "bot.agent.tool", {
           ...this.#options.traceContext,
-          ...(input.candidate === undefined
-            ? { candidate: "local" }
-            : { candidate: input.candidate.reference }),
-          ...(input.attempt === undefined ? {} : { attempt: input.attempt }),
+          candidate: input.candidate?.reference ?? "local",
+          attempt: input.attempt ?? 1,
           tool: "audio_transcribe",
-          durationMs: Math.max(0, Date.now() - startedAt),
+          kind: "audio",
+          sequence: started.sequence,
+          durationMs: Math.max(0, Date.now() - started.startedAt),
           ok: output.ok,
-          status: output.ok ? output.status : undefined,
-          errorCode: output.ok ? undefined : output.error.code,
+          ...(output.ok
+            ? { status: output.status }
+            : { errorCode: output.error.code }),
           ...(flovRejectionDiagnostic(output) ?? {}),
         });
         return output;
@@ -117,7 +124,11 @@ export class AudioTranscriptionExecution {
     if (!mediaTools || !target) {
       return noEligibleAudioResult();
     }
-    const startedAt = this.#start(input.callId);
+    const started = this.#start({
+      callId: input.callId,
+      candidate: "local:flov",
+      attempt: 1,
+    });
     const output = await mediaTools.transcribeAudioDirect(target, input.signal);
     this.#options.onCompleted();
     this.#options.toolProgressPort?.onToolCompleted(
@@ -127,30 +138,48 @@ export class AudioTranscriptionExecution {
     this.#options.log("info", "bot.agent.tool", {
       ...this.#options.traceContext,
       candidate: "local:flov",
+      attempt: 1,
       tool: "audio_transcribe",
-      durationMs: Math.max(0, Date.now() - startedAt),
+      kind: "audio",
+      sequence: started.sequence,
+      durationMs: Math.max(0, Date.now() - started.startedAt),
       ok: output.ok,
-      status: output.ok ? "done" : undefined,
-      errorCode: output.ok ? undefined : output.error.code,
+      ...(output.ok ? { status: "done" } : { errorCode: output.error.code }),
       ...(flovRejectionDiagnostic(output) ?? {}),
     });
     return output;
   }
 
-  #start(callId: string): number {
+  #start(input: {
+    callId: string;
+    candidate: string;
+    attempt: number;
+  }): { startedAt: number; sequence: number } {
     const target = this.#options.target;
     if (!target) {
       throw new Error("audio_transcribe is unavailable for this turn.");
     }
     const startedAt = Date.now();
+    const sequence = boundedSequence(
+      this.#options.getSequence(input.callId),
+      this.#options.maxSequence,
+    );
     this.#options.onStarted();
     this.#options.thinkingProgress.finish();
     this.#options.toolProgressPort?.onToolStarted({
       toolName: "audio_transcribe",
-      callId,
+      callId: input.callId,
       input: { source: target.source },
     });
-    return startedAt;
+    this.#options.log("info", "bot.agent.tool_started", {
+      ...this.#options.traceContext,
+      candidate: input.candidate,
+      attempt: input.attempt,
+      tool: "audio_transcribe",
+      kind: "audio",
+      sequence,
+    });
+    return { startedAt, sequence };
   }
 
   #modelAudioExecutionMs(): number | undefined {
@@ -158,6 +187,13 @@ export class AudioTranscriptionExecution {
     const usableMs = remainingMs - MODEL_AUDIO_FINAL_RESERVE_MS;
     return usableMs >= MIN_MODEL_AUDIO_EXECUTION_MS ? usableMs : undefined;
   }
+}
+
+function boundedSequence(value: number, maximum: number): number {
+  if (!Number.isSafeInteger(value)) {
+    return 1;
+  }
+  return Math.min(Math.max(1, value), Math.max(1, maximum));
 }
 
 /** Direct wording must not depend on a provider honouring an optional tool hint. */

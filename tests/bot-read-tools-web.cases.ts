@@ -366,3 +366,105 @@ test("built-in web_fetch rejects literal and DNS-resolved private targets before
   assert.equal(literalIpv6Private.error.code, "unsafe_url");
   assert.equal(transported, false);
 });
+
+test("built-in web_fetch rejects special IPv6 DNS records but permits public IPv6", async () => {
+  for (const address of ["2001:0000::1", "2002::1"]) {
+    let transported = false;
+    const provider = new PublicWebFetchProvider({
+      lookup: async () => [{ address, family: 6 }],
+      transport: async () => {
+        transported = true;
+        throw new Error("must not connect");
+      },
+    });
+    const tools = new BotReadTools({
+      chatId: CHAT.chatId,
+      cache: emptyCache(),
+      webFetch: provider,
+    });
+
+    const failure = asFailure(
+      await tools.callTool("web_fetch", { url: "https://example.com" }),
+    );
+    assert.equal(failure.error.code, "unsafe_url");
+    assert.equal(failure.error.retryable, false);
+    assert.equal(transported, false, address);
+  }
+
+  let observedAddress: string | undefined;
+  const publicProvider = new PublicWebFetchProvider({
+    lookup: async () => [{ address: "2606:4700:4700::1111", family: 6 }],
+    transport: async ({ address }) => {
+      observedAddress = address.address;
+      return {
+        status: 200,
+        headers: { "content-type": "text/plain" },
+        body: Buffer.from("public IPv6 page"),
+      };
+    },
+  });
+  const publicTools = new BotReadTools({
+    chatId: CHAT.chatId,
+    cache: emptyCache(),
+    webFetch: publicProvider,
+  });
+  const page = await publicTools.callTool("web_fetch", {
+    url: "https://example.com/ipv6",
+  });
+
+  assert.equal(page.ok, true);
+  assert.equal(observedAddress, "2606:4700:4700::1111");
+});
+
+test("built-in web_fetch fails closed for unallocated IPv6 prefixes", async () => {
+  for (const address of ["2004::1", "3000::1", "3ffe::1"]) {
+    let transported = false;
+    const tools = new BotReadTools({
+      chatId: CHAT.chatId,
+      cache: emptyCache(),
+      webFetch: new PublicWebFetchProvider({
+        lookup: async () => [{ address, family: 6 }],
+        transport: async () => {
+          transported = true;
+          throw new Error("must not connect");
+        },
+      }),
+    });
+    const failure = asFailure(
+      await tools.callTool("web_fetch", { url: "https://example.com" }),
+    );
+    assert.equal(failure.error.code, "unsafe_url");
+    assert.equal(transported, false, address);
+  }
+
+  const allocated = [
+    "2001:4860::8888",
+    "2404::1",
+    "2606:4700::1111",
+    "2a00:1450::1",
+    "2c0f::1",
+  ];
+  const transported: string[] = [];
+  for (const address of allocated) {
+    const tools = new BotReadTools({
+      chatId: CHAT.chatId,
+      cache: emptyCache(),
+      webFetch: new PublicWebFetchProvider({
+        lookup: async () => [{ address, family: 6 }],
+        transport: async ({ address: resolved }) => {
+          transported.push(resolved.address);
+          return {
+            status: 200,
+            headers: { "content-type": "text/plain" },
+            body: Buffer.from("public IPv6 page"),
+          };
+        },
+      }),
+    });
+    const page = await tools.callTool("web_fetch", {
+      url: "https://example.com/ipv6",
+    });
+    assert.equal(page.ok, true, address);
+  }
+  assert.deepEqual(transported, allocated);
+});

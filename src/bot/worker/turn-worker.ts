@@ -123,7 +123,9 @@ export class BotTurnWorker {
       };
     }
 
-    const coordinatorTurnId = `bot:${turn.chatId}:${turn.id}`;
+    // The coordinator remains string-generic, while production correlation
+    // uses the canonical decimal representation of the durable SQLite turn.
+    const coordinatorTurnId = String(turn.id);
     let coordinatorStarted = false;
     let timers: TurnTimers | undefined;
     let typing: TypingHeartbeat | undefined;

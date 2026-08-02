@@ -8,11 +8,13 @@ import {
 import {
   CHAT,
   TRIGGER_ID,
+  deferredFinal,
   final,
   makeFixture,
   message,
   range,
   stubTelemetry,
+  waitUntil,
 } from "./support/bot-worker.js";
 import type { TelegramPublication } from "../src/bot/telegram-publication.js";
 import type { ToolProgressBotApiPort } from "../src/bot/tool-progress.js";
@@ -129,6 +131,32 @@ test("durable replay is seeded even when live dedupe saw the message first", asy
 
   assert.equal((await worker.runOnce()).status, "sent");
   assert.deepEqual(foldedIds, [`${CHAT.chatId}:${followUp.messageId}`]);
+});
+
+test("worker gives the generic coordinator the canonical durable turn ID", async (t) => {
+  const fixture = makeFixture(t);
+  const pendingFinal = deferredFinal();
+  const worker = fixture.worker({
+    agent: async () => pendingFinal.promise,
+    publisher: async () => ({ ok: true, chunksSent: 1 }),
+  });
+
+  const running = worker.runOnce();
+  await waitUntil(
+    () => fixture.coordinator.getTurn(String(fixture.turnId)) !== undefined,
+  );
+
+  assert.equal(
+    fixture.coordinator.getTurn(String(fixture.turnId))?.turnId,
+    String(fixture.turnId),
+  );
+  assert.equal(
+    fixture.coordinator.getTurn(`bot:${CHAT.chatId}:${fixture.turnId}`),
+    undefined,
+  );
+
+  pendingFinal.resolve(final("готово"));
+  assert.equal((await running).status, "sent");
 });
 
 test("exact SKIP is durably drafted and published like every other model reply", async (t) => {

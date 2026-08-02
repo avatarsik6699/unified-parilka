@@ -127,7 +127,16 @@ Transport, systemd и migration slices добавляют свои offline smoke
 мутируется. Architecture gate применяет production ceiling к `src/` и
 production CLI в `scripts/`, отдельный test ceiling — к `tests/`, чтобы
 эксплуатационные команды и regression suites не становились скрытыми
-монолитами.
+монолитами. Он сканирует Markdown только в canonical roots: root-файлах,
+`.agents/rules/`, `codex-skill/`, `docs/`, `loop-develop/`, `operations/` и
+`src/`; scratch вне этих roots не становится частью CI-контракта. Реестр thin
+barrels обязателен: отсутствующий declared barrel — ошибка, а retired
+`output-guards.ts` в нём не числится. Gate также требует, чтобы `CLAUDE.md`
+был symbolic link с точной целью `AGENTS.md`, сохраняя последний единственным
+каноническим instruction contract. Для `src/storage/**` он разбирает только
+relative static imports/re-exports и запрещает documented edges к bot/
+bot-daemon, MCP registry/tools/proxy и process-shell entrypoints; cycles и
+общую platform policy этот gate не выводит.
 
 ## Radar
 

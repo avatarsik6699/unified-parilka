@@ -1,10 +1,14 @@
 import {
   existsSync,
+  lstatSync,
   readFileSync,
   readdirSync,
+  readlinkSync,
+  statSync,
 } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import ts from "typescript";
 
 const PRODUCTION_LINE_CEILING = 700;
 const TEST_LINE_CEILING = 500;
@@ -14,7 +18,6 @@ const thinBarrels = [
   "src/bot-daemon.ts",
   "src/index.ts",
   "src/sync-daemon.ts",
-  "src/bot/output-guards.ts",
   "src/bot/read-tools.ts",
   "src/bot/runtime.ts",
   "src/bot/runtime-config.ts",
@@ -51,13 +54,24 @@ const forbiddenRootTodos = [
 ];
 
 const documentationRoots = [
-  ".agents",
+  ".agents/rules",
   "codex-skill",
   "docs",
   "loop-develop",
   "operations",
   "src",
 ];
+
+const processShellEntrypoints = new Set([
+  "src/index.ts",
+  "src/bot-daemon.ts",
+  "src/sync-daemon.ts",
+]);
+
+const moduleResolutionOptions: ts.CompilerOptions = {
+  module: ts.ModuleKind.NodeNext,
+  moduleResolution: ts.ModuleResolutionKind.NodeNext,
+};
 
 const deprecatedOperatorReferences = [
   "/root/telegram-parilka-mcp",
@@ -70,8 +84,11 @@ export type ArchitectureFinding = {
     | "barrel-too-large"
     | "broken-doc-link"
     | "deprecated-operator-reference"
+    | "forbidden-storage-dependency"
     | "forbidden-root-todo"
+    | "invalid-claude-alias"
     | "missing-required-path"
+    | "missing-thin-barrel"
     | "production-file-too-large"
     | "test-file-too-large";
   file: string;
@@ -143,7 +160,12 @@ export function checkArchitecture(repositoryRoot = process.cwd()): ArchitectureC
 
   for (const relative of thinBarrels) {
     const file = path.join(repositoryRoot, relative);
-    if (!existsSync(file)) {
+    if (!isRegularFile(file)) {
+      findings.push({
+        code: "missing-thin-barrel",
+        file: relative,
+        message: `${relative} is declared as a thin barrel but is missing`,
+      });
       continue;
     }
     const lines = countSourceLines(readFileSync(file, "utf8"));
@@ -166,7 +188,10 @@ export function checkArchitecture(repositoryRoot = process.cwd()): ArchitectureC
     }
   }
 
+  checkClaudeInstructionAlias(repositoryRoot, findings);
+
   checkRootDocLinks(repositoryRoot, findings);
+  checkStorageDependencyDirection(repositoryRoot, findings);
 
   for (const relative of forbiddenRootTodos) {
     if (existsSync(path.join(repositoryRoot, relative))) {
@@ -238,6 +263,149 @@ export function checkArchitecture(repositoryRoot = process.cwd()): ArchitectureC
     productionFiles: productionFiles.length,
     testFiles: testFiles.length,
   };
+}
+
+function isRegularFile(file: string): boolean {
+  try {
+    return statSync(file).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function checkClaudeInstructionAlias(
+  repositoryRoot: string,
+  findings: ArchitectureFinding[],
+): void {
+  const relative = "CLAUDE.md";
+  const file = path.join(repositoryRoot, relative);
+  try {
+    if (
+      !lstatSync(file).isSymbolicLink() ||
+      readlinkSync(file) !== "AGENTS.md"
+    ) {
+      findings.push({
+        code: "invalid-claude-alias",
+        file: relative,
+        message: "CLAUDE.md must be a symbolic link whose exact target is AGENTS.md",
+      });
+    }
+  } catch {
+    findings.push({
+      code: "invalid-claude-alias",
+      file: relative,
+      message: "CLAUDE.md must be a symbolic link whose exact target is AGENTS.md",
+    });
+  }
+}
+
+function checkStorageDependencyDirection(
+  repositoryRoot: string,
+  findings: ArchitectureFinding[],
+): void {
+  const storageRoot = path.join(repositoryRoot, "src", "storage");
+  for (const file of listFiles(storageRoot).filter((candidate) =>
+    candidate.endsWith(".ts"),
+  )) {
+    const source = readFileSync(file, "utf8");
+    for (const specifier of staticModuleSpecifiers(file, source)) {
+      if (!isRelativeModuleSpecifier(specifier)) {
+        continue;
+      }
+      const target = resolveRelativeModuleSpecifier(file, specifier);
+      if (!target) {
+        continue;
+      }
+      const targetRelative = path.relative(repositoryRoot, target);
+      const boundary = forbiddenStorageBoundary(targetRelative);
+      if (!boundary) {
+        continue;
+      }
+      const relative = path.relative(repositoryRoot, file);
+      findings.push({
+        code: "forbidden-storage-dependency",
+        file: relative,
+        message:
+          `${relative} depends on ${boundary} module ${targetRelative} ` +
+          `via ${specifier}`,
+      });
+    }
+  }
+}
+
+function staticModuleSpecifiers(file: string, source: string): string[] {
+  const parsed = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    false,
+  );
+  const specifiers: string[] = [];
+  for (const statement of parsed.statements) {
+    const moduleSpecifier =
+      ts.isImportDeclaration(statement) || ts.isExportDeclaration(statement)
+        ? statement.moduleSpecifier
+        : undefined;
+    if (moduleSpecifier && ts.isStringLiteralLike(moduleSpecifier)) {
+      specifiers.push(moduleSpecifier.text);
+    }
+  }
+  return specifiers;
+}
+
+function isRelativeModuleSpecifier(specifier: string): boolean {
+  return (
+    specifier === "." ||
+    specifier === ".." ||
+    specifier.startsWith("./") ||
+    specifier.startsWith("../")
+  );
+}
+
+function resolveRelativeModuleSpecifier(
+  file: string,
+  specifier: string,
+): string | undefined {
+  return ts.resolveModuleName(
+    specifier,
+    file,
+    moduleResolutionOptions,
+    ts.sys,
+  ).resolvedModule?.resolvedFileName;
+}
+
+function forbiddenStorageBoundary(
+  targetRelative: string,
+): string | undefined {
+  if (
+    isPathWithin(targetRelative, path.join("src", "bot")) ||
+    targetRelative === path.join("src", "bot-daemon.ts") ||
+    isPathWithin(targetRelative, path.join("src", "bot-daemon"))
+  ) {
+    return "bot or bot-daemon";
+  }
+  if (
+    isPathWithin(targetRelative, path.join("src", "mcp-tools")) ||
+    isPathWithin(targetRelative, path.join("src", "mcp-proxy")) ||
+    [
+      path.join("src", "mcp-loopback.ts"),
+      path.join("src", "mcp-protocol.ts"),
+      path.join("src", "tools.ts"),
+    ].includes(targetRelative)
+  ) {
+    return "MCP registry, tools, or proxy";
+  }
+  if (processShellEntrypoints.has(targetRelative)) {
+    return "process shell";
+  }
+  return undefined;
+}
+
+function isPathWithin(candidate: string, directory: string): boolean {
+  return (
+    candidate === directory ||
+    candidate.startsWith(`${directory}${path.sep}`)
+  );
 }
 
 export function localMarkdownLinkTargets(text: string): string[] {

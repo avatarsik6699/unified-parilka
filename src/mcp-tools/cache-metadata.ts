@@ -1,11 +1,18 @@
 import type {
   ChatCacheStatus,
+  DaemonStatus,
   SyncState,
 } from "../store.js";
+import { publicNormalizedError } from "../errors.js";
 import type {
   SyncOnceResult,
   SyncResult,
 } from "../sync-engine.js";
+
+const STORED_SYNC_FAILURE_MESSAGE =
+  "A sync failure was recorded.";
+const STORED_DAEMON_FAILURE_MESSAGE =
+  "A daemon failure was recorded.";
 
 export function syncOnceStatus(
   result: SyncOnceResult,
@@ -49,6 +56,240 @@ export function recentCatchupSummary(
   };
 }
 
+/** Public projection of a sync-state row with persisted failure text removed. */
+export function publicSyncState(
+  state: SyncState | null | undefined,
+): Record<string, unknown> | null {
+  if (!state) {
+    return null;
+  }
+  return {
+    chatId: state.chatId,
+    oldestMessageId: state.oldestMessageId,
+    newestMessageId: state.newestMessageId,
+    nextBackfillOffsetId: state.nextBackfillOffsetId,
+    recentCatchupMinId: state.recentCatchupMinId,
+    recentCatchupNextOffsetId:
+      state.recentCatchupNextOffsetId,
+    recentCatchupNewestId: state.recentCatchupNewestId,
+    syncedCount: state.syncedCount,
+    lastRecentSyncAt: state.lastRecentSyncAt,
+    lastBackfillAt: state.lastBackfillAt,
+    backfillExhaustedAt: state.backfillExhaustedAt,
+    lastError: state.lastError
+      ? STORED_SYNC_FAILURE_MESSAGE
+      : undefined,
+    hasLastError: Boolean(state.lastError),
+    updatedAt: state.updatedAt,
+  };
+}
+
+/** Public projection of daemon status with persisted failure text removed. */
+export function publicDaemonStatus(
+  status: DaemonStatus | null | undefined,
+): Record<string, unknown> | null {
+  if (!status) {
+    return null;
+  }
+  return {
+    service: status.service,
+    lastStartedAt: status.lastStartedAt,
+    lastSuccessAt: status.lastSuccessAt,
+    lastFailureAt: status.lastFailureAt,
+    lastError: status.lastError
+      ? STORED_DAEMON_FAILURE_MESSAGE
+      : undefined,
+    hasLastError: Boolean(status.lastError),
+    consecutiveFailures: status.consecutiveFailures,
+    updatedAt: status.updatedAt,
+  };
+}
+
+/** Public projection for a direction result returned by the sync engine. */
+export function publicSyncResult(
+  result: SyncResult,
+): Record<string, unknown> {
+  return {
+    mode: result.mode,
+    status: result.status,
+    chat: result.chat,
+    jobId: result.jobId,
+    requested: result.requested,
+    fetched: result.fetched,
+    saved: result.saved,
+    batches: result.batches,
+    nextOffsetId: result.nextOffsetId,
+    oldestMessageId: result.oldestMessageId,
+    newestMessageId: result.newestMessageId,
+    skipped: result.skipped,
+    reconciliation: result.reconciliation,
+    catchup: result.catchup,
+    error: result.error
+      ? publicNormalizedError(result.error)
+      : undefined,
+  };
+}
+
+/** Public projection for a combined sync result returned by the sync engine. */
+export function publicSyncOnceResult(
+  result: SyncOnceResult,
+): Record<string, unknown> {
+  return {
+    chat: result.chat,
+    recent: result.recent
+      ? publicSyncResult(result.recent)
+      : undefined,
+    backfill: result.backfill
+      ? publicSyncResult(result.backfill)
+      : undefined,
+  };
+}
+
+/**
+ * getStats intentionally returns raw SQLite-shaped records for internal users.
+ * This adapter keeps its useful counters while removing any persisted error
+ * text before a tool response serializes it.
+ */
+export function publicChatStats(
+  stats: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    count: publicNumber(stats.count),
+    oldest_message_id: publicNumber(stats.oldest_message_id),
+    newest_message_id: publicNumber(stats.newest_message_id),
+    syncState: publicStoredSyncState(stats.syncState),
+    daemonStatus: publicStoredDaemonStatus(stats.daemonStatus),
+    embeddings: publicEmbeddingStats(stats.embeddings),
+    maintenance: publicMaintenance(stats.maintenance),
+  };
+}
+
+export function publicEmbeddingStats(
+  stats: unknown,
+): Array<Record<string, unknown>> {
+  if (!Array.isArray(stats)) {
+    return [];
+  }
+  return stats.flatMap((stat) => {
+    if (!isRecord(stat)) {
+      return [];
+    }
+    return [{
+      namespace: publicString(stat.namespace),
+      model: publicString(stat.model),
+      dimensions: publicNumber(stat.dimensions),
+      chunks: publicNumber(stat.chunks),
+      oldest_message_id: publicNumber(stat.oldest_message_id),
+      newest_message_id: publicNumber(stat.newest_message_id),
+      indexed_messages: publicNumber(stat.indexed_messages),
+      dirty_chunks: publicNumber(stat.dirty_chunks),
+      updated_at: publicString(stat.updated_at),
+      cache_messages: publicNumber(stat.cache_messages),
+      uncovered_messages: publicNumber(stat.uncovered_messages),
+      uncovered_ranges: publicNumber(stat.uncovered_ranges),
+    }];
+  });
+}
+
+export function publicMaintenance(
+  maintenance: unknown,
+): Array<Record<string, unknown>> {
+  if (!Array.isArray(maintenance)) {
+    return [];
+  }
+  return maintenance.flatMap((job) => {
+    if (!isRecord(job)) {
+      return [];
+    }
+    return [{
+      name: publicString(job.name),
+      status: publicString(job.status),
+      hasReason: job.reason != null,
+      hasDetails: job.details != null,
+      updatedAt: publicString(job.updatedAt),
+      completedAt: publicString(job.completedAt),
+    }];
+  });
+}
+
+function publicStoredSyncState(
+  value: unknown,
+): Record<string, unknown> {
+  if (!isRecord(value)) {
+    return {};
+  }
+  const hasLastError =
+    value.last_error != null || value.lastError != null;
+  return {
+    chat_id: publicString(value.chat_id),
+    oldest_message_id: publicNumber(value.oldest_message_id),
+    newest_message_id: publicNumber(value.newest_message_id),
+    next_backfill_offset_id: publicNumber(
+      value.next_backfill_offset_id,
+    ),
+    recent_catchup_min_id: publicNumber(
+      value.recent_catchup_min_id,
+    ),
+    recent_catchup_next_offset_id: publicNumber(
+      value.recent_catchup_next_offset_id,
+    ),
+    recent_catchup_newest_id: publicNumber(
+      value.recent_catchup_newest_id,
+    ),
+    synced_count: publicNumber(value.synced_count),
+    last_recent_sync_at: publicString(
+      value.last_recent_sync_at,
+    ),
+    last_backfill_at: publicString(value.last_backfill_at),
+    backfill_exhausted_at: publicString(
+      value.backfill_exhausted_at,
+    ),
+    last_error: hasLastError
+      ? STORED_SYNC_FAILURE_MESSAGE
+      : undefined,
+    has_last_error: hasLastError,
+    updated_at: publicString(value.updated_at),
+  };
+}
+
+function publicStoredDaemonStatus(
+  value: unknown,
+): Record<string, unknown> | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const hasLastError =
+    value.lastError != null || value.last_error != null;
+  return {
+    service: publicString(value.service),
+    lastStartedAt: publicString(value.lastStartedAt),
+    lastSuccessAt: publicString(value.lastSuccessAt),
+    lastFailureAt: publicString(value.lastFailureAt),
+    lastError: hasLastError
+      ? STORED_DAEMON_FAILURE_MESSAGE
+      : undefined,
+    hasLastError,
+    consecutiveFailures: publicNumber(
+      value.consecutiveFailures,
+    ),
+    updatedAt: publicString(value.updatedAt),
+  };
+}
+
+function publicNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+function publicString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === "object" && !Array.isArray(value);
+}
+
 type HealthIssue = {
   severity: "unknown" | "warning" | "critical";
   message: string;
@@ -77,7 +318,7 @@ export function healthSummary(
     if (status.syncState.lastError) {
       issues.push({
         severity: "warning",
-        message: `Last sync error: ${status.syncState.lastError}`,
+        message: STORED_SYNC_FAILURE_MESSAGE,
       });
     }
     if (recentLagMs == null) {
@@ -178,7 +419,7 @@ export function historyCacheMetadata(params: {
   const relation = historyCacheRelation(params);
   return {
     range: cacheRange(params.status),
-    sync_state: params.status.syncState,
+    sync_state: publicSyncState(params.status.syncState),
     returned_count: params.returnedCount,
     relation,
     empty_reason:
@@ -207,7 +448,7 @@ export function contextCacheMetadata(params: {
   );
   return {
     range: cacheRange(params.status),
-    sync_state: params.status.syncState,
+    sync_state: publicSyncState(params.status.syncState),
     requested_range: {
       start_message_id: startMessageId,
       end_message_id: endMessageId,

@@ -9,9 +9,30 @@ export function coordinatorTraceOptions(
   }
   return {
     onTrace(event) {
-      logger.info(event);
+      const durableTurnId = numericDurableTurnId(event.turnId);
+      try {
+        logger.info(
+          durableTurnId === undefined
+            ? event
+            : {
+                ...event,
+                turnId: durableTurnId,
+                coordinatorTurnId: event.turnId,
+              },
+        );
+      } catch {
+        // Coordinator tracing must never alter turn admission or completion.
+      }
     },
   };
+}
+
+/** Production coordinator IDs are decimal SQLite turn IDs; generic IDs stay intact. */
+function numericDurableTurnId(value: string): number | undefined {
+  const turnId = Number(value);
+  return Number.isSafeInteger(turnId) && turnId > 0 && String(turnId) === value
+    ? turnId
+    : undefined;
 }
 
 export function safeDaemonLog(

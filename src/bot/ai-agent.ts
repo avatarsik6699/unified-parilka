@@ -35,13 +35,12 @@ import {
   withImageAttachment,
 } from "./agent/context.js";
 import {
-  boundedSerialize,
   renderCarriedToolMessages,
   type CarriedToolResult,
 } from "./agent/evidence.js";
 import { sanitizeFinalText } from "./agent/final-sanitizer.js";
 import { ThinkingProgressTracker } from "./agent/thinking-progress.js";
-import { createBotToolCompletionObserver } from "./agent/tool-observer.js";
+import { createBotToolExecutionObserver } from "./agent/tool-observer.js";
 import {
   compactModelContextIfNeeded,
   MODEL_CONTEXT_FINALIZATION_TOKENS,
@@ -49,7 +48,6 @@ import {
 import {
   createBotToolSet,
   researchContinuationInstructions,
-  type BotToolSetExecutionCompleted,
 } from "./agent/tool-set.js";
 import {
   AudioTranscriptionExecution,
@@ -247,6 +245,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
       onCompleted: () => { completedExecutions += 1; },
       getSequence: (callId) =>
         approvalOrder.get(callId) ?? allowedExecutions + carriedTools.length + 1,
+      maxSequence: MAX_TOOL_CALLS,
       remainingTurnMs: () => Math.max(0, agentDeadlineAtMs - Date.now()),
       log: (level, event, fields) => this.#log(level, event, fields),
       traceContext,
@@ -261,9 +260,13 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
 
     if (isDirectAudioTranscriptionRequest(request.trigger.text)) {
       // Explicit local transcription never sends the private transcript to a model.
-      allowedExecutions += audioExecution.available ? 1 : 0;
+      const directAudioCallId = `audio:auto:${request.turn.id}`;
+      if (audioExecution.available) {
+        allowedExecutions += 1;
+        approvalOrder.set(directAudioCallId, allowedExecutions);
+      }
       const directAudio = await audioExecution.runDirect({
-        callId: `audio:auto:${request.turn.id}`,
+        callId: directAudioCallId,
         signal: turnSignal,
       });
       usage.setFinalModel("flov", "local");
@@ -350,16 +353,23 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
             audioTranscriptionAvailable:
               audioExecution.available && !audioExecution.hasModelTranscription,
           });
-          const onToolCompleted = createBotToolCompletionObserver({
+          const toolObserver = createBotToolExecutionObserver({
             traceContext,
             candidate: candidate.reference,
             attempt: attemptNumber,
             approvalOrder,
-            allowedExecutions: () => allowedExecutions,
+            maxSequence: MAX_TOOL_CALLS,
             carriedTools,
             toolEvidence,
             readToolFailures,
             toolProgressPort: request.toolProgressPort,
+            onStarted: (execution) => {
+              startedExecutions += 1;
+              if (execution.kind === "read") {
+                startedReadExecutions += 1;
+              }
+            },
+            finishThinking: () => thinkingProgress.finish(),
             onCompleted: () => {
               completedExecutions += 1;
             },
@@ -378,19 +388,8 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
             chatId: request.turn.chatId,
             sourceMessageId: request.trigger.messageId,
             senderId: request.trigger.senderId,
-            onExecutionStarted: (execution) => {
-              startedExecutions += 1;
-              if (execution.kind === "read") {
-                startedReadExecutions += 1;
-              }
-              thinkingProgress.finish();
-              request.toolProgressPort?.onToolStarted({
-                toolName: execution.name,
-                callId: execution.callId,
-                input: execution.input,
-              });
-            },
-            onExecutionCompleted: onToolCompleted,
+            onExecutionStarted: toolObserver.onExecutionStarted,
+            onExecutionCompleted: toolObserver.onExecutionCompleted,
             ...(!audioExecution.available || audioExecution.hasModelTranscription
               ? {}
               : {

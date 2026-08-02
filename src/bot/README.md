@@ -81,8 +81,8 @@ Their implementation is split by ownership:
   preparation, lease/deadline timers, durable dispatch, and orchestration.
 - `turn-coordinator/`: public state contracts, admission/routing state,
   bounded folding, and option validation.
-- `agent/`: untrusted chat-context serialization, carried tool evidence, and
-  abort/deadline helpers.
+- `agent/`: untrusted chat-context serialization, carried tool evidence,
+  metadata-only tool lifecycle observer, and abort/deadline helpers.
 - `media/`: strict Bot API media-reference parsing (including the one embedded
   direct reply delivered in privacy mode), bounded redirect-free download,
   ffmpeg conversion through a bounded private seekable temporary input (removed
@@ -124,6 +124,19 @@ to discover it.
 Durable state transitions belong to the update processor or turn worker, not
 transport adapters. Keep `turnId` and `updateId` in agent/worker log records,
 and never retry a send after entering an ambiguous delivery state.
+
+`turnId` в production-логах — числовой durable SQLite ID. Координатор хранит
+универсальный строковый ID, но worker передаёт ему `String(turnId)`; его
+trace-записи дополнительно несут `coordinatorTurnId` для связи с этим
+внутренним контрактом. Каждый реально запущенный tool даёт ограниченную
+metadata-only пару
+`bot.agent.tool_started` и `bot.agent.tool`: `turnId`, `updateId`, candidate,
+attempt, tool, kind и sequence. Обычное completion добавляет только duration,
+ok и allowlisted status/errorCode. Rejected local audio completion может
+добавить лишь coarse bounded application-owned diagnostics `flovStatus`,
+`flovReason` и `flovSourceContainer`. Ни toolCallId, ни raw input/output/query,
+ни transcript, model messages, provider body или reasoning в эти записи не
+попадают.
 
 ## Focused tests
 
