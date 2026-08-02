@@ -3,6 +3,7 @@ import { optionalNumber, rowToMaintenanceJob } from "./mappers.js";
 import type {
   ChatCacheStatus,
   DaemonStatus,
+  DurableQueueStatus,
   MaintenanceJob,
   MaintenanceJobName,
   SyncState,
@@ -79,6 +80,32 @@ declare getSyncState: (chatId: string) => SyncState | undefined;
       maintenance: this.getMaintenanceJobs(),
     };
   }
+
+  getDurableQueueStatus(chatId: string): DurableQueueStatus {
+    const turnStatuses = this.db
+      .prepare(
+        `SELECT status, COUNT(*) AS count, MIN(updated_at_ms) AS oldest_updated_at_ms
+         FROM bot_turns WHERE chat_id = ? GROUP BY status`,
+      )
+      .all(chatId) as Array<{ status: string; count: number; oldest_updated_at_ms: number | null }>;
+    const updateStatuses = this.db
+      .prepare(
+        `SELECT status, COUNT(*) AS count, MIN(received_at_ms) AS oldest_received_at_ms
+         FROM bot_updates WHERE chat_id = ? GROUP BY status`,
+      )
+      .all(chatId) as Array<{ status: string; count: number; oldest_received_at_ms: number | null }>;
+    const outboxStatuses = this.db
+      .prepare(
+        `SELECT status, COUNT(*) AS count, MIN(created_at_ms) AS oldest_created_at_ms
+         FROM send_outbox WHERE chat_id = ? GROUP BY status`,
+      )
+      .all(chatId) as Array<{ status: string; count: number; oldest_created_at_ms: number | null }>;
+    return {
+      botTurns: Object.fromEntries(turnStatuses.map((r) => [r.status, { count: r.count, oldestUpdatedAtMs: r.oldest_updated_at_ms ?? undefined }])),
+      botUpdates: Object.fromEntries(updateStatuses.map((r) => [r.status, { count: r.count, oldestReceivedAtMs: r.oldest_received_at_ms ?? undefined }])),
+      sendOutbox: Object.fromEntries(outboxStatuses.map((r) => [r.status, { count: r.count, oldestCreatedAtMs: r.oldest_created_at_ms ?? undefined }])),
+    };
+  }
 }
 
 export type StatusApi = Pick<
@@ -87,4 +114,5 @@ export type StatusApi = Pick<
   | "isMaintenanceJobPending"
   | "getChatStatus"
   | "getStats"
+  | "getDurableQueueStatus"
 >;

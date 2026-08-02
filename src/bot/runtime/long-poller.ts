@@ -4,6 +4,7 @@ import { abortableSleep, assertBotIdentity, boundedInteger, BotRuntimeProtocolEr
 
 const OFFSET_CONFIRMATION_TIMEOUT_MS = 5_000;
 const ALLOWED_UPDATES = ["message", "edited_message"] as const;
+const HEARTBEAT_INTERVAL_MS = 5 * 60_000;
 
 export interface GrammyLongPollingApiPort {
   getMe(signal: AbortSignal): Promise<unknown>;
@@ -129,6 +130,7 @@ export class BotApiLongPoller {
     const forwardAbort = (): void => this.requestStop();
     signal?.addEventListener("abort", forwardAbort, { once: true });
     let initialized = false;
+    let lastHeartbeatMs = Date.now();
     try {
       await this.#initialize(controller.signal);
       initialized = true;
@@ -222,6 +224,13 @@ export class BotApiLongPoller {
         if (retryCurrentUpdate && !this.#stopRequested) {
           await this.#sleep(backoffMs, controller.signal);
           backoffMs = Math.min(this.#backoffMaxMs, backoffMs * 2);
+        }
+        const heartbeatNow = Date.now();
+        if (heartbeatNow - lastHeartbeatMs >= HEARTBEAT_INTERVAL_MS) {
+          lastHeartbeatMs = heartbeatNow;
+          this.#log("info", "bot.heartbeat", {
+            nextOffset: this.#nextOffset,
+          });
         }
       }
     } catch (error) {

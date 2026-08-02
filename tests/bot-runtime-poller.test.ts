@@ -87,6 +87,12 @@ test("migration offset skips only legacy-confirmed updates on the first poll", a
       ingestBotUpdate() {
         throw new Error("not expected");
       },
+      getBotUpdate() {
+        return undefined;
+      },
+      getBotTurnByTrigger() {
+        return undefined;
+      },
       recordBotUpdateFailure() {
         throw new Error("not expected");
       },
@@ -133,6 +139,12 @@ test("pinned bot identity is verified before any queued worker can run", async (
     store: {
       ingestBotUpdate() {
         throw new Error("not expected");
+      },
+      getBotUpdate() {
+        return undefined;
+      },
+      getBotTurnByTrigger() {
+        return undefined;
       },
       recordBotUpdateFailure() {
         throw new Error("not expected");
@@ -195,6 +207,12 @@ test("runtime stops polling first and waits for an in-flight worker probe", asyn
       ingestBotUpdate() {
         throw new Error("not expected");
       },
+      getBotUpdate() {
+        return undefined;
+      },
+      getBotTurnByTrigger() {
+        return undefined;
+      },
       recordBotUpdateFailure() {
         throw new Error("not expected");
       },
@@ -249,6 +267,12 @@ test("fatal polling conflict waits in-flight work but does not drain new queued 
     store: {
       ingestBotUpdate() {
         throw new Error("not expected");
+      },
+      getBotUpdate() {
+        return undefined;
+      },
+      getBotTurnByTrigger() {
+        return undefined;
       },
       recordBotUpdateFailure() {
         throw new Error("not expected");

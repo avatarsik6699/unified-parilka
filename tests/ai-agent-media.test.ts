@@ -110,25 +110,32 @@ function fileParts(call: ReturnType<typeof mockModel>["doGenerateCalls"][number]
   data: Uint8Array;
   mediaType: string;
 }> {
-  return call?.prompt
-    .flatMap((message) => message.content)
-    .flatMap((part) => {
-      if (part.type !== "file") {
-        return [];
-      }
-      const data = (part as {
-        data?: { type?: unknown; data?: unknown };
-        mediaType?: unknown;
-      }).data;
-      return data?.type === "data" && data.data instanceof Uint8Array &&
-          typeof (part as { mediaType?: unknown }).mediaType === "string"
-        ? [{
-            type: "file" as const,
-            data: data.data,
-            mediaType: (part as { mediaType: string }).mediaType,
-          }]
-        : [];
-    }) ?? [];
+  const parts: Array<{ type: string; data?: unknown; mediaType?: unknown }> = [];
+  if (!call) {
+    return parts as Array<{ type: "file"; data: Uint8Array; mediaType: string }>;
+  }
+  for (const message of call.prompt) {
+    if (!Array.isArray(message.content)) {
+      continue;
+    }
+    for (const part of message.content) {
+      parts.push(part as { type: string; data?: unknown; mediaType?: unknown });
+    }
+  }
+  return parts.flatMap((part) => {
+    if (part.type !== "file") {
+      return [];
+    }
+    const data = part.data as { type?: unknown; data?: unknown } | undefined;
+    return data?.type === "data" && data.data instanceof Uint8Array &&
+        typeof part.mediaType === "string"
+      ? [{
+          type: "file" as const,
+          data: data.data,
+          mediaType: part.mediaType,
+        }]
+      : [];
+  });
 }
 
 test("vision-capable candidate receives only in-memory image bytes", async () => {
@@ -199,8 +206,8 @@ test("explicit audio transcription stays local, returns the full text, and repor
   const result = await fixture.agent.run(request({
     trigger: storedMessage(100, "@bot расшифруй", "42", "Коля"),
     toolProgressPort: {
-      onToolStarted: (event) => events.push(`start:${event.toolName}:${event.input?.source}`),
-      onToolCompleted: (event, ok) => events.push(`end:${event.toolName}:${ok}`),
+      onToolStarted: (event) => { events.push(`start:${event.toolName}:${event.input?.source}`); },
+      onToolCompleted: (event, ok) => { events.push(`end:${event.toolName}:${ok}`); },
     },
   }));
 

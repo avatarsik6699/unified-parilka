@@ -12,6 +12,8 @@ const BARREL_LINE_CEILING = 150;
 
 const thinBarrels = [
   "src/bot-daemon.ts",
+  "src/index.ts",
+  "src/sync-daemon.ts",
   "src/bot/output-guards.ts",
   "src/bot/read-tools.ts",
   "src/bot/runtime.ts",
@@ -164,6 +166,8 @@ export function checkArchitecture(repositoryRoot = process.cwd()): ArchitectureC
     }
   }
 
+  checkRootDocLinks(repositoryRoot, findings);
+
   for (const relative of forbiddenRootTodos) {
     if (existsSync(path.join(repositoryRoot, relative))) {
       findings.push({
@@ -250,6 +254,28 @@ export function localMarkdownLinkTargets(text: string): string[] {
     }
   }
   return targets;
+}
+
+function checkRootDocLinks(
+  repositoryRoot: string,
+  findings: ArchitectureFinding[],
+): void {
+  for (const relative of ["AGENTS.md", "llms.txt"]) {
+    const file = path.join(repositoryRoot, relative);
+    if (!existsSync(file)) {
+      continue;
+    }
+    const text = readFileSync(file, "utf8");
+    for (const target of localMarkdownLinkTargets(text)) {
+      if (!existsSync(path.resolve(path.dirname(file), target))) {
+        findings.push({
+          code: "broken-doc-link",
+          file: relative,
+          message: `${relative} links to missing local path ${target}`,
+        });
+      }
+    }
+  }
 }
 
 function main(): void {

@@ -74,3 +74,51 @@ send, rollback, commit, push или deploy.
   - `PARILKA_DREAM_EVERY_N_MESSAGES` — порог консолидации (10–500, default 50).
   - `PARILKA_DREAM_MAX_MESSAGES` — сколько сообщений читать за проход
     (20–1000, default 200, должен быть >= порога).
+
+## MCP trust boundary
+
+Loopback MCP (`127.0.0.1:8766`) защищает от удалённых клиентов (DNS-rebinding
+protection, Origin/Host allowlist), но не изолирует процессы того же UID.
+`approval_id` для send — self-issued capability: тот же клиент вызывает
+`preview_message` и получает token. На однопользовательском хосте это
+осознанная граница; для multi-user — добавьте shared secret header.
+
+## Логи
+
+Parilka пишет structured JSON в stderr; systemd направляет в journald.
+Application log-файлы не создаются. Ротация/retention — в journald.
+
+```bash
+# Follow bot logs
+journalctl --user -u parilka-bot.service -f -o cat
+
+# Trace one turn by turnId
+journalctl --user -u parilka-bot.service -o json | jq 'select(.turnId == "N")'
+
+# Recent errors (level >= 50)
+journalctl --user -u parilka-bot.service -o json | jq 'select(.level >= 50)'
+
+# Sync shutdown evidence
+journalctl --user -u parilka-sync.service -o json | jq 'select(.event == "sync.shutdown_completed")'
+
+# Проверить disk usage журнала
+journalctl --user --disk-usage
+```
+
+## Bot диагностика без polling
+
+Read-only SQL на snapshot (`PRAGMA query_only = ON`):
+
+```sql
+-- Последний update и распределение статусов
+SELECT MAX(received_at_ms) AS last_update FROM bot_updates;
+SELECT status, COUNT(*) AS n FROM bot_turns GROUP BY status;
+SELECT status, COUNT(*) AS n FROM bot_updates GROUP BY status;
+
+-- Stuck sending/lost_ack
+SELECT id, chat_id, status, updated_at_ms FROM bot_turns
+WHERE status IN ('sending', 'lost_ack') ORDER BY updated_at_ms;
+
+-- Outbox backlog
+SELECT status, COUNT(*) AS n FROM send_outbox GROUP BY status;
+```

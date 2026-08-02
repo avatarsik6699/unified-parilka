@@ -24,6 +24,19 @@ import type { MessageStoreOptions } from "./storage/types.js";
 
 export * from "./storage/message-adapter.js";
 export type * from "./storage/types.js";
+export {
+  MAX_FAST_CHAT_MEMORY_ITEMS,
+  MAX_CHAT_LESSONS,
+  MAX_CHAT_SKILLS,
+  MAX_FAST_TITLE_CHARS,
+  MAX_FAST_NOTE_CHARS,
+  MAX_LESSON_TITLE_CHARS,
+  MAX_LESSON_FIELD_CHARS,
+  MAX_SKILL_NAME_CHARS,
+  MAX_SKILL_DESCRIPTION_CHARS,
+  MAX_SKILL_INSTRUCTIONS_CHARS,
+  MAX_KNOWLEDGE_QUERY_CHARS,
+} from "./storage/chat-knowledge.js";
 
 export interface MessageStore
   extends MessageApi,

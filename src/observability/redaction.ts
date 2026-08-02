@@ -1,5 +1,5 @@
 const SENSITIVE_KEY =
-  /(?:^|[_-])(api[_-]?(?:key|hash)|auth(?:orization)?|bearer|cookie|credential|password|private[_-]?key|secret|session|string[_-]?session|token)(?:$|[_-])/i;
+  /(?:^|[_-]|(?<=[a-z]))(api[_-]?(?:key|hash)|auth(?:orization)?|bearer|cookie|credential|password|private[_-]?key|secret|session|string[_-]?session|token)(?:$|[_-])/i;
 const SENSITIVE_QUERY_KEY =
   /^(?:access[_-]?token|api[_-]?(?:key|hash)|auth(?:orization)?|bearer|code|credential|key|password|secret|session|sig(?:nature)?|token)$/i;
 
@@ -22,6 +22,7 @@ const EMBEDDED_SECRET_PATTERNS: readonly (readonly [
     /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/gu,
     REDACTED,
   ],
+  [/\b[a-f0-9]{32}\b/gu, REDACTED],
 ];
 
 export function redactUrl(value: string): string {
@@ -83,6 +84,7 @@ export type SafeError = {
   code?: string | number;
   category?: string;
   retryable?: boolean;
+  stack?: string;
 };
 
 export function safeError(error: unknown): SafeError {
@@ -98,11 +100,18 @@ export function safeError(error: unknown): SafeError {
     retryable?: unknown;
   };
   return {
-    name: error.name || "Error",
+    name: (error.name || "Error").slice(0, 100),
     message: sanitizeString(error.message),
-    ...(typeof source.code === "string" || typeof source.code === "number" ? { code: source.code } : {}),
+    ...(typeof source.code === "string"
+      ? { code: source.code.slice(0, 100) }
+      : typeof source.code === "number"
+        ? { code: source.code }
+        : {}),
     ...(typeof source.category === "string" ? { category: source.category } : {}),
     ...(typeof source.retryable === "boolean" ? { retryable: source.retryable } : {}),
+    ...(source.category === undefined && error.stack !== undefined
+      ? { stack: sanitizeString(error.stack.split("\n").slice(0, 15).join("\n")) }
+      : {}),
   };
 }
 

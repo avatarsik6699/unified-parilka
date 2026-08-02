@@ -6,10 +6,10 @@ import { join } from "node:path";
 import { DreamConsolidator } from "../src/dream/consolidator.js";
 import type {
   DigestModelRouter,
-  ResolvedModelCandidate,
 } from "../src/digests.js";
 import { MessageStore } from "../src/store.js";
 import type { StoredMessage } from "../src/store.js";
+import type { ResolvedModelCandidate } from "../src/providers/model-router.js";
 
 const CHAT_ID = "-1003179772905";
 
@@ -40,6 +40,7 @@ function fakeRouter(text: string): DigestModelRouter {
       _role: string,
       _attempt: (
         candidate: ResolvedModelCandidate,
+        attemptNumber: number,
       ) => Promise<T>,
     ) {
       const candidate = {
@@ -63,7 +64,7 @@ function invokingRouter(): DigestModelRouter {
   return {
     async executeWithFallback<T>(
       _role: string,
-      attempt: (candidate: ResolvedModelCandidate) => Promise<T>,
+      attempt: (candidate: ResolvedModelCandidate, attemptNumber: number) => Promise<T>,
     ) {
       const candidate = {
         reference: "provider/model",
@@ -73,7 +74,7 @@ function invokingRouter(): DigestModelRouter {
         capabilities: { vision: false },
       };
       return {
-        value: await attempt(candidate),
+        value: await attempt(candidate, 1),
         candidate,
         attempt: 1,
         failures: [],
@@ -194,7 +195,7 @@ test("dream clamps oversized output after retry", async () => {
     const router: DigestModelRouter = {
       async executeWithFallback<T>(
         _role: string,
-        _attempt: (candidate: ResolvedModelCandidate) => Promise<T>,
+        _attempt: (candidate: ResolvedModelCandidate, attemptNumber: number) => Promise<T>,
       ) {
         const candidate = {
           reference: "provider/model",

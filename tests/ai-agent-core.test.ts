@@ -188,10 +188,10 @@ test("reports safe thinking boundaries around model and tool steps", async () =>
   const fixture = makeAgent([candidate("primary:test", model)]);
   const events: string[] = [];
   const progress: ToolProgressPort = {
-    onThinkingStarted: () => events.push("thinking:start"),
-    onThinkingCompleted: (_event, ok) => events.push(`thinking:${ok ? "ok" : "error"}`),
-    onToolStarted: (event) => events.push(`tool:start:${event.toolName}`),
-    onToolCompleted: (event, ok) => events.push(`tool:${ok ? "ok" : "error"}:${event.toolName}`),
+    onThinkingStarted: () => { events.push("thinking:start"); },
+    onThinkingCompleted: (_event, ok) => { events.push(`thinking:${ok ? "ok" : "error"}`); },
+    onToolStarted: (event) => { events.push(`tool:start:${event.toolName}`); },
+    onToolCompleted: (event, ok) => { events.push(`tool:${ok ? "ok" : "error"}:${event.toolName}`); },
   };
 
   const result = await fixture.agent.run(request({ toolProgressPort: progress }));

@@ -36,19 +36,23 @@ MCP harness ──stdio──► thin proxy─┘
 | Digests | `src/digest/` | source planning/hash, sequential day/week generation, process lock и offline dream memory consolidation |
 | Providers | `src/providers/` | validated roles/candidates, hardened HTTP, fallback classification |
 | Vector | `src/vector/`, `src/embeddings.ts` | opt-in index, atomic source recheck, search/fusion |
+| Maintenance | `src/maintenance/`, `src/maintenance-cli.ts` | bounded retention, deferred FTS, WAL checkpoint, schema integrity; `parilka-maintain` |
 | Operational CLI | `src/{python-import,digest-cli}/` | offline migration, digest and dream command implementations compiled into `dist` |
 | Operations | `operations/`, `systemd/`, `bin/` | human-reviewed install, migration, retention и rollback procedures |
 | Long-lived handoff | `loop-develop/` | один active goal; closed/retired evidence в history |
 
 Production files обычно держатся в диапазоне 150–500 строк; hard ceiling CI —
-700. Cohesive test modules имеют отдельный ceiling 500, чтобы regression
-fixtures не превращались в смешанные монолиты. Три текущих пограничных модуля
-сознательно остаются чуть выше мягкой
-границы: `storage/embeddings.ts` держит одну SQLite membership/commit
-транзакцию, `storage/bot-turns.ts` — одну durable turn state machine, а
-`mcp-loopback.ts` — один lifecycle session-scoped HTTP transport. Они уже
-вынесены из прежних монолитов, ниже hard ceiling и не дробятся только ради
-счётчика строк: разрыв их инвариантов добавил бы больше связности, чем убрал.
+700. Одиннадцать текущих модулей сознательно остаются выше мягкой границы
+(реестр: `src/bot/ai-agent.ts`, `src/bot/media/flov-transcriber.ts`,
+`src/bot/prompt.ts`, `src/storage/embeddings.ts`, `src/storage/bot-turns.ts`,
+`src/bot/grammy-publisher.ts`, `src/bot/web-search-vertex.ts`,
+`src/mcp-loopback.ts`, `src/bot/read-tools/web-fetch-executor.ts`,
+`src/dream/consolidator.ts`, `src/bot/memory-tools.ts`). Они уже вынесены
+из прежних монолитов, ниже hard ceiling и не дробятся только ради счётчика
+строк. `ai-agent.ts` (698/700) — кандидат на деление при следующем изменении.
+
+Cohesive test modules имеют отдельный ceiling 500, чтобы regression
+fixtures не превращались в смешанные монолиты.
 
 ## Dependency direction
 
@@ -65,9 +69,9 @@ operator MCP ──► Telegram gateway + storage + serialized sync
 
 - Storage не импортирует process shells, bot agent или MCP registry.
 - Bot model никогда не получает operator MCP write/sync tools. Его обычный
-  registry состоит из шести evidence/search tools (`search_chat`, `day_digest`,
-  `thread_context`, `web_search`, `web_fetch`, `paper_search`) и двух bounded
-  memory reads.
+  registry состоит из семи evidence/search tools (`search_chat`, `day_digest`,
+  `thread_context`, `web_search`, `web_fetch`, `paper_search`, `research_lookup`)
+  и двух bounded memory reads.
   Три memory-write tool появляются только для адресного trigger с прямой
   просьбой сохранить/обновить память от numeric Telegram account из закрытого
   operator-configured env allowlist. Allowlist не попадает в model context;

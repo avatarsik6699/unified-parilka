@@ -8,7 +8,7 @@ import {
   MAX_SKILL_DESCRIPTION_CHARS,
   MAX_SKILL_INSTRUCTIONS_CHARS,
   MAX_SKILL_NAME_CHARS,
-} from "../storage/chat-knowledge.js";
+} from "../store.js";
 import type {
   StoredChatLesson,
   StoredChatSkill,

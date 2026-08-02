@@ -45,6 +45,7 @@ export interface RetentionCounts {
   terminalBotTurns: number;
   terminalBotUpdates: number;
   terminalSendOutbox: number;
+  throttleState: number;
 }
 
 export interface MaintenanceReport {
@@ -57,6 +58,7 @@ export interface MaintenanceReport {
     terminalBotTurns: number;
     orphanTerminalBotUpdates: number;
     terminalSendOutbox: number;
+    throttleState: number;
   };
   changed: RetentionCounts;
   deferredMaintenance: DeferredMaintenanceJobReport[];

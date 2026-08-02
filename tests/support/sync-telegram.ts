@@ -1,5 +1,3 @@
-import type { ChatInfo, TelegramHistoryMessage, TelegramService } from "../src/telegram-client.js";
-
 import type {
   ChatInfo,
   TelegramHistoryMessage,

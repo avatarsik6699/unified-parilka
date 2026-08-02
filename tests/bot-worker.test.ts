@@ -350,7 +350,11 @@ test("provider failure before send is retryable through durable failed state", a
 
 test("worker passes tool progress port and cleans up before durable final", async (t) => {
   const fixture = makeFixture(t);
-  const portCalls: unknown[] = [];
+  const portCalls: Array<
+    | { kind: "send"; chatId: string; text: string; signal: AbortSignal }
+    | { kind: "edit" }
+    | { kind: "delete"; chatId: string; messageId: number; signal: AbortSignal }
+  > = [];
   const port: ToolProgressBotApiPort = {
     async sendMessage(chatId, text, signal) {
       portCalls.push({ kind: "send", chatId, text, signal });

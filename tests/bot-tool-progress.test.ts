@@ -7,10 +7,15 @@ import {
   type ToolProgressStore,
 } from "../src/bot/tool-progress.js";
 
+type PortCall =
+  | { kind: "send"; chatId: string; text: string; signal: AbortSignal }
+  | { kind: "edit"; chatId: string; messageId: number; text: string; signal: AbortSignal }
+  | { kind: "delete"; chatId: string; messageId: number; signal: AbortSignal };
+
 function fakePort(
   overrides: Partial<ToolProgressBotApiPort> = {},
-): ToolProgressBotApiPort & { calls: unknown[] } {
-  const calls: unknown[] = [];
+): ToolProgressBotApiPort & { calls: PortCall[] } {
+  const calls: PortCall[] = [];
   return {
     async sendMessage(chatId, text, signal) {
       calls.push({ kind: "send", chatId, text, signal });

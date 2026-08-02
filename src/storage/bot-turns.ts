@@ -411,6 +411,17 @@ declare protected getBotUpdateLocked: (
     return rows.map(rowToStoredBotTurn);
   }
 
+  countStuckSendingTurns(chatId: string, staleThresholdMs: number = 5 * 60_000): number {
+    assertNonEmptyBounded(chatId, 256, "chatId");
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS count FROM bot_turns
+         WHERE chat_id = ? AND status = 'sending' AND updated_at_ms < ?`,
+      )
+      .get(chatId, Date.now() - staleThresholdMs) as { count: number };
+    return row.count;
+  }
+
   protected recoverStaleBotTurnLeasesLocked(nowMs: number): void {
     const staleRows = this.db
       .prepare(
@@ -585,4 +596,5 @@ export type BotTurnApi = Pick<
   | "getBotTurn"
   | "getBotTurnByTrigger"
   | "queryBotTurns"
+  | "countStuckSendingTurns"
 >;

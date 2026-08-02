@@ -49,6 +49,18 @@ export const patterns: SecretPattern[] = [
     regex:
       /\b(?:AUTHORIZATION|BEARER_TOKEN|JWT|JWT_TOKEN)\s*[:=]\s*['"]?(?:Bearer\s+)?(?:eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|[A-Za-z0-9._-]{32,})/i,
   },
+  {
+    name: "Google API key",
+    regex: /\bAIza[0-9A-Za-z_-]{35}\b/,
+  },
+  {
+    name: "Slack token",
+    regex: /\bxox[baprs]-[0-9A-Za-z-]{10,}\b/,
+  },
+  {
+    name: "High-entropy hex secret",
+    regex: /\b[a-f0-9]{32}\b/,
+  },
 ];
 
 export function listGitScannableFiles(): string[] {
@@ -72,11 +84,17 @@ export function isScannableFile(file: string): boolean {
   return !file.endsWith(".png") && !file.endsWith(".jpg") && !file.endsWith(".jpeg") && !file.endsWith(".gif");
 }
 
+const HEX32_HASH_ASSIGNMENT =
+  /(?:^|[^a-zA-Z0-9])(?:hash|sha|commit|tree|parent|checksum|digest|fingerprint|etag|revision)\s*[:=]\s*['"]?[a-f0-9]{32}\b/i;
+
 export function scanSecretText(file: string, text: string): SecretFinding[] {
   const findings: SecretFinding[] = [];
   const lines = text.split(/\r?\n/);
   for (const [index, line] of lines.entries()) {
     for (const pattern of patterns) {
+      if (pattern.name === "High-entropy hex secret" && HEX32_HASH_ASSIGNMENT.test(line)) {
+        continue;
+      }
       if (pattern.regex.test(line)) {
         findings.push({ file, line: index + 1, pattern: pattern.name });
       }

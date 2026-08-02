@@ -77,6 +77,7 @@ Systemd-изменение проверяется `systemd-analyze --user verify
 - `llms.txt` — компактная карта репозитория.
 - `.agents/rules/README.md` — детальные правила и read triggers.
 - `docs/README.md` — индекс стабильной архитектуры и ADR.
+- `README.md` — install/config/operator how-to для человека и агента.
 - `operations/` — проверенные operator runbooks, migration и rollback.
 - `loop-develop/current-todo/` — единственный явно запрошенный long-lived goal.
 - `loop-develop/history/` — завершённые либо честно retired goal records.

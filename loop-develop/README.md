@@ -37,7 +37,4 @@ append-only research diary: сначала текущий code/runtime, зате
 Если работа retired/superseded, Final Status обязан сказать это прямо и назвать
 нового owner/task; зелёные частичные проверки не выдаются за completion.
 
-Commit/push/deploy permissions всегда записываются явно. Для goal 001 commit и
-push не авторизованы; локальный deploy/cutover Parilka runtime авторизован
-2026-07-30 только после rehearsal, independent review и full gates, с
-post-cutover Telegram E2E и rollback readiness.
+Permissions записываются явно в каждой goal record.

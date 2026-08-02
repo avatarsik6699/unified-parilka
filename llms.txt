@@ -25,16 +25,21 @@
 - `src/digest-cli/`: `parilka-digests --apply` запускает digest-фазы и dream-проход.
 - `src/providers/`: model/provider config, hardened HTTP и fallback.
 - `src/vector/`, `src/embeddings.ts`: opt-in embedding index/search.
+- `src/maintenance/`, `src/maintenance-cli.ts`: bounded retention, deferred FTS,
+  WAL checkpoint и schema integrity; `parilka-maintain`.
 
 ## Agent workflow
 
 - [Detailed rules](.agents/rules/README.md): читать по релевантному trigger.
-- [Completed goal 001](loop-develop/history/001-unified-parilka/001-todo.md):
-  unification, decomposition, review и deployment evidence.
+- [Completed goals](loop-develop/history/): завершённые goal records;
+  001 — unification/deployment evidence.
 - [Loop lifecycle](loop-develop/README.md): current/history и handoff contract.
+
+## Optional
+
+- Audit/research/rehearsal/deployment evidence goal 001 находится рядом с
+  завершённой записью в `loop-develop/history/001-unified-parilka/`.
 
 ## Operations and evidence
 
 - [Migration and rollback](operations/MIGRATION.md).
-- Audit/research/rehearsal/deployment evidence goal 001 находится рядом с
-  завершённой записью в `loop-develop/history/001-unified-parilka/`.

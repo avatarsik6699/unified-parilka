@@ -26,6 +26,11 @@ export function sanitizeFinalText(
   options: SanitizeFinalTextOptions,
 ): string {
   const allowed = buildAllowedSourceCatalog(options.toolEvidence);
+  const citationSanitizationEnabled =
+    options.researchMode === true ||
+    options.toolEvidence.some(
+      (item) => item.source === "web" || item.source === "paper",
+    );
   const webSearchFailed = hasReadToolFailure(options.readToolFailures, [
     "web_search",
     "web_fetch",
@@ -48,35 +53,41 @@ export function sanitizeFinalText(
     ) {
       continue;
     }
-    if (!hasAllowedMention && isSuspiciousCitationLine(line)) {
+    if (
+      citationSanitizationEnabled &&
+      !hasAllowedMention &&
+      isSuspiciousCitationLine(line)
+    ) {
       continue;
     }
     let sanitizedLine = line;
 
-    sanitizedLine = sanitizedLine.replace(
-      MARKDOWN_LINK,
-      (_, label: string, href: string): string => {
-        const normalized = normalizeUrl(href);
-        if (normalized === "" || allowed.urls.has(normalized)) {
-          return label;
+    if (citationSanitizationEnabled) {
+      sanitizedLine = sanitizedLine.replace(
+        MARKDOWN_LINK,
+        (_, label: string, href: string): string => {
+          const normalized = normalizeUrl(href);
+          if (normalized === "" || allowed.urls.has(normalized)) {
+            return label;
+          }
+          return label === "" ? "" : label;
+        },
+      );
+
+      sanitizedLine = sanitizedLine.replace(
+        RAW_URL,
+        (url) => {
+          const normalized = normalizeUrl(url);
+          return normalized !== "" && allowed.urls.has(normalized)
+            ? url
+            : "";
+        },
+      );
+
+      if (!hasAllowedMention) {
+        if (isSourceHeader(line) && sanitizedLine.trim() === "") {
+          continue;
         }
-        return label === "" ? "" : label;
-      },
-    );
-
-    sanitizedLine = sanitizedLine.replace(
-      RAW_URL,
-      (url) => {
-        const normalized = normalizeUrl(url);
-        return normalized !== "" && allowed.urls.has(normalized)
-          ? url
-          : "";
-      },
-    );
-
-    if (!hasAllowedMention) {
-      if (isSourceHeader(line) && sanitizedLine.trim() === "") {
-        continue;
       }
     }
 

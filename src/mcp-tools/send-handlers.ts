@@ -102,7 +102,7 @@ export async function sendMessage(
       silent: z.boolean().optional(),
       dry_run: z.boolean().optional(),
       approval_id: z.string().optional(),
-      dedupe_key: z.string().optional(),
+      dedupe_key: z.string().max(256).optional(),
     })
     .strict()
     .parse(rawArgs ?? {});
@@ -194,7 +194,7 @@ export async function replyToMessage(
       silent: z.boolean().optional(),
       dry_run: z.boolean().optional(),
       approval_id: z.string().optional(),
-      dedupe_key: z.string().optional(),
+      dedupe_key: z.string().max(256).optional(),
     })
     .strict()
     .parse(rawArgs ?? {});

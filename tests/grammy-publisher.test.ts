@@ -53,7 +53,7 @@ interface FakeApiOptions {
   plainResult?: () => unknown;
 }
 
-function makeFakeApi(options: FakeApiOptions = {}) {
+function makeFakeApi(fakeOptions: FakeApiOptions = {}) {
   const richCalls: RichCall[] = [];
   const plainCalls: PlainCall[] = [];
   const api: GrammyBotApiPort = {
@@ -65,11 +65,11 @@ function makeFakeApi(options: FakeApiOptions = {}) {
         options: input.options,
         signal: input.signal,
       });
-      return options.richResult?.() ?? { message_id: 701 };
+      return fakeOptions.richResult?.() ?? { message_id: 701 };
     },
     async sendMessage(chatId, text, options, signal) {
       plainCalls.push({ chatId, text, options, signal });
-      return options.plainResult?.() ?? { message_id: 702 };
+      return fakeOptions.plainResult?.() ?? { message_id: 702 };
     },
   };
   return { api, richCalls, plainCalls };

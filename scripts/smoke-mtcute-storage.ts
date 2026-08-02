@@ -20,7 +20,7 @@ const directory = mkdtempSync(
 );
 const base = new BaseTelegramClient({
   apiId: 1,
-  apiHash: "00000000000000000000000000000000",
+  apiHash: "0".repeat(32),
   storage: new SqliteStorage(join(directory, "auth.sqlite"), {
     disableWal: true,
   }),

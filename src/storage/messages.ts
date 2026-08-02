@@ -27,7 +27,7 @@ declare protected assertMaintenanceJobReady: (
   ) => void;
 
   upsertChat(chat: ChatInfo): void {
-    this.writeWithRetry("upsertChat", () => this.upsertChatLocked(chat));
+    this.immediateTransaction("upsertChat", () => this.upsertChatLocked(chat));
   }
 
   protected upsertChatLocked(chat: ChatInfo): void {

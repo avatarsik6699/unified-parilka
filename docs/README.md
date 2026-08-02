@@ -13,9 +13,7 @@ runbooks находятся вне `docs/`.
 
 ## Decisions
 
-- [ADR index](adr/README.md): принятые и superseded архитектурные решения.
-- [ADR 0001](adr/0001-unified-typescript.md): объединение bot, sync и MCP в
-  одном TypeScript codebase при двух process owners и одном SQLite.
+- [ADR index](adr/README.md): решения 0001–0003.
 
 ## Outside `docs/`
 

@@ -59,6 +59,20 @@ export function createProductionBotDaemon(
       ? undefined
       : factories.createResearchGateway(config.researchGateway);
   const store = factories.createStore(config.dbPath);
+  store.reconcileActiveSendsOnStartup();
+
+  // Evidence-log stuck sending turns from a previous crash.
+  // Oracle: НЕ переводить автоматически в lost_ack — allowedChatId не доказывает
+  // ownership процесса; другой MCP-процесс может владеть отправкой.
+  const stuckSending = store.countStuckSendingTurns(config.allowedChatId);
+  if (stuckSending > 0) {
+    safeDaemonLog(options.logger, "warn", {
+      event: "bot.startup.stuck_sending",
+      count: stuckSending,
+      chatId: config.allowedChatId,
+    });
+  }
+
   let composition: BotDaemonComposition | undefined;
   let closed = false;
   const close = (): void => {

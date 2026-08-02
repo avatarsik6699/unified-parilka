@@ -73,6 +73,21 @@ export type MaintenanceJobName =
   | "messages_fts_rebuild"
   | "embedding_chunk_membership_backfill";
 
+export type DurableQueueStatus = {
+  botTurns: Record<
+    string,
+    { count: number; oldestUpdatedAtMs?: number }
+  >;
+  botUpdates: Record<
+    string,
+    { count: number; oldestReceivedAtMs?: number }
+  >;
+  sendOutbox: Record<
+    string,
+    { count: number; oldestCreatedAtMs?: number }
+  >;
+};
+
 export type KeywordSearchHit = {
   message: StoredMessage;
   rank: number;

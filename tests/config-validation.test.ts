@@ -462,7 +462,7 @@ function unsetBooleanEnv(): Record<string, undefined> {
 
 function withEnv(vars: Record<string, string | undefined>, fn: () => void): void {
   const dir = mkdtempSync(join(tmpdir(), "telegram-config-test-"));
-  const applied = {
+  const applied: Record<string, string | undefined> = {
     TELEGRAM_DB_PATH: join(dir, "messages.sqlite"),
     TELEGRAM_DEFAULT_CHAT_ID: "-1000000000000",
     TELEGRAM_ALLOWED_CHAT_IDS: "-1000000000000",

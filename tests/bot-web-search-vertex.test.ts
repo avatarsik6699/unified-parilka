@@ -22,7 +22,7 @@ function mockFetch(
 ): { fetch: typeof fetch; last: () => CapturedRequest | undefined } {
   let captured: CapturedRequest | undefined;
   const fetchImpl = (async (
-    input: RequestInfo | URL,
+    input: string | URL | Request,
     init?: RequestInit,
   ): Promise<Response> => {
     captured = {

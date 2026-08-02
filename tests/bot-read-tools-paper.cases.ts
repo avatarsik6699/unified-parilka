@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   BotReadTools,
-  type PaperSearchProvider,
 } from "../src/bot/read-tools.js";
+import type { PaperSearchProvider } from "../src/bot/read-tools/contracts.js";
 import {
   asFailure,
   CHAT,
@@ -13,7 +13,7 @@ import {
 test("paper_search exposes provider-neutral result and bounded output", async () => {
   let observedMaxResults = 0;
   const provider: PaperSearchProvider = {
-    async search({ query, source, maxResults }) {
+    async search({ query, source, maxResults }: Parameters<PaperSearchProvider["search"]>[0]) {
       observedMaxResults = maxResults;
       assert.equal(source, "arxiv");
       return {
@@ -60,7 +60,7 @@ test("paper_search exposes provider-neutral result and bounded output", async ()
 
 test("paper_search defaults to arxiv and three results", async () => {
   const provider: PaperSearchProvider = {
-    async search({ source, maxResults }) {
+    async search({ source, maxResults }: Parameters<PaperSearchProvider["search"]>[0]) {
       assert.equal(source, "arxiv");
       assert.equal(maxResults, 3);
       return {
@@ -104,7 +104,7 @@ test("paper_search rejects invalid max_results", async () => {
 test("paper_search enforces timeout and caller abort", async () => {
   let timeoutSignalObserved = false;
   const hangingProvider: PaperSearchProvider = {
-    async search({ signal }) {
+    async search({ signal }: Parameters<PaperSearchProvider["search"]>[0]) {
       return await new Promise((_resolve, reject) => {
         signal.addEventListener(
           "abort",

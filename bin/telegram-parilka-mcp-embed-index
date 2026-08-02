@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 project_dir="${TELEGRAM_PROJECT_DIR:-$(cd -- "$script_dir/.." && pwd)}"

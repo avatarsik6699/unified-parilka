@@ -9,7 +9,7 @@ import type {
   StoredMessage,
   UpsertChatMemoryInput,
 } from "../store.js";
-import type { JsonEventLogger } from "../bot/worker.js";
+import type { JsonEventLogger } from "../observability/contracts.js";
 
 // A memory block is capped at 4,000 characters (2,000 in production), so it
 // does not need the much larger day/week digest budget. Keeping this small is

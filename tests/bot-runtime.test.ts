@@ -139,8 +139,8 @@ test("five-second per-sender trigger debounce survives process restart", () => {
       addressedUpdate(201, 601),
     );
 
-    assert.equal(first.turnReserved, true);
-    assert.equal(throttled.turnReserved, false);
+    assert.equal(first.acknowledged && first.turnReserved, true);
+    assert.equal(throttled.acknowledged && throttled.turnReserved, false);
     assert.equal(store.getBotUpdate(201)?.addressed, true);
     assert.equal(store.getBotUpdate(201)?.status, "skipped");
     assert.match(store.getBotUpdate(201)?.error ?? "", /cooldown/u);
@@ -154,7 +154,7 @@ test("five-second per-sender trigger debounce survives process restart", () => {
       addressedUpdate(202, 602),
     );
 
-    assert.equal(afterRestart.turnReserved, true);
+    assert.equal(afterRestart.acknowledged && afterRestart.turnReserved, true);
     assert.equal(store.queryBotTurns().length, 2);
     store.close();
   } finally {

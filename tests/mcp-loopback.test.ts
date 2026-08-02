@@ -426,10 +426,10 @@ function cancellableRegistry(
     },
     async callTool(name, _rawArgs, options) {
       assert.equal(name, "wait_for_cancel");
-      const signal = options.signal;
+      const signal = options?.signal;
       lifecycle.observedSignal = signal;
       lifecycle.markStarted();
-      if (!signal.aborted) {
+      if (signal && !signal.aborted) {
         await new Promise<void>((resolve) => {
           signal.addEventListener("abort", () => resolve(), {
             once: true,

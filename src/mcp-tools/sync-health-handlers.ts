@@ -65,6 +65,7 @@ export function getStatus(
   const args = chatSchema.parse(rawArgs ?? {});
   const chat = context.cacheChat(args.chat);
   const status = context.store.getChatStatus(chat.chatId);
+  const durableQueue = context.store.getDurableQueueStatus(chat.chatId);
   return ok({
     health: healthSummary(
       status,
@@ -106,6 +107,7 @@ export function getStatus(
       state: status.syncState,
     },
     daemon: status.daemonStatus,
+    durableQueue,
     embeddings: {
       enabled: context.config.embeddings.enabled,
       configured: Boolean(

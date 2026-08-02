@@ -8,6 +8,7 @@ import {
   isScannableFile,
   patterns,
   scanSecretFiles,
+  scanSecretText,
   secretScanSummary,
 } from "../scripts/secret-scan.js";
 
@@ -92,6 +93,74 @@ test("secret scan summary and file filter expose the configured scanner surface"
   assert.equal(summary.scannedFiles, 1);
   assert.equal(isScannableFile("safe.txt"), true);
   assert.equal(isScannableFile("image.png"), false);
+});
+
+test("detects value-only secret patterns", () => {
+  const googleKey = "AIza" + "A".repeat(35);
+  assert.ok(
+    scanSecretText("x.txt", `configured ${googleKey} for maps`).some(
+      (finding) => finding.pattern === "Google API key",
+    ),
+  );
+
+  const slackToken = "xoxb-" + "1".repeat(10) + "-" + "a".repeat(24);
+  assert.ok(
+    scanSecretText("x.txt", `slack: ${slackToken}`).some(
+      (finding) => finding.pattern === "Slack token",
+    ),
+  );
+});
+
+test("detects standalone 32-character hex secrets", () => {
+  const hex32 = "abcdef0123456789".repeat(2);
+  assert.ok(
+    scanSecretText("x.txt", `value: ${hex32}`).some(
+      (finding) => finding.pattern === "High-entropy hex secret",
+    ),
+  );
+});
+
+test("skips 32-character hex in known hash contexts but flags other tokens", () => {
+  const hex32 = "abcdef0123456789".repeat(2);
+  const hashAssignment = `commit sha: ${hex32}`;
+  const hashEquals = `hash = ${hex32}`;
+  const backupToken = `backup_token = ${hex32}`;
+  const apiHash = `TELEGRAM_API_HASH: ${hex32}`;
+  assert.ok(
+    !scanSecretText("x.txt", hashAssignment).some(
+      (finding) => finding.pattern === "High-entropy hex secret",
+    ),
+  );
+  assert.ok(
+    !scanSecretText("x.txt", hashEquals).some(
+      (finding) => finding.pattern === "High-entropy hex secret",
+    ),
+  );
+  assert.ok(
+    scanSecretText("x.txt", backupToken).some(
+      (finding) => finding.pattern === "High-entropy hex secret",
+    ),
+  );
+  assert.ok(
+    !scanSecretText("x.txt", apiHash).some(
+      (finding) => finding.pattern === "High-entropy hex secret",
+    ),
+  );
+});
+
+test("history files are scanned and only hash contexts are skipped", () => {
+  const hex32 = "abcdef0123456789".repeat(2);
+  assert.equal(isScannableFile("loop-develop/history/goal.md"), true);
+  assert.ok(
+    !scanSecretText("loop-develop/history/goal.md", `commit sha: ${hex32}`).some(
+      (finding) => finding.pattern === "High-entropy hex secret",
+    ),
+  );
+  assert.ok(
+    scanSecretText("loop-develop/history/goal.md", `value: ${hex32}`).some(
+      (finding) => finding.pattern === "High-entropy hex secret",
+    ),
+  );
 });
 
 function escapeRegExp(value: string): string {

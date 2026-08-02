@@ -65,3 +65,9 @@ npm run check:architecture
 
 Если docs сопровождают code change, используйте completion owner из
 `AGENTS.md`; эта rule не поддерживает вторую копию code gates.
+
+## Size budgets
+
+- Always-on контракт (AGENTS.md): ≤ 200 строк.
+- Детальное правило (.agents/rules/*.md): ≤ 500 строк.
+- При росте — split по trigger, не по вендору.

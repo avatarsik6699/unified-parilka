@@ -31,8 +31,12 @@ rollback не выполнялся; сохранённый rollback bundle и т
 
 Имя canonical файла осталось историческим; additive v16 migration с
 chat-scoped fast/long memory и skills применена на startup 2026-07-31.
+
+> Historical note: rehearsal goal 001 выполнялся на диапазоне v10 → v13.
+> Текущий поддерживаемый диапазон: v11–19 (см. src/maintenance/contracts.ts).
+
 Исходная import rehearsal ниже по-прежнему документирует её зафиксированный
-v10 → v13 baseline, а не текущую версию schema.
+v10 → v13 baseline; актуальный поддерживаемый диапазон — v11–19.
 
 Следующие разделы остаются канонической процедурой для новой migration или
 rollback. Они не означают, что текущий production снова находится в shadow.
@@ -47,7 +51,9 @@ rollback. Они не означают, что текущий production сно�
 - первый apply: 6 inserts, 2 023 overlaps, 294 missing-text fills,
   0 conflicts; второй apply: 0 inserts/fills/conflicts и 0
   message/day/rollup writes;
-- schema: v10 → v13;
+- schema: v10 → v13 (historical rehearsal goal 001 baseline);
+- текущий поддерживаемый migration path: v11 → v19;
+- production disposition: v16 snapshot был развёрнут, текущая схема v19;
 - после apply: `quick_check=ok`, 266 day digests и 40 rollups;
 - legacy outbox report: `drafted=12`, `failed=4`, `sent=158`, `skipped=2`;
   эти rows только подсчитаны и не импортированы.
@@ -168,7 +174,7 @@ Dry-run:
 
 - существующий совместимый target schema 1–13 проверяется через
   `quick_check`;
-- `MessageStore` мигрирует target до текущей schema v13;
+- `MessageStore` мигрирует target до текущей schema v19;
 - `live_msg` проходит полный overlap preflight: Python заполняет только
   отсутствующие canonical поля; различающиеся непустые поля fail closed до
   message writes, а `rawJson`/topic/tombstone target сохраняются;
@@ -203,7 +209,11 @@ ambiguous/sent rows.
 
 ## 4. Проверка target
 
-Maintenance dry-run поддерживает schema v11–13 и ничего не меняет без
+> Конкретные версии в этом разделе описывают исторический cutover.
+> Актуальный поддерживаемый диапазон: `MIN_SUPPORTED_SCHEMA_VERSION` (11) —
+> `MAX_SUPPORTED_SCHEMA_VERSION` (19); см. `src/maintenance/contracts.ts`.
+
+Maintenance dry-run поддерживает schema v11–19 и ничего не меняет без
 `--apply`:
 
 ```bash
@@ -214,7 +224,7 @@ Maintenance dry-run поддерживает schema v11–13 и ничего н�
 
 - `integrity` равно `["ok"]`;
 - `candidates.terminalSendOutbox` ожидаем и не включает `queued/sending`;
-- target `PRAGMA user_version` равен `13`;
+- target `PRAGMA user_version` равен `19`;
 - message count и диапазон ID ожидаемы;
 - выборочные сообщения, edits, tombstones, reply/topic metadata;
 - FTS search и cache-only MCP tool shapes;
@@ -333,7 +343,7 @@ Cutover разрешён только после rehearsal и full gate.
 4. Создать **новый final target как SQLite backup самого свежего snapshot
    прежнего MCP corpus**. Не продвигать rehearsal DB. Применить built Python
    importer поверх final target, повторить apply для доказательства
-   идемпотентности, затем проверить v13, quick_check и count/range. Inserts,
+   идемпотентности, затем проверить v19, quick_check и count/range. Inserts,
    fills и все непустые authoritative source sender/text/reply fields должны
    совпасть точно; более полное canonical target enrichment сохраняется.
    Единственное допустимое date-различие — documented
@@ -384,7 +394,7 @@ Cutover разрешён только после rehearsal и full gate.
 ## Maintenance после gate
 
 Сначала сохраните dry-run maintenance report и отдельный digest plan. Digest
-dry-run требует уже мигрированную schema v13, но не вызывает модель. Если shell
+dry-run требует уже мигрированную schema v19, но не вызывает модель. Если shell
 содержит production DB/allowlist env, снимите их для snapshot-команды:
 
 ```bash
@@ -470,7 +480,7 @@ generation и backup в service не реализованы. Unit разреша
    direct recovery process завершены.
 2. После graceful stop дождаться `sync.shutdown_completed`, затем проверить
    inactive state и `MainPID=0`; сам по себе `TimeoutStopSec` не доказывает,
-   что SQLite owner завершён. Только после этого сохранить private v13
+   что SQLite owner завершён. Только после этого сохранить private v19
    snapshot и journald interval.
    Проверить **все** `bot_turns`/`bot_updates` statuses:
    `queued`, `running`, `drafted`, `sending`, `sent`, `lost_ack`, `failed`,

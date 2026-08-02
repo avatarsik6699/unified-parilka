@@ -450,5 +450,10 @@ function config(transport: "mtcute" | "gramjs" = "mtcute"): AppConfig {
       globalConcurrency: 2,
       maxRunningPerChat: 1,
     },
+    memory: {
+      dreamEveryNMessages: 10,
+      dreamMaxMessages: 100,
+      memoryMaxChars: 10_000,
+    },
   };
 }

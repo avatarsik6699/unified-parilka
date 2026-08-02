@@ -13,7 +13,7 @@ import {
 } from "./support/model-router.js";
 
 test("provider fetch rejects redirects before credentials can be replayed", async () => {
-  let observedRedirect: RequestRedirect | undefined;
+  let observedRedirect: string | undefined;
   const providerFetch = createHardenedProviderFetch({
     transport: async (_input, init) => {
       observedRedirect = init?.redirect;

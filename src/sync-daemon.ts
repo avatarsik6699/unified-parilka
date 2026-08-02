@@ -32,6 +32,21 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
+  process.once("uncaughtException", (error) => {
+    try {
+      logger.fatal({ event: "sync.runtime.uncaught", failure: safeError(error) });
+      logger.flush();
+    } catch { /* last-resort handler must not throw */ }
+    process.exit(1);
+  });
+  process.once("unhandledRejection", (reason) => {
+    try {
+      logger.fatal({ event: "sync.runtime.unhandled_rejection", failure: safeError(reason) });
+      logger.flush();
+    } catch { /* last-resort handler must not throw */ }
+    process.exit(1);
+  });
+
   (once ? runSyncOnce() : runSyncDaemon())
     .then(() => {
       if (!once) {

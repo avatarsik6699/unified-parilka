@@ -3,7 +3,7 @@ import {
   MessageStore,
   type StoredMessage,
 } from "../store.js";
-import type { ChatInfo } from "../telegram-client.js";
+import type { ChatInfo } from "../telegram/types.js";
 import type { CliOptions, ImportReport, SqlRow } from "./contracts.js";
 import {
   legacyLiveMessage,

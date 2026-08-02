@@ -45,6 +45,7 @@ export function composeBotDaemon(
     ...(options.vector === undefined
       ? {}
       : { vector: options.vector }),
+    logger: options.logger,
   });
   const readTools = new BotReadTools({
     chatId: config.allowedChatId,

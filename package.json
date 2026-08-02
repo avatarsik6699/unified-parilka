@@ -15,7 +15,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.scripts.json --noEmit",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.scripts.json --noEmit && tsc -p tsconfig.tests.json --noEmit",
     "check:architecture": "tsx scripts/check-architecture.ts",
     "check:shell": "bash -n bin/parilka-bot bin/parilka-digests bin/parilka-import-python-state bin/parilka-maintain bin/parilka-secret-env bin/telegram-parilka-mcp bin/telegram-parilka-mcp-check-build bin/telegram-parilka-mcp-sync-daemon bin/telegram-parilka-mcp-embed-index bin/telegram-parilka-mcp-generate-session",
     "check:systemd": "systemd-analyze --user verify systemd/parilka-*.service systemd/parilka-*.timer",

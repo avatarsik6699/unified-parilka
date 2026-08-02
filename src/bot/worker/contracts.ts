@@ -89,11 +89,8 @@ export interface BotTurnPublisher {
   publish(request: TelegramPublishRequest): Promise<TelegramPublisherResult>;
 }
 
-export interface JsonEventLogger {
-  info(record: Readonly<Record<string, unknown>>): void;
-  warn(record: Readonly<Record<string, unknown>>): void;
-  error(record: Readonly<Record<string, unknown>>): void;
-}
+export type { JsonEventLogger } from "../../observability/contracts.js";
+import type { JsonEventLogger } from "../../observability/contracts.js";
 
 export interface WorkerScheduler {
   setInterval(callback: () => void, delayMs: number): unknown;

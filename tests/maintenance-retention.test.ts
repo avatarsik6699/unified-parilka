@@ -48,6 +48,7 @@ test("state maintenance is dry-run by default, prunes only allowlisted terminal 
       terminalBotTurns: 3,
       orphanTerminalBotUpdates: 1,
       terminalSendOutbox: 0,
+      throttleState: 0,
     });
     assert.deepEqual(dryReport.changed, {
       staleRunningHistoryJobs: 0,
@@ -55,6 +56,7 @@ test("state maintenance is dry-run by default, prunes only allowlisted terminal 
       terminalBotTurns: 0,
       terminalBotUpdates: 0,
       terminalSendOutbox: 0,
+      throttleState: 0,
     });
     assert.deepEqual(dryReport.warnings, []);
     assertSeedRowsIntact(dbPath);
@@ -81,6 +83,7 @@ test("state maintenance is dry-run by default, prunes only allowlisted terminal 
       terminalBotTurns: 3,
       terminalBotUpdates: 4,
       terminalSendOutbox: 0,
+      throttleState: 0,
     });
     assert.deepEqual(appliedReport.warnings, []);
     assertWalCheckpointReport(appliedReport.walCheckpoint);
@@ -168,6 +171,7 @@ test("state maintenance is dry-run by default, prunes only allowlisted terminal 
       terminalBotTurns: 0,
       terminalBotUpdates: 0,
       terminalSendOutbox: 0,
+      throttleState: 0,
     });
   });
 });

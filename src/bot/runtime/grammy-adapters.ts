@@ -1,5 +1,5 @@
 import type { Api } from "grammy";
-import type { ChatInfo } from "../../telegram-client.js";
+import type { ChatInfo } from "../../telegram/types.js";
 import type { StoredMessage } from "../../store.js";
 import { GrammyBotTurnPublisher, type GrammyBotApiPort } from "../grammy-publisher.js";
 import type { BotRuntimeConfig } from "../runtime-config.js";

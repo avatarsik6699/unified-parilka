@@ -78,6 +78,100 @@ test("убирает ложное сообщение о поломанном в�
   assert.equal(final.includes("Сейчас даю практический план"), true);
 });
 
+test("сохраняет обычный ответ с URL", () => {
+  const draft = "документация: https://nodejs.org/api";
+  const final = sanitizeFinalText({
+    text: draft,
+    toolEvidence: [],
+    researchMode: false,
+    readToolFailures: [],
+  });
+  assert.equal(final, draft);
+});
+
+test("сохраняет обычный ответ с markdown-ссылкой", () => {
+  const draft = "[docs](https://nodejs.org)";
+  const final = sanitizeFinalText({
+    text: draft,
+    toolEvidence: [],
+    researchMode: false,
+    readToolFailures: [],
+  });
+  assert.equal(final, draft);
+});
+
+test("сохраняет обычный ответ с author-year цитатой", () => {
+  const draft = "(Smith & Jones 2019)";
+  const final = sanitizeFinalText({
+    text: draft,
+    toolEvidence: [],
+    researchMode: false,
+    readToolFailures: [],
+  });
+  assert.equal(final, draft);
+});
+
+test("в research-режиме без evidence удаляет URL", () => {
+  const draft = "документация: https://nodejs.org/api";
+  const final = sanitizeFinalText({
+    text: draft,
+    toolEvidence: [],
+    researchMode: true,
+    readToolFailures: [],
+  });
+  assert.equal(final.includes("https://nodejs.org/api"), false);
+});
+
+test("в research-режиме с web evidence сохраняет подтверждённые URL и удаляет неподтверждённые", () => {
+  const evidence: ReadToolEvidence[] = [
+    {
+      source: "web",
+      chat: null,
+      message: null,
+      speaker: { id: null, name: null },
+      date: "2024",
+      title: "Node.js docs",
+      url: "https://nodejs.org/api",
+      text: "Documentation.",
+    },
+  ];
+  const draft = [
+    "Подтверждённая: https://nodejs.org/api",
+    "Неподтверждённая: https://fake.example.ru/study",
+  ].join("\n");
+  const final = sanitizeFinalText({
+    text: draft,
+    toolEvidence: evidence,
+    researchMode: true,
+    readToolFailures: [],
+  });
+  assert.equal(final.includes("https://nodejs.org/api"), true);
+  assert.equal(final.includes("https://fake.example.ru/study"), false);
+});
+
+test("удаляет ложную строку об ошибке поиска в обоих режимах", () => {
+  const draft = [
+    "Веб-поиск сегодня лег, но paper_search отработал.",
+    "Сейчас даю практический план.",
+  ].join("\n");
+  const normalFinal = sanitizeFinalText({
+    text: draft,
+    toolEvidence: [],
+    researchMode: false,
+    readToolFailures: [],
+  });
+  const researchFinal = sanitizeFinalText({
+    text: draft,
+    toolEvidence: [],
+    researchMode: true,
+    readToolFailures: [],
+  });
+  assert.equal(normalFinal.includes("Веб-поиск сегодня лег"), false);
+  assert.equal(normalFinal.includes("Сейчас даю практический план"), true);
+  assert.equal(researchFinal.includes("Веб-поиск сегодня лег"), false);
+  assert.equal(researchFinal.includes("Сейчас даю практический план"), true);
+});
+
 test("сохраняет сообщение о сломанном поиске, если это реально зафиксировано", () => {
   const draft = [
     "Веб-поиск сегодня лег.",

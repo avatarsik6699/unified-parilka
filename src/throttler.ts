@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { AppConfig } from "./config.js";
 import { normalizeError, ToolError, type NormalizedError } from "./errors.js";
 import { MessageStore } from "./store.js";
-import type { ChatInfo } from "./telegram-client.js";
+import type { ChatInfo } from "./telegram/types.js";
 
 export type SentTelegramMessage = {
   id?: number;

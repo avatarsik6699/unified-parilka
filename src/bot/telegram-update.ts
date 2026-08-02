@@ -1,5 +1,5 @@
 import type { StoredMessage } from "../store.js";
-import type { ChatInfo } from "../telegram-client.js";
+import type { ChatInfo } from "../telegram/types.js";
 
 export type TelegramUpdateKind = "message" | "edited_message";
 

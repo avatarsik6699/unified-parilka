@@ -23,7 +23,12 @@ import {
   DigestGenerationError,
   WEEK_DIGEST_PROMPT_VERSION,
   type DigestPhaseReport,
+  type DigestSummaryPort,
 } from "./types.js";
+
+type ApplyPhaseRuntime = DigestGenerationRuntime & {
+  summaryPort: DigestSummaryPort;
+};
 
 export async function runWeekPhase(params: {
   runtime: DigestGenerationRuntime;
@@ -70,7 +75,7 @@ export async function runWeekPhase(params: {
       throw new Error("Digest week range disappeared.");
     }
     await processWeek({
-      runtime,
+      runtime: runtime as ApplyPhaseRuntime,
       lastEligibleDay,
       dayPhase,
       weeks,
@@ -82,7 +87,7 @@ export async function runWeekPhase(params: {
 }
 
 async function processWeek(params: {
-  runtime: DigestGenerationRuntime;
+  runtime: ApplyPhaseRuntime;
   lastEligibleDay: string;
   dayPhase: DayPhaseResult;
   weeks: DigestPhaseReport;
@@ -266,7 +271,7 @@ async function processWeek(params: {
     );
     weeks.providerCalls += 1;
     const summary = await summarizeBounded(
-      runtime.summaryPort!,
+      runtime.summaryPort,
       {
         kind: "week",
         period,

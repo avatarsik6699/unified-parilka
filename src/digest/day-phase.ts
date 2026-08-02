@@ -24,6 +24,7 @@ import {
   DAY_DIGEST_PROMPT_VERSION,
   DigestGenerationError,
   type DigestPhaseReport,
+  type DigestSummaryPort,
 } from "./types.js";
 
 export interface DayPhaseResult {
@@ -35,6 +36,10 @@ export interface DayPhaseResult {
   orphanedWeeks: Map<string, IsoWeekRange>;
   invalidatedOrphanWeeks: Set<string>;
 }
+
+type ApplyPhaseRuntime = DigestGenerationRuntime & {
+  summaryPort: DigestSummaryPort;
+};
 
 export async function runDayPhase(
   runtime: DigestGenerationRuntime,
@@ -83,7 +88,7 @@ export async function runDayPhase(
         day = previousCalendarDay(day)
       ) {
         await processDay({
-          runtime,
+          runtime: runtime as ApplyPhaseRuntime,
           day,
           days,
           expectedDayHashes,
@@ -141,7 +146,7 @@ function recordCurrentDaySkip(
 }
 
 async function processDay(params: {
-  runtime: DigestGenerationRuntime;
+  runtime: ApplyPhaseRuntime;
   day: string;
   days: DigestPhaseReport;
   expectedDayHashes: Map<string, string>;
@@ -255,7 +260,7 @@ async function processDay(params: {
     );
     days.providerCalls += 1;
     const summary = await summarizeBounded(
-      runtime.summaryPort!,
+      runtime.summaryPort,
       {
         kind: "day",
         period: day,

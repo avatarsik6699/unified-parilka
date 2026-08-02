@@ -350,7 +350,7 @@ test("CLI rejects a database divergent from configured shared state", (t) => {
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   new MessageStore(primaryPath).close();
   new MessageStore(divergentPath).close();
-  const env = {
+  const env: Record<string, string | undefined> = {
     ...process.env,
     TELEGRAM_DB_PATH: primaryPath,
   };

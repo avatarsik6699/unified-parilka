@@ -39,7 +39,7 @@ export abstract class MemoryMethods extends StoreCore {
     assertNonEmptyBounded(input.chatId, 256, "chatId");
     const updatedAtMs = input.updatedAtMs ?? Date.now();
     assertTimestamp(updatedAtMs, "updatedAtMs");
-    return this.writeWithRetry("upsertChatMemory", () => {
+    return this.immediateTransaction("upsertChatMemory", () => {
       this.db
         .prepare(
           `INSERT INTO bot_chat_memory (

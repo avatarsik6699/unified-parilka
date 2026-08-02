@@ -29,7 +29,7 @@ function makeTools(options: {
     },
     fileUrl: (path) => `https://telegram.invalid/${path}`,
     async fetch() {
-      return new Response(options.bytes, {
+      return new Response(options.bytes as Uint8Array<ArrayBuffer>, {
         headers: { "content-type": "audio/ogg" },
       });
     },
@@ -122,7 +122,7 @@ test("audio transcription uses only a direct inline reply and returns attributab
   const result = await tools.transcribeAudio(target, new AbortController().signal);
   assert.equal(result.ok, true);
   if (!result.ok) {
-    assert.fail(result.error.code);
+    assert.fail("expected transcription success");
   }
   assert.equal(result.result.transcript, "готовый текст");
   assert.equal(result.result.source, "reply");

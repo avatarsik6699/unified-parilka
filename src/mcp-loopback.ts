@@ -4,10 +4,10 @@ import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { Request, Response } from "express";
-import {
-  createParilkaMcpServer,
+import { createParilkaMcpServer,
   type ParilkaToolRegistry,
 } from "./mcp-protocol.js";
+import { redactLogValue } from "./observability/redaction.js";
 
 const DEFAULT_MCP_HTTP_URL = "http://127.0.0.1:8766/mcp";
 const LOOPBACK_HOST = "127.0.0.1";
@@ -123,7 +123,9 @@ export class LoopbackMcpServer {
       options.onError ??
       ((error) => {
         const message =
-          error instanceof Error ? error.message : "unknown MCP error";
+          error instanceof Error
+            ? String(redactLogValue(error.message))
+            : "unknown MCP error";
         process.stderr.write(
           `${JSON.stringify({
             event: "mcp.loopback.error",

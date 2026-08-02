@@ -7,6 +7,7 @@ import type {
   HybridSearchHit,
   VectorSearchHit,
 } from "../vector-rag.js";
+import type { JsonEventLogger } from "./worker.js";
 import type {
   BotReadToolCache,
   CachedChatSearchResult,
@@ -46,13 +47,16 @@ export interface BotVectorSearchPort {
 export class CanonicalBotReadCache implements BotReadToolCache {
   readonly #store: MessageStore;
   readonly #vector: BotVectorSearchPort | undefined;
+  readonly #logger: JsonEventLogger | undefined;
 
   constructor(options: {
     store: MessageStore;
     vector?: BotVectorSearchPort;
+    logger?: JsonEventLogger;
   }) {
     this.#store = options.store;
     this.#vector = options.vector;
+    this.#logger = options.logger;
   }
 
   async search(params: {
@@ -75,9 +79,12 @@ export class CanonicalBotReadCache implements BotReadToolCache {
         query: params.query,
         limit: candidateLimit,
       });
-    } catch {
+    } catch (error) {
       keywordAvailable = false;
       degradedChannels.push("keyword_failed");
+      this.#log("warn", "bot.read_cache.keyword_failed", {
+        code: error instanceof Error ? (error as Error & { code?: string }).code ?? error.name : "unknown",
+      });
     }
     throwIfAborted(params.signal);
 
@@ -202,6 +209,18 @@ export class CanonicalBotReadCache implements BotReadToolCache {
           endMessageId: digest.endMessageId,
         })),
     };
+  }
+
+  #log(
+    level: "info" | "warn" | "error",
+    event: string,
+    fields: Readonly<Record<string, unknown>>,
+  ): void {
+    try {
+      this.#logger?.[level]({ event, ...fields });
+    } catch {
+      // Observability must never break read-cache fallback behavior.
+    }
   }
 }
 

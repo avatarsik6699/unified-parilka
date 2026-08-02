@@ -1,5 +1,5 @@
 import type { MessageStore, BotUpdateFailureResult, BotUpdateIngestResult, StoredBotTurn, StoredBotUpdate, StoredMessage } from "../../store.js";
-import type { ChatInfo } from "../../telegram-client.js";
+import type { ChatInfo } from "../../telegram/types.js";
 import type { TelegramUpdateOptions } from "../telegram-update.js";
 import type { TurnCoordinator } from "../turn-coordinator.js";
 import type { JsonEventLogger } from "../worker.js";

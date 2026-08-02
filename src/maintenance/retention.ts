@@ -12,6 +12,9 @@ const TERMINAL_HISTORY_STATUSES_SQL =
 const TERMINAL_SEND_OUTBOX_STATUSES_SQL =
   "'sent', 'failed', 'expired'";
 const DAY_MS = 24 * 60 * 60_000;
+// Throttle cooldown rows older than this are safe to delete; they cannot
+// affect any current rate-limit decision.
+const THROTTLE_COOLDOWN_RETENTION_MS = 24 * 60 * 60_000;
 
 export function inspectRetentionCandidates(
   db: DatabaseSync,
@@ -78,6 +81,13 @@ export function inspectRetentionCandidates(
       terminalSendOutboxSql("SELECT count(*) AS count"),
       sendOutboxCutoffMs,
       options.keepSendOutboxRows,
+    ),
+    throttleState: scalarCount(
+      db,
+      `SELECT count(*) AS count
+       FROM send_throttle_state
+       WHERE next_allowed_at_ms < ?`,
+      nowMs - THROTTLE_COOLDOWN_RETENTION_MS,
     ),
   };
 }
@@ -182,6 +192,14 @@ export function applyRetention(
           options.keepSendOutboxRows,
         ).changes,
     );
+    // Remove expired throttle cooldowns (bounded growth).
+    changed.throttleState = Number(
+      db
+        .prepare(
+          `DELETE FROM send_throttle_state WHERE next_allowed_at_ms < ?`,
+        )
+        .run(nowMs - THROTTLE_COOLDOWN_RETENTION_MS).changes,
+    );
     return changed;
   });
 }
@@ -193,6 +211,7 @@ export function emptyRetentionCounts(): RetentionCounts {
     terminalBotTurns: 0,
     terminalBotUpdates: 0,
     terminalSendOutbox: 0,
+    throttleState: 0,
   };
 }
 

@@ -110,3 +110,57 @@ test("logger emits JSON to the supplied stderr-like stream with redaction", () =
   assert.deepEqual(record.config, { session: "[REDACTED]" });
   assert.equal(record.msg, "turn finished");
 });
+
+test("redacts camelCase keys and embedded hex32 secrets", () => {
+  assert.deepEqual(redactLogValue({ botToken: "secret123" }), {
+    botToken: "[REDACTED]",
+  });
+  assert.deepEqual(redactLogValue({ accessToken: "secret123" }), {
+    accessToken: "[REDACTED]",
+  });
+  assert.deepEqual(redactLogValue({ providerApiKey: "secret123" }), {
+    providerApiKey: "[REDACTED]",
+  });
+  assert.deepEqual(redactLogValue({ api_key: "secret123" }), {
+    api_key: "[REDACTED]",
+  });
+  assert.deepEqual(redactLogValue({ tokenCount: 5 }), {
+    tokenCount: 5,
+  });
+  assert.deepEqual(redactLogValue({ tokenizer: "gpt" }), {
+    tokenizer: "gpt",
+  });
+  assert.deepEqual(redactLogValue({ sessionDuration: 100 }), {
+    sessionDuration: 100,
+  });
+  assert.equal(
+    String(redactLogValue("hash = abcdef0123456789abcdef0123456789")).includes(
+      "[REDACTED]",
+    ),
+    true,
+  );
+});
+
+test("safeError includes sanitized stack for unclassified errors", () => {
+  const result = safeError(new TypeError("x"));
+  assert.equal(typeof result.stack, "string");
+  assert.ok(result.stack?.includes("TypeError"));
+});
+
+test("safeError drops stack for classified errors", () => {
+  const result = safeError(
+    Object.assign(new Error("y"), {
+      category: "transport",
+      code: "ETIMEDOUT",
+    }),
+  );
+  assert.equal("stack" in result, false);
+});
+
+test("safeError sanitizes stack credential-bearing URLs", () => {
+  const result = safeError(
+    new Error("connect https://user:pass@host.com"),
+  );
+  assert.ok(result.stack);
+  assert.equal(result.stack?.includes("user:pass"), false);
+});

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { loadConfig } from "./config.js";
 import { stringify } from "./json.js";
+import { safeError } from "./observability/redaction.js";
 import { MessageStore } from "./store.js";
 import { embeddingEstimateRequiresConfirmation, VectorRag } from "./vector-rag.js";
 
@@ -76,6 +77,6 @@ function parseArgs(argv: string[]): {
 }
 
 main().catch((error) => {
-  console.error("embed-index fatal:", error);
+  console.error(JSON.stringify({ ok: false, error: safeError(error) }));
   process.exit(1);
 });
