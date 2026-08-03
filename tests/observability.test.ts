@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { Writable } from "node:stream";
 import { test } from "node:test";
+import { LogLevel } from "telegram/extensions/Logger.js";
 import { coordinatorTraceOptions } from "../src/bot-daemon/trace.js";
 import type { BotMediaToolsPort } from "../src/bot/media-tools.js";
 import type { TelegramMediaTarget } from "../src/bot/media/contracts.js";
+import { StderrGramJsLogger } from "../src/gramjs-logger.js";
 import { createLogger } from "../src/observability/logger.js";
 import {
   providerIdentityUrl,
@@ -269,6 +271,26 @@ test("redacts credentials embedded inside otherwise ordinary error strings", () 
     false,
   );
   assert.match(String(value), /\[REDACTED\]/u);
+});
+
+test("legacy GramJS logger redacts bounded stderr messages", () => {
+  const originalError = console.error;
+  let output = "";
+  console.error = (...args: unknown[]) => {
+    output += args.map((value) => String(value)).join(" ");
+  };
+  try {
+    new StderrGramJsLogger().log(
+      LogLevel.ERROR,
+      "request https://user:password@example.test/?token=secret failed with Bearer abcdefghijklmnopqrstuvwxyz",
+    );
+  } finally {
+    console.error = originalError;
+  }
+  assert.equal(output.includes("password"), false);
+  assert.equal(output.includes("token=secret"), false);
+  assert.equal(output.includes("abcdefghijklmnopqrstuvwxyz"), false);
+  assert.match(output, /\[REDACTED\]/u);
 });
 
 test("logger emits JSON to the supplied stderr-like stream with redaction", () => {

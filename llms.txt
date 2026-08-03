@@ -31,12 +31,16 @@
 ## Agent workflow
 
 - [Detailed rules](.agents/rules/README.md): читать по релевантному trigger.
+- `npm run verify`: полный completion gate; сначала запускайте focused test,
+  затем эту команду перед завершением code slice.
 - [Completed goals](loop-develop/history/): завершённые goal records;
   001 — unification/deployment evidence.
 - [Loop lifecycle](loop-develop/README.md): current/history и handoff contract.
 
 ## Optional
 
+- [Agentic chat systems review](.agents/audit/check-2-agentic-chat-systems.md):
+  primary-source comparison and decisions not to add a second state runtime.
 - Audit/research/rehearsal/deployment evidence goal 001 находится рядом с
   завершённой записью в `loop-develop/history/001-unified-parilka/`.
 

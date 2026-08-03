@@ -11,6 +11,7 @@ import {
   approvalPayload,
   sendPayloadHash,
 } from "./send-approval.js";
+import { throwIfToolAborted } from "./response.js";
 
 const SERVER_SEND_USER_KEY = "mcp-server";
 const REPLY_TARGET_EXCERPT_CHARS = 240;
@@ -27,6 +28,7 @@ type ReplyTargetMetadata = {
 export async function previewMessage(
   context: TelegramToolContext,
   rawArgs: unknown,
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
   const args = chatSchema
     .extend({
@@ -44,7 +46,9 @@ export async function previewMessage(
     })
     .strict()
     .parse(rawArgs ?? {});
+  throwIfToolAborted(signal);
   const resolved = await context.telegram.resolveChat(args.chat);
+  throwIfToolAborted(signal);
   context.store.upsertChat(resolved.info);
   const warnings = validateSendText(
     args.text,
@@ -54,7 +58,9 @@ export async function previewMessage(
     context,
     resolved.info,
     args.reply_to_message_id,
+    signal,
   );
+  throwIfToolAborted(signal);
   const approval = context.approvals.create(
     approvalPayload({
       chatId: resolved.info.chatId,
@@ -86,6 +92,7 @@ export async function previewMessage(
 export async function sendMessage(
   context: TelegramToolContext,
   rawArgs: unknown,
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
   const args = chatSchema
     .extend({
@@ -106,8 +113,9 @@ export async function sendMessage(
     })
     .strict()
     .parse(rawArgs ?? {});
-
+  throwIfToolAborted(signal);
   const resolved = await context.telegram.resolveChat(args.chat);
+  throwIfToolAborted(signal);
   context.store.upsertChat(resolved.info);
   const warnings = validateSendText(
     args.text,
@@ -128,11 +136,13 @@ export async function sendMessage(
     context,
     resolved.info,
     args.reply_to_message_id,
+    signal,
   );
 
   const hardDryRun =
     context.config.safety.dryRunDefault ||
     !context.config.safety.sendEnabled;
+  throwIfToolAborted(signal);
   const dryRun = hardDryRun || args.dry_run === true;
   if (dryRun) {
     return ok({
@@ -166,15 +176,17 @@ export async function sendMessage(
     payloadHash: sendPayloadHash(payload),
     replyToMessageId: args.reply_to_message_id,
     userKey: SERVER_SEND_USER_KEY,
-    action: () =>
-      context.telegram.sendMessage({
+    action: () => {
+      throwIfToolAborted(signal);
+      return context.telegram.sendMessage({
         chat: resolved.info.chatId,
         text: args.text,
         replyToMessageId: args.reply_to_message_id,
         parseMode: args.parse_mode,
         linkPreview: args.link_preview,
         silent: args.silent,
-      }),
+      });
+    },
   });
   return ok({ dry_run: false, sent, warnings });
 }
@@ -182,6 +194,7 @@ export async function sendMessage(
 export async function replyToMessage(
   context: TelegramToolContext,
   rawArgs: unknown,
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
   const args = chatSchema
     .extend({
@@ -198,6 +211,7 @@ export async function replyToMessage(
     })
     .strict()
     .parse(rawArgs ?? {});
+  throwIfToolAborted(signal);
   return sendMessage(context, {
     chat: args.chat,
     text: args.text,
@@ -208,14 +222,16 @@ export async function replyToMessage(
     dry_run: args.dry_run,
     approval_id: args.approval_id,
     dedupe_key: args.dedupe_key,
-  });
+  }, signal);
 }
 
 async function preflightReplyTarget(
   context: TelegramToolContext,
   chat: ChatInfo,
   replyToMessageId: number | undefined,
+  signal?: AbortSignal,
 ): Promise<ReplyTargetMetadata | undefined> {
+  throwIfToolAborted(signal);
   if (replyToMessageId == null) {
     return undefined;
   }
@@ -240,6 +256,7 @@ async function preflightReplyTarget(
     ids: replyToMessageId,
     limit: 1,
   });
+  throwIfToolAborted(signal);
   context.store.upsertChat(live.chat);
   const liveMessage = live.messages.find(
     (message) => message.messageId === replyToMessageId,

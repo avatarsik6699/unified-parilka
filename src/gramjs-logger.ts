@@ -1,4 +1,5 @@
 import { Logger, LogLevel } from "telegram/extensions/Logger.js";
+import { redactLogValue } from "./observability/redaction.js";
 
 export class StderrGramJsLogger extends Logger {
   // GramJS's update loop bypasses Logger.log() and calls console.error(error)
@@ -9,6 +10,6 @@ export class StderrGramJsLogger extends Logger {
   }
 
   override log(level: LogLevel, message: string): void {
-    console.error(`[gramjs:${level}] ${message}`);
+    console.error(`[gramjs:${level}] ${String(redactLogValue(message))}`);
   }
 }

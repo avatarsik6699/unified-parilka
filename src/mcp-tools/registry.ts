@@ -52,11 +52,11 @@ export async function callTelegramTool(
         return jsonTool(getStatus(context, rawArgs));
       case "resolve_chat":
         return jsonTool(
-          await resolveChat(context, rawArgs),
+          await resolveChat(context, rawArgs, options.signal),
         );
       case "get_chat_info":
         return jsonTool(
-          await getChatInfo(context, rawArgs),
+          await getChatInfo(context, rawArgs, options.signal),
         );
       case "sync_history":
         return jsonTool(
@@ -100,15 +100,15 @@ export async function callTelegramTool(
         );
       case "preview_message":
         return jsonTool(
-          await previewMessage(context, rawArgs),
+          await previewMessage(context, rawArgs, options.signal),
         );
       case "send_message":
         return jsonTool(
-          await sendMessage(context, rawArgs),
+          await sendMessage(context, rawArgs, options.signal),
         );
       case "reply_to_message":
         return jsonTool(
-          await replyToMessage(context, rawArgs),
+          await replyToMessage(context, rawArgs, options.signal),
         );
       default:
         throw new ToolError({

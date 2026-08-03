@@ -9,6 +9,11 @@ modules under this directory.
 - One `MessageStore` owns exactly one `StoreCore` and one `DatabaseSync`.
 - Only `core.ts` opens/closes SQLite and implements busy retry plus
   `BEGIN IMMEDIATE`/`COMMIT`/`ROLLBACK`.
+- SQLite bind values cross through `toSqlValues`, which rejects unsupported
+  objects before they reach `DatabaseSync`.
+- Transport adapters normalize untrusted messages into `StoredMessage`; the
+  legacy GramJS adapter is unknown-safe, accepts only positive safe integer IDs,
+  bounds text, and drops malformed dates/metadata instead of throwing.
 - Method modules are prototype contributors, not separately instantiated
   repositories. Their methods always receive the owning `MessageStore` as
   `this`.

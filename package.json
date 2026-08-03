@@ -27,6 +27,7 @@
     "smoke:mtcute-storage": "tsx scripts/smoke-mtcute-storage.ts",
     "secret-scan": "tsx scripts/secret-scan.ts",
     "audit": "npm audit --audit-level=moderate",
+    "verify": "npm run check && npm run check:shell && npm run check:architecture && npm run check:systemd && npm run build && npm test && npm run secret-scan && npm run smoke:mtcute-storage && npm run smoke:mcp && npm run smoke:mcp:wrapper && npm run smoke:mcp:direct && npm run audit",
     "bot": "tsx src/bot-daemon.ts",
     "bot:start": "node dist/bot-daemon.js",
     "dev": "tsx src/index.ts",

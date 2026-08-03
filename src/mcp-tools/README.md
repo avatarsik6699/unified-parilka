@@ -12,6 +12,12 @@ dispatches the fixed 13-tool surface without a generic plugin framework.
 - `cache-metadata.ts`: health and cache-completeness response metadata.
 - `response.ts`: MCP JSON envelope, error flag, and cancellation guard.
 
+Every handler receives the MCP request `AbortSignal`. Network-backed chat
+resolution, reply preflight, and send admission check it before and after
+Telegram calls; the send queue checks again immediately before the mutating
+transport call. An already-started Telegram request cannot be retroactively
+cancelled, so its result remains the authoritative delivery outcome.
+
 To add or change a tool, update both the definition and the explicit registry
 branch, then test the public `TelegramTools.callTool` boundary. Keep
 live-write policy in the send domain and storage durability in

@@ -18,6 +18,7 @@ import {
   limitSchema,
   type TelegramToolContext,
 } from "./contracts.js";
+import { throwIfToolAborted } from "./response.js";
 
 export function safeConfig(
   context: TelegramToolContext,
@@ -135,15 +136,18 @@ export function getStatus(
 export async function resolveChat(
   context: TelegramToolContext,
   rawArgs: unknown,
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
   const args = chatSchema
     .extend({ refresh: z.boolean().optional() })
     .strict()
     .parse(rawArgs ?? {});
+  throwIfToolAborted(signal);
   const resolved = await context.telegram.resolveChat(
     args.chat,
     args.refresh,
   );
+  throwIfToolAborted(signal);
   context.store.upsertChat(resolved.info);
   return ok({ chat: resolved.info });
 }
@@ -151,9 +155,12 @@ export async function resolveChat(
 export async function getChatInfo(
   context: TelegramToolContext,
   rawArgs: unknown,
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
   const args = chatSchema.parse(rawArgs ?? {});
+  throwIfToolAborted(signal);
   const resolved = await context.telegram.resolveChat(args.chat);
+  throwIfToolAborted(signal);
   context.store.upsertChat(resolved.info);
   return ok({
     chat: resolved.info,

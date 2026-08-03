@@ -81,6 +81,33 @@ test("live send rejects without an approval id", async () => {
   assert.equal(telegram.sends.length, 0);
 });
 
+test("MCP cancellation after chat resolution prevents a send", async () => {
+  const controller = new AbortController();
+  class AbortAfterResolveTelegram extends FakeTelegram {
+    override async resolveChat(chat?: string) {
+      const resolved = await super.resolveChat(chat);
+      controller.abort(new DOMException("cancelled", "AbortError"));
+      return resolved;
+    }
+  }
+  const telegram = new AbortAfterResolveTelegram();
+  const { tools } = makeTools(telegram);
+
+  const result = await tools.callTool(
+    "send_message",
+    { text: "must not send" },
+    { signal: controller.signal },
+  );
+  const payload = JSON.parse(result.content[0]!.text) as {
+    ok: boolean;
+    error?: { message: string };
+  };
+
+  assert.equal(payload.ok, false);
+  assert.equal(telegram.sends.length, 0);
+  assert.equal(result.isError, true);
+});
+
 test("live send rejects when approval metadata does not match", async () => {
   const telegram = new FakeTelegram();
   const { tools } = makeTools(telegram);

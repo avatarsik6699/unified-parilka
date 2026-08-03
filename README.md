@@ -52,10 +52,8 @@ npm ci
 cp .env.example .env
 cp config/model-router.example.json config/model-router.json
 
-npm run check
-npm run check:shell
-npm run build
-npm test
+# Полный completion gate для изменения
+npm run verify
 ```
 
 Production-обёртки bot/sync/MCP и maintenance/import/digest CLI запускают

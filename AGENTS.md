@@ -45,17 +45,12 @@
 
 ## Completion gates
 
-Сначала запускайте smallest relevant focused tests. Завершённый code slice
-проходит:
+Сначала запускайте smallest relevant focused tests. Полный code slice проходит
+одной канонической командой (она включает type/shell/architecture/systemd,
+build, tests, secret scan, native-storage/MCP smokes и dependency audit):
 
 ```bash
-npm run check
-npm run check:shell
-npm run check:architecture
-npm run build
-npm test
-npm run secret-scan
-npm run smoke:mtcute-storage
+npm run verify
 ```
 
 Изменение MCP transport/registry дополнительно проходит offline smoke:

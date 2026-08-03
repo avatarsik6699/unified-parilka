@@ -4,6 +4,7 @@ import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
 import { loadTelegramAuthConfig } from "./config.js";
 import { StderrGramJsLogger } from "./gramjs-logger.js";
+import { safeError } from "./observability/redaction.js";
 
 async function main(): Promise<void> {
   const telegram = loadTelegramAuthConfig({
@@ -20,7 +21,8 @@ async function main(): Promise<void> {
     phoneNumber: async () => telegram.phone || input.text("Phone: "),
     password: async () => input.text("2FA password: "),
     phoneCode: async () => input.text("Telegram code: "),
-    onError: (error) => console.error("Telegram auth error:", error),
+    onError: (error) =>
+      console.error("Telegram auth error:", safeError(error)),
   });
 
   console.log("\nPut this into .env as TELEGRAM_SESSION:");
@@ -29,6 +31,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
-  console.error("generate-session fatal:", error);
+  console.error("generate-session fatal:", safeError(error));
   process.exit(1);
 });

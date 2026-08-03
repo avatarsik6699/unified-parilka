@@ -13,8 +13,19 @@ export function escapeFtsQuery(query: string): string {
   return terms.map((term) => `"${term}"`).join(" AND ");
 }
 
-export function toSqlValues(values: unknown[]): SQLInputValue[] {
-  return values as SQLInputValue[];
+export function toSqlValues(values: readonly unknown[]): SQLInputValue[] {
+  return values.map((value) => {
+    if (
+      value === null ||
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "bigint" ||
+      ArrayBuffer.isView(value)
+    ) {
+      return value as SQLInputValue;
+    }
+    throw new TypeError("SQLite bind values must be scalar or binary values.");
+  });
 }
 
 export function normalizeSql(sql: string): string {

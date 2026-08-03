@@ -49,7 +49,8 @@ Production files обычно держатся в диапазоне 150–500 �
 `src/mcp-loopback.ts`, `src/bot/read-tools/web-fetch-executor.ts`,
 `src/dream/consolidator.ts`, `src/bot/memory-tools.ts`). Они уже вынесены
 из прежних монолитов, ниже hard ceiling и не дробятся только ради счётчика
-строк. `ai-agent.ts` (698/700) — кандидат на деление при следующем изменении.
+строк. Точные текущие размеры намеренно не дублируются здесь: их источником
+истины остаётся `npm run check:architecture`.
 
 Cohesive test modules имеют отдельный ceiling 500, чтобы regression
 fixtures не превращались в смешанные монолиты.
@@ -112,14 +113,11 @@ operator MCP ──► Telegram gateway + storage + serialized sync
 
 ## Verification map
 
-Канонический routing находится в [../AGENTS.md](../AGENTS.md). Быстрый
-fail-closed контур:
+Канонический routing находится в [../AGENTS.md](../AGENTS.md). Полный
+completion gate:
 
 ```bash
-npm run check
-npm run check:architecture
-npm run build
-npm test
+npm run verify
 ```
 
 Transport, systemd и migration slices добавляют свои offline smoke,
@@ -143,8 +141,8 @@ bot-daemon, MCP registry/tools/proxy и process-shell entrypoints; cycles и
 - **Native Telegram Rich Messages** (`sendRichMessage`) — принятый primary
   path для финального ответа бота: Telegram сам рендерит headings, списки,
   GFM-таблицы и LaTeX (`$...$`, `$$...$$`, fenced `math`). Локально остаётся
-  только bounded AST preflight (`unified` + `remark-*`), canonical plain
-  projection и classic plain fallback. Bot API ACK records that projection
+  только canonical plain projection и classic plain fallback. Bot API ACK
+  records that projection
   before MTProto reconciliation; an mtcute rich-message placeholder cannot
   subsequently overwrite it with empty `text`. Решение и safety/durability
   rationale:
