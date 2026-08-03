@@ -59,7 +59,6 @@ export function makeAgent(
     memoryTools?: BotMemoryTools;
     agentOptions?: {
       contextCharLimit?: number;
-      totalTimeoutMs?: number;
       stepTimeoutMs?: number;
       toolTimeoutMs?: number;
     };

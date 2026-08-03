@@ -121,7 +121,7 @@ export function buildBotSystemPrompt(options: BotSystemPromptOptions): string {
   });
   const researchMode = options.researchMode ?? "standard";
   const toolBudgetSection =
-    "В этом ходе доступно до 120 вызовов инструментов суммарно: продолжай до завершения задачи, но не зацикливайся после исчерпания safety ceiling. Не экономь вызов ценой пустой уверенности: несколько разных запросов и проверка первоисточника полезнее одного случайного совпадения.";
+    "Фиксированного лимита на model/tool ходы нет: продолжай до завершения задачи, но не повторяй уже выполненные запросы без новой причины. Не экономь вызов ценой пустой уверенности: несколько разных запросов и проверка первоисточника полезнее одного случайного совпадения.";
   const researchSection = renderResearchSection(researchMode);
   const mediaSection = renderMediaSection({
     imageAttached: options.imageAttached === true,

@@ -209,6 +209,16 @@ allowed per turn. If compaction fails or the deadline is close, tools are
 disabled and the agent must produce a final answer rather than growing context
 toward provider limits.
 
+### Addendum 2026-08-03: official Qwen3.8-Max and unbounded turn duration
+
+The 600-second whole-turn deadline and the 120-execution count ceiling are
+removed. Bot turns may continue until the model returns a final answer; there
+is no fixed model-step or tool-call count ceiling. Each provider step and tool
+execution retains its own timeout and cancellation signal, and payload,
+projection, context-compaction and publication bounds remain unchanged. The
+production `turn` and `summary` roles now use the official `qwen3.8-max` model
+instead of the retired `qwen3.8-max-preview` candidate.
+
 Память и единственный разрешённый stateful model-tool contract определены в
 [ADR 0003](0003-layered-chat-memory.md). Они не дают модели доступа к operator
 MCP write/sync tools и не меняют durable send semantics.

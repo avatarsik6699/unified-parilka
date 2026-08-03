@@ -26,11 +26,9 @@ test("composition wires all worker slots without performing external I/O", async
   const { store, dbPath } = fixtureStore(t);
   const config = botConfig(dbPath, {
     PARILKA_BOT_WORKERS: "2",
-    PARILKA_BOT_TURN_TIMEOUT_MS: "180000",
+    PARILKA_BOT_MODEL_STEP_TIMEOUT_MS: "180000",
     PARILKA_BOT_SHUTDOWN_TIMEOUT_MS: "220000",
     // The production default allows a six-minute local audio turn. This
-    // intentionally shorter composition fixture must declare a timeout that
-    // still leaves the publishing/final-answer reserve.
     PARILKA_BOT_AUDIO_TRANSCRIBE_TIMEOUT_MS: "120000",
   });
   let apiCalls = 0;

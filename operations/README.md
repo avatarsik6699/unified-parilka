@@ -121,9 +121,10 @@ systemd-analyze cat-config systemd/journald.conf | \
 `turnId` в JSON приложения — число, не строка. Для trace coordinator рядом
 пишется строковый `coordinatorTurnId`; он нужен только для связи с универсальным
 контрактом coordinator. Tool lifecycle (`bot.agent.tool_started` и
-`bot.agent.tool`) ограничен тем же ceiling в 120 вызовов на turn и содержит
-только correlation metadata, без call ID, input/output, query, model messages,
-reasoning или provider payload.
+`bot.agent.tool`) не имеет фиксированного count ceiling и содержит только
+correlation metadata, без call ID, input/output, query, model messages,
+reasoning или provider payload. Каждый provider step и tool call имеет
+собственный timeout; общего deadline хода нет.
 
 ## Bot диагностика без polling
 

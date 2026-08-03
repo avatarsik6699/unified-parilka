@@ -50,7 +50,7 @@ test("an empty successful provider response falls back as invalid candidate outp
   assert.equal(backup.doGenerateCalls.length, 1);
 });
 
-test("provider fallback keeps bounded tool data below the safety ceiling", async () => {
+test("provider fallback keeps bounded carried tool data", async () => {
   const first = mockModel([
     toolResponse([
       toolCall("first-1", "search_chat", {
@@ -148,50 +148,6 @@ test("an external abort is terminal and never tries the backup provider", async 
     return true;
   });
   assert.equal(first.doGenerateCalls.length, 1);
-  assert.equal(backup.doGenerateCalls.length, 0);
-});
-
-test("one total deadline covers all candidates and is terminal", async () => {
-  const slow = new MockLanguageModelV4({
-    doGenerate: async (options) =>
-      await new Promise<LanguageModelV4GenerateResult>(
-        (_resolve, reject) => {
-          options.abortSignal?.addEventListener(
-            "abort",
-            () =>
-              reject(
-                new DOMException(
-                  "The operation was aborted",
-                  "AbortError",
-                ),
-              ),
-            { once: true },
-          );
-        },
-      ),
-  });
-  const backup = mockModel([
-    response([{ type: "text", text: "слишком поздно" }], "stop"),
-  ]);
-  const fixture = makeAgent(
-    [
-      candidate("primary:slow", slow),
-      candidate("backup:no", backup),
-    ],
-    {
-      agentOptions: {
-        totalTimeoutMs: 100,
-        stepTimeoutMs: 100,
-        toolTimeoutMs: 100,
-      },
-    },
-  );
-
-  await assert.rejects(fixture.agent.run(request()), (error) => {
-    assert.equal((error as Error).name, "AbortError");
-    return true;
-  });
-  assert.equal(slow.doGenerateCalls.length, 1);
   assert.equal(backup.doGenerateCalls.length, 0);
 });
 

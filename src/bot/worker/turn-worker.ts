@@ -46,7 +46,6 @@ export class BotTurnWorker {
   readonly #mode: "live" | "shadow";
   readonly #leaseMs: number;
   readonly #heartbeatMs: number;
-  readonly #turnTimeoutMs: number;
   readonly #publishTimeoutMs: number;
   readonly #typingPort: TypingPort | undefined;
   readonly #typingIntervalMs: number;
@@ -66,7 +65,6 @@ export class BotTurnWorker {
     this.#mode = settings.mode;
     this.#leaseMs = settings.leaseMs;
     this.#heartbeatMs = settings.heartbeatMs;
-    this.#turnTimeoutMs = settings.turnTimeoutMs;
     this.#publishTimeoutMs = settings.publishTimeoutMs;
     this.#typingPort = options.typingPort;
     this.#typingIntervalMs = options.typingIntervalMs ?? 4_000;
@@ -194,7 +192,6 @@ export class BotTurnWorker {
         workerId: this.#workerId,
         leaseMs: this.#leaseMs,
         heartbeatMs: this.#heartbeatMs,
-        turnTimeoutMs: this.#turnTimeoutMs,
         scheduler: this.#scheduler,
         now: this.#now,
         controller,
@@ -240,7 +237,7 @@ export class BotTurnWorker {
           !this.#failClaimedTurn(
             turn,
             "agent",
-            timers.timedOut ? "turn_timeout" : safeErrorCode(error),
+            safeErrorCode(error),
           )
         ) {
           return { status: "lease_lost", turnId: turn.id };
@@ -251,13 +248,6 @@ export class BotTurnWorker {
       if (timers.leaseLost) {
         timers.stop();
         return { status: "lease_lost", turnId: turn.id };
-      }
-      if (timers.timedOut) {
-        timers.stop();
-        if (!this.#failClaimedTurn(turn, "agent", "turn_timeout")) {
-          return { status: "lease_lost", turnId: turn.id };
-        }
-        return { status: "failed", turnId: turn.id, stage: "agent" };
       }
       if (!isAgentFinal(final)) {
         timers.stop();

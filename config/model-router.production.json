@@ -17,19 +17,19 @@
     }
   ],
   "modelCapabilities": {
-    "qwen:qwen3.8-max-preview": {
+    "qwen:qwen3.8-max": {
       "vision": true
     },
-    "qwen_summary:qwen3.8-max-preview": {
+    "qwen_summary:qwen3.8-max": {
       "vision": true
     }
   },
   "roles": {
     "turn": [
-      "qwen:qwen3.8-max-preview"
+      "qwen:qwen3.8-max"
     ],
     "summary": [
-      "qwen_summary:qwen3.8-max-preview"
+      "qwen_summary:qwen3.8-max"
     ]
   }
 }

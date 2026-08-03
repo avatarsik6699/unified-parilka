@@ -8,7 +8,7 @@ import {
 test("footer shows only model, compact input/output, tool calls and duration", () => {
   const telemetry = Object.freeze({
     finalProviderId: "qwen",
-    finalModelId: "qwen/qwen3.8-max-preview",
+    finalModelId: "qwen/qwen3.8-max",
     reasoningMode: "on",
     steps: Object.freeze([]),
     totalInputTokens: 7_400,
@@ -21,7 +21,7 @@ test("footer shows only model, compact input/output, tool calls and duration", (
 
   const footer = buildTelemetryFooter(telemetry);
 
-  assert.match(footer, /qwen3\.8-max-preview 🧠/u);
+  assert.match(footer, /qwen3\.8-max 🧠/u);
   assert.match(footer, /7\.4k\/219/u);
   assert.match(footer, /6 tool calls/u);
   assert.match(footer, /1м 21с/u);

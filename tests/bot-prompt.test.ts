@@ -29,7 +29,7 @@ test("system prompt preserves the persona and executable agent contract", () => 
   assert.match(prompt, /досье[\s\S]+несколько поисков/);
   assert.match(prompt, /человека действительно нет/);
   assert.match(prompt, /2026-07-30 по Europe\/Moscow/);
-  assert.match(prompt, /до 120 вызовов инструментов/);
+  assert.match(prompt, /Фиксированного лимита на model\/tool ходы нет/);
   assert.match(prompt, /Скрытую цепочку рассуждений не показывай/);
   assert.match(prompt, /`web_fetch`/);
   assert.match(prompt, /`research_lookup`/);
@@ -74,7 +74,7 @@ test("explicit research requests receive a bounded evidence-first prompt", () =>
   );
   assert.equal(botResearchModeForText("коротко ответь"), "standard");
   assert.match(prompt, /Режим исследования/);
-  assert.match(prompt, /до 120 вызовов инструментов/);
+  assert.match(prompt, /Фиксированного лимита на model\/tool ходы нет/);
   assert.match(prompt, /минимум\s+4 реальных вызова/);
   assert.match(prompt, /проверь альтернативы, противоречия/);
   assert.match(prompt, /Для внешнего исследования эти фазы[\s\S]+web_fetch/);

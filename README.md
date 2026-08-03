@@ -205,7 +205,7 @@ Provider POST не следует HTTP redirects, а тело ответа ог�
 DeepSeek adapter принимает `thinkingMode=enabled|disabled`; default —
 `disabled`, чтобы reasoning не съедал bounded output/tool budget. Поставляемый
 [production router](config/model-router.production.json) использует только
-Qwen `qwen3.8-max-preview` через international Token Plan endpoint, без
+Qwen `qwen3.8-max` через international Token Plan endpoint, без
 fallback-провайдера. Роль `summary` использует второй логический профиль того
 же Qwen endpoint/key с `reasoningEffort=low`: это не другой провайдер, а
 отдельный budget для day/week и dream-консолидации.
@@ -216,6 +216,11 @@ Bot turn использует роль `turn`; `parilka-digests` использ�
 максимальный reasoning-профиль, `summary` использует low-effort профиль. Month rows можно
 импортировать и хранить через низкоуровневый store, но текущий bot read tool
 их не читает и автоматически не генерирует.
+
+Bot turn не имеет общего deadline и фиксированного лимита model/tool ходов.
+`PARILKA_BOT_MODEL_STEP_TIMEOUT_MS` ограничивает только один provider step
+(default 180000); каждый tool, локальная транскрипция и Telegram publication
+сохраняют собственные timeout/cancellation и bounded payload-контракты.
 
 ### Опциональный web search
 

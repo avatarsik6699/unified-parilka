@@ -59,7 +59,7 @@ export interface BotRuntimeConfig {
   pollLimit: number;
   pollBackoffInitialMs: number;
   pollBackoffMaxMs: number;
-  turnTimeoutMs: number;
+  modelStepTimeoutMs: number;
   publishTimeoutMs: number;
   shutdownTimeoutMs: number;
 }

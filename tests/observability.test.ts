@@ -106,7 +106,10 @@ test("emits paired metadata-only tool lifecycle records", async () => {
     assert.equal(completed[field], started?.[field]);
   }
   assert.equal(Number.isInteger(completed.sequence), true);
-  assert.ok(Number(completed.sequence) >= 1 && Number(completed.sequence) <= 120);
+  assert.ok(
+    Number(completed.sequence) >= 1 &&
+      Number(completed.sequence) <= Number.MAX_SAFE_INTEGER,
+  );
   assert.equal(completed.ok, true);
   assert.equal(completed.status, "empty");
   assert.equal("errorCode" in completed, false);

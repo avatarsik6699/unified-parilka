@@ -92,7 +92,6 @@ export function makeFixture(
         mode: options.mode ?? "live",
         leaseMs: 1_000,
         heartbeatMs: 100,
-        turnTimeoutMs: 5_000,
       });
     },
   };

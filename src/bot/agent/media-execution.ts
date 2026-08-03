@@ -13,9 +13,6 @@ import {
 import { ThinkingProgressTracker } from "./thinking-progress.js";
 import type { BotToolTraceContext } from "./tool-observer.js";
 
-const MODEL_AUDIO_FINAL_RESERVE_MS = 10_000;
-const MIN_MODEL_AUDIO_EXECUTION_MS = 1_000;
-
 export interface AudioTranscriptionExecutionOptions {
   readonly mediaTools?: BotMediaToolsPort;
   readonly target: ReturnType<BotMediaToolsPort["findAudio"]>;
@@ -25,9 +22,6 @@ export interface AudioTranscriptionExecutionOptions {
   readonly onStarted: () => void;
   readonly onCompleted: () => void;
   readonly getSequence: (callId: string) => number;
-  readonly maxSequence: number;
-  /** Milliseconds left in the model turn, excluding post-turn publication. */
-  readonly remainingTurnMs: () => number;
   readonly log: (
     level: "info" | "warn",
     event: string,
@@ -78,13 +72,7 @@ export class AudioTranscriptionExecution {
       candidate: input.candidate?.reference ?? "local",
       attempt: input.attempt ?? 1,
     });
-    const remainingMs = this.#modelAudioExecutionMs();
-    const output = remainingMs === undefined
-      ? Promise.resolve(modelAudioReserveFailure())
-      : mediaTools.transcribeAudio(
-          target,
-          AbortSignal.any([input.signal, AbortSignal.timeout(remainingMs)]),
-        );
+    const output = mediaTools.transcribeAudio(target, input.signal);
     this.#modelTranscription = output
       .then((output) => {
         this.#options.onCompleted();
@@ -160,10 +148,7 @@ export class AudioTranscriptionExecution {
       throw new Error("audio_transcribe is unavailable for this turn.");
     }
     const startedAt = Date.now();
-    const sequence = boundedSequence(
-      this.#options.getSequence(input.callId),
-      this.#options.maxSequence,
-    );
+    const sequence = boundedSequence(this.#options.getSequence(input.callId));
     this.#options.onStarted();
     this.#options.thinkingProgress.finish();
     this.#options.toolProgressPort?.onToolStarted({
@@ -182,18 +167,13 @@ export class AudioTranscriptionExecution {
     return { startedAt, sequence };
   }
 
-  #modelAudioExecutionMs(): number | undefined {
-    const remainingMs = Math.max(0, this.#options.remainingTurnMs());
-    const usableMs = remainingMs - MODEL_AUDIO_FINAL_RESERVE_MS;
-    return usableMs >= MIN_MODEL_AUDIO_EXECUTION_MS ? usableMs : undefined;
-  }
 }
 
-function boundedSequence(value: number, maximum: number): number {
+function boundedSequence(value: number): number {
   if (!Number.isSafeInteger(value)) {
     return 1;
   }
-  return Math.min(Math.max(1, value), Math.max(1, maximum));
+  return Math.max(1, value);
 }
 
 /** Direct wording must not depend on a provider honouring an optional tool hint. */
@@ -243,19 +223,6 @@ function noEligibleAudioResult(): DirectAudioTranscriptionResult {
       code: "invalid_media",
       retryable: false,
       message: "No eligible direct audio was attached to this request.",
-    },
-    evidence: [],
-  };
-}
-
-function modelAudioReserveFailure(): AudioTranscribeToolResult {
-  return {
-    ok: false,
-    tool: "audio_transcribe",
-    error: {
-      code: "timeout",
-      retryable: true,
-      message: "Not enough time remains for a local audio transcription.",
     },
     evidence: [],
   };

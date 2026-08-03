@@ -33,7 +33,7 @@ test("bot runtime config is strict, bounded, and defaults to safe shadow mode", 
   assert.equal(config.initialOffset, undefined);
   assert.equal(config.pollLimit, 100);
   assert.equal(config.pollTimeoutSec, 30);
-  assert.equal(config.turnTimeoutMs, 600_000);
+  assert.equal(config.modelStepTimeoutMs, 180_000);
   assert.equal(config.publishTimeoutMs, 30_000);
   assert.equal(config.shutdownTimeoutMs, 660_000);
   assert.deepEqual(config.audioTranscribe, {
@@ -111,21 +111,12 @@ test("audio transcription stays on a bounded local Flov endpoint", () => {
       }),
     /PARILKA_BOT_AUDIO_TRANSCRIBE_TIMEOUT_MS/u,
   );
-  assert.throws(
-    () =>
-      parseBotRuntimeConfig({
-        ...VALID_ENV,
-        PARILKA_BOT_TURN_TIMEOUT_MS: "120000",
-      }),
-    /AUDIO_TRANSCRIBE_TIMEOUT_MS.*TURN_TIMEOUT_MS/u,
-  );
-  assert.throws(
-    () =>
-      parseBotRuntimeConfig({
-        ...VALID_ENV,
-        PARILKA_BOT_AUDIO_TRANSCRIBE_TIMEOUT_MS: "560001",
-      }),
-    /leave.*PUBLISH_TIMEOUT_MS/u,
+  assert.equal(
+    parseBotRuntimeConfig({
+      ...VALID_ENV,
+      PARILKA_BOT_MODEL_STEP_TIMEOUT_MS: "240000",
+    }).modelStepTimeoutMs,
+    240_000,
   );
 });
 
@@ -415,13 +406,10 @@ test("one negative chat, pinned bot identity, and at most three workers are enfo
     /must be greater than or equal/u,
   );
   assert.throws(
-    () =>
-      parseBotRuntimeConfig({
-        ...VALID_ENV,
-        PARILKA_BOT_TURN_TIMEOUT_MS: "10000",
-        PARILKA_BOT_PUBLISH_TIMEOUT_MS: "5000",
-        PARILKA_BOT_SHUTDOWN_TIMEOUT_MS: "19000",
-      }),
-    /must cover/u,
+    () => parseBotRuntimeConfig({
+      ...VALID_ENV,
+      PARILKA_BOT_MODEL_STEP_TIMEOUT_MS: "900001",
+    }),
+    /PARILKA_BOT_MODEL_STEP_TIMEOUT_MS/u,
   );
 });

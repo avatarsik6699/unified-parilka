@@ -77,66 +77,6 @@ test("lost lease aborts agent and can never reach publisher", async (t) => {
   assert.equal(fixture.scheduler.activeCount, 0);
 });
 
-test("turn timeout aborts the injected agent and fails before send", async (t) => {
-  const fixture = makeFixture(t);
-  let observedSignal: AbortSignal | undefined;
-  let publisherCalls = 0;
-  const worker = fixture.worker({
-    agent: ({ signal }) => {
-      observedSignal = signal;
-      return new Promise<BotAgentFinalResult>((_resolve, reject) => {
-        signal.addEventListener("abort", () => reject(signal.reason), {
-          once: true,
-        });
-      });
-    },
-    publisher: async () => {
-      publisherCalls += 1;
-      throw new Error("timed-out turn must not publish");
-    },
-  });
-
-  const running = worker.runOnce();
-  await turnStarted();
-  fixture.scheduler.fireTimeouts();
-  const result = await running;
-
-  assert.deepEqual(result, {
-    status: "failed",
-    turnId: fixture.turnId,
-    stage: "agent",
-  });
-  assert.equal(observedSignal?.aborted, true);
-  assert.equal(publisherCalls, 0);
-  assert.equal(fixture.store.getBotTurn(fixture.turnId)?.status, "failed");
-});
-
-test("turn timeout finishes even when an injected agent ignores AbortSignal", async (t) => {
-  const fixture = makeFixture(t);
-  let observedSignal: AbortSignal | undefined;
-  const worker = fixture.worker({
-    agent: ({ signal }) => {
-      observedSignal = signal;
-      return new Promise<BotAgentFinalResult>(() => {});
-    },
-    publisher: async () => {
-      throw new Error("uncooperative timed-out agent must not publish");
-    },
-  });
-
-  const running = worker.runOnce();
-  await turnStarted();
-  fixture.scheduler.fireTimeouts();
-
-  assert.deepEqual(await running, {
-    status: "failed",
-    turnId: fixture.turnId,
-    stage: "agent",
-  });
-  assert.equal(observedSignal?.aborted, true);
-  assert.equal(fixture.store.getBotTurn(fixture.turnId)?.status, "failed");
-});
-
 test("capacity is checked before durable claim", async (t) => {
   const fixture = makeFixture(t, { maxActiveTurns: 1 });
   fixture.coordinator.startTurn({

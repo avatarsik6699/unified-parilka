@@ -15,11 +15,11 @@ The public entry points remain thin compatibility files:
   `sendMessage` only for whole-message plain publications and the single
   parser-related 400 fallback before ACK. Timeout/network/malformed ACK/
   partial/post-ACK failures never resend.
-- `ai-agent.ts` — the bounded, non-streaming model/tool loop. One complete
-  turn has a 600-second deadline; it has no separate arbitrary model-step
-  ceiling, while every tool call remains individually timed and abortable.
-  A turn has a hard safety ceiling of 120 requested tool executions; hitting
-  it disables tools and forces a final pass. Research requests still require a minimum of four real
+- `ai-agent.ts` — the bounded, non-streaming model/tool loop. A complete turn
+  has no whole-turn deadline and no fixed model/tool-step count ceiling. Each
+  provider step and tool call remains individually timed and abortable, while
+  provider payloads, tool projections and model context stay bounded.
+  Research requests still require a minimum of four real
   evidence calls and allow up to two bounded continuation rounds if the model
   tries to finalise too early. The prompt separates external
   evidence (`web_search`/`web_fetch`/`paper_search`) from facts in this chat
@@ -33,8 +33,8 @@ The public entry points remain thin compatibility files:
   selected Qwen candidate summarizes old messages through the same provider,
   retaining recent tool results and a head/tail bounded source. The estimate
   uses a conservative serialized-character heuristic because the runtime has
-  no provider tokenizer. A roughly 900k-token context guard, deadline/limit
-  guard can switch to a tool-free final pass. A provider `length` finish gets
+  no provider tokenizer. A roughly 900k-token context guard can switch to a
+  tool-free final pass. A provider `length` finish gets
   one additional tool-free finalization attempt before the turn is failed, and
   the default Qwen turn output budget is 16,384 tokens.
 - `media-tools.ts` — the narrow per-turn Telegram media boundary. It may read
@@ -78,11 +78,11 @@ Their implementation is split by ownership:
   abortable timeouts.
 - `../../dream/`: offline memory consolidation triggered by the digest timer.
 - `worker/`: turn contracts, validated worker settings, context/replay/fold
-  preparation, lease/deadline timers, durable dispatch, and orchestration.
+  preparation, lease heartbeat, durable dispatch, and orchestration.
 - `turn-coordinator/`: public state contracts, admission/routing state,
   bounded folding, and option validation.
 - `agent/`: untrusted chat-context serialization, carried tool evidence,
-  metadata-only tool lifecycle observer, and abort/deadline helpers.
+  metadata-only tool lifecycle observer, and abort/per-operation timeout helpers.
 - `media/`: strict Bot API media-reference parsing (including the one embedded
   direct reply delivered in privacy mode), bounded redirect-free download,
   ffmpeg conversion through a bounded private seekable temporary input (removed

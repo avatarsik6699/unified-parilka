@@ -20,7 +20,6 @@ export const BOT_REPLAY_MESSAGES = 100;
 
 export const DEFAULT_LEASE_MS = 30_000;
 export const DEFAULT_HEARTBEAT_MS = 10_000;
-export const DEFAULT_TURN_TIMEOUT_MS = 600_000;
 export const DEFAULT_PUBLISH_TIMEOUT_MS = 30_000;
 export interface BotAgentFinalResult {
   kind: "final";
@@ -109,7 +108,6 @@ export interface BotTurnWorkerOptions {
   mode: "live" | "shadow";
   leaseMs?: number;
   heartbeatMs?: number;
-  turnTimeoutMs?: number;
   publishTimeoutMs?: number;
   typingPort?: TypingPort;
   typingIntervalMs?: number;

@@ -16,7 +16,6 @@ export interface BotToolExecutionObserverOptions {
   readonly candidate: string;
   readonly attempt: number;
   readonly approvalOrder: ReadonlyMap<string, number>;
-  readonly maxSequence: number;
   readonly carriedTools: CarriedToolResult[];
   readonly toolEvidence: ReadToolEvidence[];
   readonly readToolFailures: Array<{ name: string; code: string }>;
@@ -45,13 +44,12 @@ export function createBotToolExecutionObserver(
   options: BotToolExecutionObserverOptions,
 ): BotToolExecutionObserver {
   const fallbackSequences = new Map<string, number>();
-  const maxSequence = boundedSequence(options.maxSequence, 120);
   let nextFallbackSequence = 0;
 
   const sequenceFor = (callId: string): number => {
     const approved = options.approvalOrder.get(callId);
     if (approved !== undefined) {
-      const sequence = boundedSequence(approved, maxSequence);
+      const sequence = boundedSequence(approved);
       nextFallbackSequence = Math.max(nextFallbackSequence, sequence);
       return sequence;
     }
@@ -59,7 +57,10 @@ export function createBotToolExecutionObserver(
     if (known !== undefined) {
       return known;
     }
-    nextFallbackSequence = Math.min(maxSequence, nextFallbackSequence + 1);
+    nextFallbackSequence = Math.min(
+      Number.MAX_SAFE_INTEGER,
+      nextFallbackSequence + 1,
+    );
     fallbackSequences.set(callId, nextFallbackSequence);
     return nextFallbackSequence;
   };
@@ -121,9 +122,9 @@ export function createBotToolExecutionObserver(
   };
 }
 
-function boundedSequence(value: number, maximum: number): number {
+function boundedSequence(value: number): number {
   if (!Number.isSafeInteger(value)) {
     return 1;
   }
-  return Math.min(Math.max(1, value), maximum);
+  return Math.max(1, value);
 }

@@ -56,24 +56,20 @@ import {
 } from "./agent/media-execution.js";
 import { type BotMediaToolsPort } from "./media-tools.js";
 import {
-  agentAbortError,
   boundedInteger,
   isTimeoutError,
   modelStepTimeoutError,
   requireNonce,
   safeErrorCode,
-  throwIfAgentAborted,
   throwIfTurnAborted,
 } from "./agent/runtime-helpers.js";
 import type { ReadToolEvidence } from "./read-tools/contracts.js";
 const DEFAULT_CONTEXT_CHARS = 48_000;
 const DEFAULT_MAX_OUTPUT_TOKENS = 16_384;
-const DEFAULT_TOTAL_TIMEOUT_MS = 600_000;
+const DEFAULT_STEP_TIMEOUT_MS = 180_000;
 const DEFAULT_TOOL_TIMEOUT_MS = 15_000;
 const MAX_CONTEXT_CHARS = 200_000;
-const FINALIZATION_RESERVE_MS = 180_000;
 const MAX_LENGTH_FINALIZATION_RETRIES = 1;
-const MAX_TOOL_CALLS = 120;
 export interface TurnModelRouter {
   executeWithFallback<T>(
     role: ModelRole,
@@ -95,7 +91,6 @@ export interface AiSdkBotTurnAgentOptions {
   nonceFactory?: () => string;
   contextCharLimit?: number;
   maxOutputTokens?: number;
-  totalTimeoutMs?: number;
   stepTimeoutMs?: number;
   toolTimeoutMs?: number;
 }
@@ -133,9 +128,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
   readonly #nonceFactory: () => string;
   readonly #contextCharLimit: number;
   readonly #maxOutputTokens: number;
-  readonly #totalTimeoutMs: number;
-  /** Undefined means that only the whole-turn deadline applies. */
-  readonly #stepTimeoutMs: number | undefined;
+  readonly #stepTimeoutMs: number;
   readonly #toolTimeoutMs: number;
 
   constructor(options: AiSdkBotTurnAgentOptions) {
@@ -160,24 +153,16 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
       32_768,
       "maxOutputTokens",
     );
-    this.#totalTimeoutMs = boundedInteger(
-      options.totalTimeoutMs ?? DEFAULT_TOTAL_TIMEOUT_MS,
+    this.#stepTimeoutMs = boundedInteger(
+      options.stepTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS,
       100,
       15 * 60_000,
-      "totalTimeoutMs",
+      "stepTimeoutMs",
     );
-    this.#stepTimeoutMs = options.stepTimeoutMs === undefined
-      ? undefined
-      : boundedInteger(
-          options.stepTimeoutMs,
-          100,
-          this.#totalTimeoutMs,
-          "stepTimeoutMs",
-        );
     this.#toolTimeoutMs = boundedInteger(
       options.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
       100,
-      this.#stepTimeoutMs ?? this.#totalTimeoutMs,
+      this.#stepTimeoutMs,
       "toolTimeoutMs",
     );
   }
@@ -185,13 +170,11 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
   async run(request: BotAgentRequest): Promise<BotAgentFinalResult> {
     throwIfTurnAborted(request.signal);
     const agentStartedAtMs = Date.now();
-    const agentDeadlineAtMs = agentStartedAtMs + this.#totalTimeoutMs;
     const traceContext = {
       turnId: request.turn.id,
       updateId: request.turn.updateId,
     };
-    const deadlineSignal = AbortSignal.timeout(this.#totalTimeoutMs);
-    const turnSignal = AbortSignal.any([request.signal, deadlineSignal]);
+    const turnSignal = request.signal;
     const now = this.#now();
     if (!(now instanceof Date) || Number.isNaN(now.getTime())) {
       throw new Error("now must return a valid Date");
@@ -245,8 +228,6 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
       onCompleted: () => { completedExecutions += 1; },
       getSequence: (callId) =>
         approvalOrder.get(callId) ?? allowedExecutions + carriedTools.length + 1,
-      maxSequence: MAX_TOOL_CALLS,
-      remainingTurnMs: () => Math.max(0, agentDeadlineAtMs - Date.now()),
       log: (level, event, fields) => this.#log(level, event, fields),
       traceContext,
     });
@@ -304,7 +285,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
       const routed = await this.#router.executeWithFallback(
         "turn",
         async (candidate, attemptNumber) => {
-          throwIfAgentAborted(request.signal, deadlineSignal);
+          throwIfTurnAborted(request.signal);
           let visionAttachment:
             | Awaited<ReturnType<BotMediaToolsPort["resolveVision"]>>
             | undefined;
@@ -321,7 +302,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
               visionAttachment = await visionAttachmentPromise;
             } catch (error) {
               if (turnSignal.aborted) {
-                throw agentAbortError(request.signal, deadlineSignal);
+                throwIfTurnAborted(request.signal);
               }
               this.#log("warn", "bot.agent.vision_unavailable", {
                 ...traceContext,
@@ -358,7 +339,6 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
             candidate: candidate.reference,
             attempt: attemptNumber,
             approvalOrder,
-            maxSequence: MAX_TOOL_CALLS,
             carriedTools,
             toolEvidence,
             readToolFailures,
@@ -405,7 +385,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
 
           try {
             while (true) {
-              throwIfAgentAborted(request.signal, deadlineSignal);
+              throwIfTurnAborted(request.signal);
               let foldCursor = folds.length;
               const activeInstructions = researchQualityRetries === 0
                 ? instructions
@@ -429,19 +409,15 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
                 // Qwen-compatible endpoint supports auto tool choice, not required.
                 toolChoice: "auto",
                 toolApproval: ({ toolCall }) => {
-                  throwIfAgentAborted(request.signal, deadlineSignal);
+                  throwIfTurnAborted(request.signal);
                   requestedExecutions += 1;
-                  if (allowedExecutions >= MAX_TOOL_CALLS) {
-                    deniedExecutions += 1;
-                    return { type: "denied", reason: "max_tool_calls" };
-                  }
                   rememberFold("tool");
                   allowedExecutions += 1;
                   approvalOrder.set(toolCall.toolCallId, allowedExecutions);
                   return "not-applicable";
                 },
                 prepareStep: async ({ messages }) => {
-                  throwIfAgentAborted(request.signal, deadlineSignal);
+                  throwIfTurnAborted(request.signal);
                   rememberFold("model");
                   const newFolds = folds.slice(foldCursor);
                   foldCursor = folds.length;
@@ -449,13 +425,11 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
                     newFolds.length === 0
                       ? messages
                       : [...messages, ...newFolds.map(userMessage)];
-                  const remainingMs = Math.max(0, agentDeadlineAtMs - Date.now());
-                  const toolLimitGuard = allowedExecutions >= MAX_TOOL_CALLS;
-                  const deadlineGuard = remainingMs <= FINALIZATION_RESERVE_MS;
                   const compacted = await compactModelContextIfNeeded({
                     model: candidate.model, providerOptions: candidate.providerOptions,
                     messages: nextMessages, signal: turnSignal,
-                    contextCompactions, remainingMs, toolLimitReached: toolLimitGuard,
+                    contextCompactions, remainingMs: Number.MAX_SAFE_INTEGER,
+                    toolLimitReached: false,
                   });
                   const compactedMessages = compacted.messages;
                   const contextChars = compacted.contextChars;
@@ -467,17 +441,16 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
                     this.#log("warn", "bot.agent.context_compaction_failed", { ...traceContext, candidate: candidate.reference, attempt: attemptNumber, code: safeErrorCode(compacted.error) });
                   const contextGuard = contextTokens >= MODEL_CONTEXT_FINALIZATION_TOKENS;
                   const forceFinal =
-                    finalizationRequested || contextGuard || deadlineGuard || toolLimitGuard;
+                    finalizationRequested || contextGuard;
                   if (forceFinal && !finalizationRequested) {
                     finalizationRequested = true;
                     this.#log("warn", "bot.agent.finalization_guard", {
                       ...traceContext,
                       candidate: candidate.reference,
                       attempt: attemptNumber,
-                      reason: toolLimitGuard ? "tool_limit" : contextGuard ? "context" : "deadline",
+                      reason: "context",
                       estimatedContextChars: contextChars,
                       estimatedContextTokens: contextTokens,
-                      remainingMs,
                     });
                   }
                   const finalizationInstructions =
@@ -501,15 +474,13 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
                         }),
                   };
                 },
-                // The model may take as many steps as needed, bounded by the
-                // whole-turn deadline and the explicit 120-call tool guard.
+                // There is no whole-turn or model/tool-step count ceiling.
+                // Each provider and tool operation remains independently bounded.
                 stopWhen: () => false,
                 maxRetries: 0,
                 abortSignal: turnSignal,
                 timeout: {
-                  ...(this.#stepTimeoutMs === undefined
-                    ? {}
-                    : { stepMs: this.#stepTimeoutMs }),
+                  stepMs: this.#stepTimeoutMs,
                   toolMs: this.#toolTimeoutMs,
                 },
                 maxOutputTokens: this.#maxOutputTokens,
@@ -633,7 +604,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
           } catch (error) {
             thinkingProgress.finish(false);
             if (turnSignal.aborted) {
-              throw agentAbortError(request.signal, deadlineSignal);
+              throwIfTurnAborted(request.signal);
             }
             if (isTimeoutError(error)) {
               throw modelStepTimeoutError();
@@ -643,7 +614,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
         },
       );
 
-      throwIfAgentAborted(request.signal, deadlineSignal);
+      throwIfTurnAborted(request.signal);
       this.#log("info", "bot.agent.complete", {
         ...traceContext,
         candidate: routed.candidate.reference,

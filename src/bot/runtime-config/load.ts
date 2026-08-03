@@ -180,10 +180,10 @@ export function parseBotRuntimeConfig(
       10,
       5 * 60_000,
     ),
-    turnTimeoutMs: integer(
-      env.PARILKA_BOT_TURN_TIMEOUT_MS,
-      "PARILKA_BOT_TURN_TIMEOUT_MS",
-      600_000,
+    modelStepTimeoutMs: integer(
+      env.PARILKA_BOT_MODEL_STEP_TIMEOUT_MS,
+      "PARILKA_BOT_MODEL_STEP_TIMEOUT_MS",
+      180_000,
       1_000,
       15 * 60_000,
     ),

@@ -98,10 +98,10 @@ export function composeBotDaemon(
           }),
     },
     logger: options.logger,
-    totalTimeoutMs: config.turnTimeoutMs,
+    stepTimeoutMs: config.modelStepTimeoutMs,
     toolTimeoutMs: Math.min(
       config.audioTranscribe.timeoutMs,
-      config.turnTimeoutMs,
+      config.modelStepTimeoutMs,
     ),
   });
   const publisher = createDurableGrammyBotTurnPublisher(options.api, {
@@ -133,7 +133,6 @@ export function composeBotDaemon(
         workerId: `${workerIdPrefix}:${index + 1}`,
         allowedChatId: config.allowedChatId,
         mode: config.mode,
-        turnTimeoutMs: config.turnTimeoutMs,
         publishTimeoutMs: config.publishTimeoutMs,
         typingPort,
         toolProgressBotApiPort,

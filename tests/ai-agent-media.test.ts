@@ -312,7 +312,7 @@ test("a broader audio question exposes the zero-argument local tool to the model
   assert.match(JSON.stringify(model.doGenerateCalls[1]?.prompt), /короткая расшифровка для модели/u);
 });
 
-test("model-facing transcription preserves a final-answer time reserve", async () => {
+test("model-facing transcription has no whole-turn time reserve", async () => {
   const model = mockModel([
     toolResponse([toolCall("audio-1", "audio_transcribe", {})]),
     response([{ type: "text", text: "времени на расшифровку уже нет" }], "stop"),
@@ -320,10 +320,7 @@ test("model-facing transcription preserves a final-answer time reserve", async (
   const media = mediaPort({ audio: mediaTarget("voice", "reply") });
   const fixture = makeAgent(
     [candidate("primary:any", model)],
-    {
-      mediaTools: media,
-      agentOptions: { totalTimeoutMs: 100, toolTimeoutMs: 100 },
-    },
+    { mediaTools: media },
   );
 
   const result = await fixture.agent.run(request({
@@ -331,7 +328,7 @@ test("model-facing transcription preserves a final-answer time reserve", async (
   }));
 
   assert.equal(result.text, "времени на расшифровку уже нет");
-  assert.equal(media.toolCalls, 0);
+  assert.equal(media.toolCalls, 1);
   assert.equal(model.doGenerateCalls.length, 2);
-  assert.match(JSON.stringify(fixture.logs), /"errorCode":"timeout"/u);
+  assert.doesNotMatch(JSON.stringify(fixture.logs), /"errorCode":"timeout"/u);
 });

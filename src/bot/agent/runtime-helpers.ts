@@ -12,29 +12,6 @@ export function throwIfTurnAborted(signal: AbortSignal): void {
   }
 }
 
-export function throwIfAgentAborted(
-  turnSignal: AbortSignal,
-  deadlineSignal: AbortSignal,
-): void {
-  if (turnSignal.aborted || deadlineSignal.aborted) {
-    throw agentAbortError(turnSignal, deadlineSignal);
-  }
-}
-
-export function agentAbortError(
-  turnSignal: AbortSignal,
-  deadlineSignal: AbortSignal,
-): Error {
-  return turnSignal.aborted
-    ? turnAbortError()
-    : deadlineSignal.aborted
-      ? Object.assign(new Error("Bot agent total deadline was exceeded."), {
-          name: "AbortError",
-          code: "ABORT_ERR",
-        })
-      : turnAbortError();
-}
-
 function turnAbortError(): Error {
   return Object.assign(new Error("Bot turn was aborted."), {
     name: "AbortError",

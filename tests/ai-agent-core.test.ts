@@ -207,7 +207,7 @@ test("reports safe thinking boundaries around model and tool steps", async () =>
   ]);
 });
 
-test("seven parallel requests execute below the safety ceiling", async () => {
+test("seven parallel requests execute without a shared count ceiling", async () => {
   const calls = Array.from({ length: 7 }, (_, index) =>
     toolCall(`parallel-${index}`, "search_chat", {
       query: `query-${index}`,
@@ -310,7 +310,7 @@ test("research depth gate retries a premature final through Qwen-compatible auto
   assert.equal(completed?.researchQualityRetries, 1);
 });
 
-test("research requests can execute forty tool calls below the safety ceiling", async () => {
+test("research requests can execute forty tool calls", async () => {
   const calls = Array.from({ length: 40 }, (_, index) =>
     toolCall(`research-${index}`, "search_chat", {
       query: `research-${index}`,
@@ -344,7 +344,7 @@ test("research requests can execute forty tool calls below the safety ceiling", 
   assert.equal(completed?.deniedToolCalls, 0);
 });
 
-test("the 120-call safety ceiling denies excess calls and finalizes", async () => {
+test("tool execution count has no fixed ceiling", async () => {
   const calls = Array.from({ length: 121 }, (_, index) =>
     toolCall(`capped-${index}`, "search_chat", {
       query: `capped-${index}`,
@@ -369,20 +369,20 @@ test("the 120-call safety ceiling denies excess calls and finalizes", async () =
   );
 
   assert.equal(result.text, "финал после safety ceiling");
-  assert.equal(fixture.searchCalls, 120);
+  assert.equal(fixture.searchCalls, 121);
   assert.equal(model.doGenerateCalls.length, 2);
-  assert.deepEqual(model.doGenerateCalls[1]?.toolChoice, { type: "none" });
+  assert.notDeepEqual(model.doGenerateCalls[1]?.toolChoice, { type: "none" });
   const completed = fixture.logs.find(
     (record) => record.event === "bot.agent.complete",
   );
   assert.equal(completed?.requestedToolCalls, 121);
-  assert.equal(completed?.allowedToolCalls, 120);
-  assert.equal(completed?.startedToolCalls, 120);
-  assert.equal(completed?.deniedToolCalls, 1);
+  assert.equal(completed?.allowedToolCalls, 121);
+  assert.equal(completed?.startedToolCalls, 121);
+  assert.equal(completed?.deniedToolCalls, 0);
   const guard = fixture.logs.find(
     (record) => record.event === "bot.agent.finalization_guard",
   );
-  assert.equal(guard?.reason, "tool_limit");
+  assert.equal(guard, undefined);
 });
 
 test("malformed tool-call steps do not hit an arbitrary step ceiling", async () => {

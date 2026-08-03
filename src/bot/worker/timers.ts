@@ -4,7 +4,6 @@ import { WorkerAbortError } from "./helpers.js";
 
 export interface TurnTimers {
   readonly leaseLost: boolean;
-  readonly timedOut: boolean;
   readonly interruption: Promise<never>;
   stop(): void;
 }
@@ -15,7 +14,6 @@ export interface StartTurnTimersOptions {
   workerId: string;
   leaseMs: number;
   heartbeatMs: number;
-  turnTimeoutMs: number;
   scheduler: WorkerScheduler;
   now: () => number;
   controller: AbortController;
@@ -28,7 +26,6 @@ export function startTurnTimers(options: StartTurnTimersOptions): TurnTimers {
     workerId,
     leaseMs,
     heartbeatMs,
-    turnTimeoutMs,
     scheduler,
     now,
     controller,
@@ -36,10 +33,8 @@ export function startTurnTimers(options: StartTurnTimersOptions): TurnTimers {
     let stopped = false;
     const state = {
       leaseLost: false,
-      timedOut: false,
     };
     let heartbeatHandle: unknown;
-    let timeoutHandle: unknown;
     let interrupt!: (error: WorkerAbortError) => void;
     const interruption = new Promise<never>((_resolve, reject) => {
       interrupt = reject;
@@ -50,7 +45,6 @@ export function startTurnTimers(options: StartTurnTimersOptions): TurnTimers {
       }
       stopped = true;
       scheduler.clearInterval(heartbeatHandle);
-      scheduler.clearTimeout(timeoutHandle);
     };
     heartbeatHandle = scheduler.setInterval(() => {
       if (stopped) {
@@ -78,22 +72,9 @@ export function startTurnTimers(options: StartTurnTimersOptions): TurnTimers {
         interrupt(error);
       }
     }, heartbeatMs);
-    timeoutHandle = scheduler.setTimeout(() => {
-      if (stopped) {
-        return;
-      }
-      state.timedOut = true;
-      stop();
-      const error = new WorkerAbortError("turn_timeout");
-      controller.abort(error);
-      interrupt(error);
-    }, turnTimeoutMs);
     return {
       get leaseLost() {
         return state.leaseLost;
-      },
-      get timedOut() {
-        return state.timedOut;
       },
       interruption,
       stop,

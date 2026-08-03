@@ -2,7 +2,6 @@ import {
   DEFAULT_HEARTBEAT_MS,
   DEFAULT_LEASE_MS,
   DEFAULT_PUBLISH_TIMEOUT_MS,
-  DEFAULT_TURN_TIMEOUT_MS,
   type BotTurnWorkerOptions,
   type JsonEventLogger,
   type WorkerScheduler,
@@ -19,7 +18,6 @@ export interface BotTurnWorkerSettings {
   mode: "live" | "shadow";
   leaseMs: number;
   heartbeatMs: number;
-  turnTimeoutMs: number;
   publishTimeoutMs: number;
   logger: JsonEventLogger | undefined;
   scheduler: WorkerScheduler;
@@ -57,12 +55,6 @@ export function resolveBotTurnWorkerSettings(
     mode,
     leaseMs,
     heartbeatMs,
-    turnTimeoutMs: boundedInteger(
-      options.turnTimeoutMs ?? DEFAULT_TURN_TIMEOUT_MS,
-      100,
-      15 * 60_000,
-      "turnTimeoutMs",
-    ),
     publishTimeoutMs: boundedInteger(
       options.publishTimeoutMs ?? DEFAULT_PUBLISH_TIMEOUT_MS,
       100,
