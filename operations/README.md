@@ -81,7 +81,10 @@ Loopback MCP (`127.0.0.1:8766`) защищает от удалённых кли�
 protection, Origin/Host allowlist), но не изолирует процессы того же UID.
 `approval_id` для send — self-issued capability: тот же клиент вызывает
 `preview_message` и получает token. На однопользовательском хосте это
-осознанная граница; для multi-user — добавьте shared secret header.
+осознанная граница; для multi-user — добавьте shared secret header. Кроме
+trust boundary, loopback имеет defensive admission limits: до 32 sessions,
+128 active HTTP requests глобально и 8 active requests на session; превышение
+возвращает 503/429 и не запускает tool handler.
 
 ## Логи
 

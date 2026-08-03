@@ -111,7 +111,7 @@ export class VectorSearcher {
         chunk,
         score: cosineSimilarity(
           queryVector,
-          blobToVector(chunk.embedding),
+          blobToVector(chunk.embedding, chunk.dimensions),
         ),
       }))
       .sort((left, right) => right.score - left.score)

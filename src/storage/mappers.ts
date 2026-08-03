@@ -122,6 +122,8 @@ export function rowToMaintenanceJob(row: Record<string, unknown>): MaintenanceJo
 }
 
 export function rowToEmbeddingChunk(row: Record<string, unknown>): StoredEmbeddingChunk {
+  const dimensions = Number(row.embedding_dimensions);
+  const embedding = embeddingBlobFromRow(row.embedding, dimensions);
   return {
     id: Number(row.id),
     chatId: String(row.chat_id),
@@ -132,12 +134,35 @@ export function rowToEmbeddingChunk(row: Record<string, unknown>): StoredEmbeddi
     messageCount: Number(row.message_count),
     text: String(row.text ?? ""),
     model: String(row.embedding_model),
-    dimensions: Number(row.embedding_dimensions),
-    embedding: row.embedding as Uint8Array,
+    dimensions,
+    embedding,
     contentHash: String(row.content_hash),
     dirtyAt: row.dirty_at == null ? undefined : String(row.dirty_at),
     updatedAt: String(row.updated_at),
   };
+}
+
+function embeddingBlobFromRow(
+  value: unknown,
+  dimensions: number,
+): Uint8Array {
+  if (!Number.isSafeInteger(dimensions) || dimensions < 1) {
+    throw new Error("Embedding row dimensions must be a positive safe integer.");
+  }
+  if (!(value instanceof Uint8Array)) {
+    throw new Error("Embedding row BLOB must be a Uint8Array.");
+  }
+  if (value.byteLength % Float32Array.BYTES_PER_ELEMENT !== 0) {
+    throw new Error("Embedding row BLOB byte length must be divisible by 4.");
+  }
+  const actualDimensions =
+    value.byteLength / Float32Array.BYTES_PER_ELEMENT;
+  if (actualDimensions !== dimensions) {
+    throw new Error(
+      `Embedding BLOB has ${actualDimensions} dimensions but row declares ${dimensions}.`,
+    );
+  }
+  return value;
 }
 
 export function rowToSendOutboxItem(row: Record<string, unknown>): StoredSendOutboxItem {

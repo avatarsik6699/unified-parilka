@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  blobToVector,
+  cosineSimilarity,
   embeddingNamespace,
   vectorToBlob,
 } from "../src/embeddings.js";
 import { MessageStore } from "../src/store.js";
+import { rowToEmbeddingChunk } from "../src/storage/mappers.js";
 import { VectorRag } from "../src/vector-rag.js";
 import {
   CHAT,
@@ -13,6 +16,47 @@ import {
   mockFetch,
   namespace,
 } from "./support/vector-rag.js";
+
+test("vector decoding rejects corrupt blob sizes, dimensions, and values", () => {
+  assert.throws(
+    () => blobToVector(new Uint8Array([1, 2, 3])),
+    /byte length must be divisible by 4/u,
+  );
+  assert.throws(
+    () => blobToVector(vectorToBlob([1, 0]), 3),
+    /expected 3 dimensions but received 2/u,
+  );
+  const nonFinite = Buffer.alloc(4);
+  nonFinite.writeFloatLE(Number.NaN, 0);
+  assert.throws(
+    () => blobToVector(nonFinite),
+    /non-finite/u,
+  );
+  assert.throws(
+    () => cosineSimilarity([1], [1, 0]),
+    /same dimensions/u,
+  );
+});
+
+test("embedding row mapper rejects a BLOB with the wrong dimension", () => {
+  assert.throws(
+    () =>
+      rowToEmbeddingChunk({
+        id: 1,
+        chat_id: "chat",
+        start_message_id: 1,
+        end_message_id: 1,
+        message_count: 1,
+        text: "text",
+        embedding_model: "model",
+        embedding_dimensions: 2,
+        embedding: vectorToBlob([1]),
+        content_hash: "hash",
+        updated_at: "2026-01-01T00:00:00.000Z",
+      }),
+    /Embedding BLOB has 1 dimensions but row declares 2/u,
+  );
+});
 
 test("embedding indexing respects chunk and character budgets", async (t) => {
   mockEmbeddingFetch(t);

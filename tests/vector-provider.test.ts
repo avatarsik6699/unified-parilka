@@ -239,6 +239,29 @@ test("embedding API validates exact indices and finite consistent vectors", asyn
   );
 });
 
+test("malformed embedding payloads are permanent protocol failures", async (t) => {
+  let calls = 0;
+  mockFetch(t, async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ data: [null] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  });
+  const client = new EmbeddingClient(config({ maxRetries: 3 }));
+
+  await assert.rejects(
+    () => client.embedTexts(["first"]),
+    (error: unknown) => {
+      const normalized =
+        (error as { normalized?: { retryable?: boolean } }).normalized;
+      assert.equal(normalized?.retryable, false);
+      return true;
+    },
+  );
+  assert.equal(calls, 1);
+});
+
 test("embedding auth failures are permanent and endpoint joining is URL-safe", async (t) => {
   let requestedUrl = "";
   mockFetch(t, async (input) => {

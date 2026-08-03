@@ -181,6 +181,8 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
       "idx_bot_chat_skills_recent",
       "idx_chat_day_digests_range",
       "idx_chat_digest_rollups_range",
+      "idx_messages_digest_date",
+      "idx_bot_turns_due",
     ]) {
       this.assertSqliteObject("index", index);
     }

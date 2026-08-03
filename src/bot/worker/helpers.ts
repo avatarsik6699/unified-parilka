@@ -22,11 +22,62 @@ export function isAgentFinal(value: unknown): value is BotAgentFinalResult {
   const candidate = value as Record<string, unknown>;
   if (
     candidate.kind !== "final" ||
-    typeof candidate.text !== "string"
+    typeof candidate.text !== "string" ||
+    (candidate.responseOrigin !== undefined &&
+      candidate.responseOrigin !== "local_audio")
   ) {
     return false;
   }
-  return true;
+  const telemetry = candidate.telemetry;
+  if (!isRecord(telemetry)) {
+    return false;
+  }
+  if (
+    typeof telemetry.finalModelId !== "string" ||
+    typeof telemetry.finalProviderId !== "string" ||
+    !isOptionalString(telemetry.reasoningMode) ||
+    !Array.isArray(telemetry.steps) ||
+    !isOptionalNonNegativeInteger(telemetry.totalInputTokens) ||
+    !isOptionalNonNegativeInteger(telemetry.totalOutputTokens) ||
+    !isOptionalNonNegativeInteger(telemetry.totalTokens) ||
+    !isNonNegativeInteger(telemetry.toolCalls) ||
+    !isNonNegativeInteger(telemetry.durationMs) ||
+    typeof telemetry.incomplete !== "boolean"
+  ) {
+    return false;
+  }
+  return telemetry.steps.every(isStepUsageRecord);
+}
+
+function isStepUsageRecord(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    typeof value.modelId === "string" &&
+    isOptionalNonNegativeInteger(value.inputTokens) &&
+    isOptionalNonNegativeInteger(value.outputTokens) &&
+    isOptionalNonNegativeInteger(value.totalTokens) &&
+    isOptionalNonNegativeInteger(value.reasoningTokens)
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === "object";
+}
+
+function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || typeof value === "string";
+}
+
+function isOptionalNonNegativeInteger(
+  value: unknown,
+): value is number | undefined {
+  return value === undefined || isNonNegativeInteger(value);
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 export function durableMessageId(message: StoredMessage): string {

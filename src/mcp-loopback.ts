@@ -14,6 +14,8 @@ const LOOPBACK_HOST = "127.0.0.1";
 const MIN_PORT = 1_024;
 const MAX_PORT = 65_535;
 const DEFAULT_MAX_SESSIONS = 32;
+const DEFAULT_MAX_ACTIVE_REQUESTS = 128;
+const DEFAULT_MAX_ACTIVE_REQUESTS_PER_SESSION = 8;
 const DEFAULT_SESSION_IDLE_TIMEOUT_MS = 30 * 60_000;
 const MIN_SESSION_IDLE_TIMEOUT_MS = 10;
 
@@ -76,6 +78,8 @@ export interface LoopbackMcpServerOptions {
    * clients can connect. Overrides exist for deterministic lifecycle tests.
    */
   maxSessions?: number;
+  maxActiveRequests?: number;
+  maxActiveRequestsPerSession?: number;
   sessionIdleTimeoutMs?: number;
 }
 
@@ -94,9 +98,12 @@ export class LoopbackMcpServer {
   readonly #testPort: 0 | undefined;
   readonly #onError: (error: unknown) => void;
   readonly #maxSessions: number;
+  readonly #maxActiveRequests: number;
+  readonly #maxActiveRequestsPerSession: number;
   readonly #sessionIdleTimeoutMs: number;
   readonly #sessions = new Map<string, LoopbackMcpSession>();
   readonly #allSessions = new Set<LoopbackMcpSession>();
+  #activeRequests = 0;
   #httpServer: NodeHttpServer | undefined;
   #sessionSweepTimer: NodeJS.Timeout | undefined;
   #url: URL | undefined;
@@ -111,6 +118,19 @@ export class LoopbackMcpServer {
       1,
       1_024,
       "maxSessions",
+    );
+    this.#maxActiveRequests = boundedInteger(
+      options.maxActiveRequests ?? DEFAULT_MAX_ACTIVE_REQUESTS,
+      1,
+      4_096,
+      "maxActiveRequests",
+    );
+    this.#maxActiveRequestsPerSession = boundedInteger(
+      options.maxActiveRequestsPerSession ??
+        DEFAULT_MAX_ACTIVE_REQUESTS_PER_SESSION,
+      1,
+      256,
+      "maxActiveRequestsPerSession",
     );
     this.#sessionIdleTimeoutMs = boundedInteger(
       options.sessionIdleTimeoutMs ??
@@ -169,7 +189,14 @@ export class LoopbackMcpServer {
           : this.#sessions.get(sessionId);
       let created = false;
       let requestCounted = false;
+      let globalRequestCounted = false;
       try {
+        if (this.#activeRequests >= this.#maxActiveRequests) {
+          response.status(503).json(requestCapacityReached());
+          return;
+        }
+        this.#activeRequests += 1;
+        globalRequestCounted = true;
         if (!session) {
           if (sessionId != null) {
             response.status(404).json(invalidSession());
@@ -186,6 +213,13 @@ export class LoopbackMcpServer {
           }
           session = this.#createSession(configuredPort);
           created = true;
+        }
+        if (
+          session.activeRequests >=
+          this.#maxActiveRequestsPerSession
+        ) {
+          response.status(429).json(requestCapacityReached());
+          return;
         }
         session.activeRequests += 1;
         session.lastActivityAtMs = Date.now();
@@ -223,6 +257,12 @@ export class LoopbackMcpServer {
             session.activeRequests - 1,
           );
           session.lastActivityAtMs = Date.now();
+        }
+        if (globalRequestCounted) {
+          this.#activeRequests = Math.max(
+            0,
+            this.#activeRequests - 1,
+          );
         }
       }
     });
@@ -469,6 +509,21 @@ function sessionCapacityReached(): {
     error: {
       code: -32003,
       message: "MCP loopback session capacity is reached.",
+    },
+    id: null,
+  };
+}
+
+function requestCapacityReached(): {
+  jsonrpc: "2.0";
+  error: { code: number; message: string };
+  id: null;
+} {
+  return {
+    jsonrpc: "2.0",
+    error: {
+      code: -32004,
+      message: "MCP loopback in-flight request capacity is reached.",
     },
     id: null,
   };

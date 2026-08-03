@@ -5,6 +5,7 @@ import {
   BOT_REPLAY_MESSAGES,
   type BotAgentRequest,
 } from "../src/bot/worker.js";
+import { isAgentFinal } from "../src/bot/worker/helpers.js";
 import {
   CHAT,
   TRIGGER_ID,
@@ -18,6 +19,39 @@ import {
 } from "./support/bot-worker.js";
 import type { TelegramPublication } from "../src/bot/telegram-publication.js";
 import type { ToolProgressBotApiPort } from "../src/bot/tool-progress.js";
+
+test("agent final guard rejects missing or malformed telemetry", () => {
+  const telemetry = stubTelemetry();
+  const valid = {
+    kind: "final" as const,
+    text: "answer",
+    telemetry,
+  };
+
+  assert.equal(isAgentFinal(valid), true);
+  assert.equal(
+    isAgentFinal({
+      ...valid,
+      telemetry: { ...telemetry, toolCalls: Number.NaN },
+    }),
+    false,
+  );
+  assert.equal(
+    isAgentFinal({
+      ...valid,
+      telemetry: { ...telemetry, steps: [null] },
+    }),
+    false,
+  );
+  assert.equal(
+    isAgentFinal({ ...valid, responseOrigin: "remote" }),
+    false,
+  );
+  assert.equal(
+    isAgentFinal({ kind: "final", text: "answer" }),
+    false,
+  );
+});
 
 test("live success uses bounded context/replay, exact draft, and no raw streaming", async (t) => {
   const fixture = makeFixture(t);

@@ -287,6 +287,22 @@ test("writable v14 opens harden the database and reconcile the digest date index
   );
 });
 
+test("schema validation detects a missing bot turn due index", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "parilka-schema-index-"));
+  const path = join(directory, "cache.sqlite");
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+
+  new MessageStore(path).close();
+  const raw = new DatabaseSync(path);
+  raw.exec("DROP INDEX idx_bot_turns_due");
+  raw.close();
+
+  assert.throws(
+    () => new MessageStore(path),
+    /idx_bot_turns_due/u,
+  );
+});
+
 test("digest writes reject malformed ranges and metadata before SQLite", (t) => {
   const store = makeStore(t);
   assert.throws(

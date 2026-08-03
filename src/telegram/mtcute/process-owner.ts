@@ -31,6 +31,9 @@ export class MtcuteProcessClientOwner {
   private config: Readonly<MtcuteTransportConfig> | undefined;
   private clientPromise: Promise<MtcuteClientPort> | undefined;
   private connectPromise: Promise<void> | undefined;
+  /** Tracks the real client.connect() even when its timeout wrapper settles. */
+  private rawConnectPromise: Promise<void> | undefined;
+  private pendingConnectCleanup: Promise<void> | undefined;
   private disconnectPromise: Promise<void> | undefined;
   private destroyPromise: Promise<void> | undefined;
   private connected = false;
@@ -52,6 +55,15 @@ export class MtcuteProcessClientOwner {
     }
     this.bindConfig(config);
     const client = await this.getOrCreate(config);
+    if (this.destroyed) {
+      throw new MtcuteTransportError(
+        "client_destroyed",
+        "internal",
+        false,
+        "The process-wide mtcute client has already been destroyed.",
+      );
+    }
+    await this.waitForPendingConnectCleanup();
     if (this.disconnectPromise) {
       await this.disconnectPromise;
     }
@@ -62,31 +74,15 @@ export class MtcuteProcessClientOwner {
   }
 
   async disconnect(): Promise<void> {
-    if (!this.clientPromise || this.destroyed) {
+    if (!this.clientPromise) {
       return;
     }
-    if (this.disconnectPromise) {
-      return this.disconnectPromise;
+    if (this.destroyed) {
+      await this.destroyPromise;
+      return;
     }
-    const clientPromise = this.clientPromise;
-    this.disconnectPromise = (async () => {
-      const client = await clientPromise;
-      if (this.connectPromise) {
-        try {
-          await this.connectPromise;
-        } catch {
-          // The failed connect path already attempted cleanup.
-        }
-      }
-      if (this.needsDisconnect) {
-        this.connected = false;
-        await client.disconnect();
-        this.needsDisconnect = false;
-      }
-    })().finally(() => {
-      this.disconnectPromise = undefined;
-    });
-    await this.disconnectPromise;
+    const client = await this.clientPromise;
+    await this.ensureDisconnected(client);
   }
 
   async destroy(): Promise<void> {
@@ -100,55 +96,162 @@ export class MtcuteProcessClientOwner {
     const clientPromise = this.clientPromise;
     this.destroyPromise = (async () => {
       const client = await clientPromise;
-      if (this.connectPromise) {
-        try {
-          await this.connectPromise;
-        } catch {
-          // destroy() must still release a client whose connect() failed.
-        }
+      let cleanupError: unknown;
+      try {
+        await this.ensureDisconnected(client, false);
+      } catch (error) {
+        cleanupError = error;
       }
-      await client.destroy();
-      this.connected = false;
-      this.needsDisconnect = false;
+      try {
+        await client.destroy();
+      } catch (error) {
+        if (cleanupError !== undefined) {
+          throw new AggregateError(
+            [cleanupError, error],
+            "The mtcute client failed during disconnect and destroy.",
+          );
+        }
+        throw error;
+      } finally {
+        this.connected = false;
+        this.needsDisconnect = false;
+      }
+      if (cleanupError !== undefined) {
+        throw cleanupError;
+      }
     })();
     await this.destroyPromise;
   }
 
-  private async connect(
+  private connect(
     client: MtcuteClientPort,
     config: Readonly<MtcuteTransportConfig>,
   ): Promise<void> {
     if (this.connectPromise) {
-      await this.connectPromise;
-      return;
+      return this.connectPromise;
+    }
+    let operation: Promise<void>;
+    operation = this.connectOnce(client, config).finally(() => {
+      if (this.connectPromise === operation) {
+        this.connectPromise = undefined;
+      }
+    });
+    this.connectPromise = operation;
+    return operation;
+  }
+
+  private async connectOnce(
+    client: MtcuteClientPort,
+    config: Readonly<MtcuteTransportConfig>,
+  ): Promise<void> {
+    await this.waitForPendingConnectCleanup();
+    this.assertNotDestroyed();
+    if (this.disconnectPromise) {
+      await this.disconnectPromise;
     }
     if (this.needsDisconnect) {
-      await client.disconnect();
-      this.needsDisconnect = false;
+      await this.ensureDisconnected(client);
     }
+    this.assertNotDestroyed();
     this.needsDisconnect = true;
-    this.connectPromise = withTimeout(
-      client.connect(),
+    const rawConnectPromise = Promise.resolve().then(() => client.connect());
+    this.rawConnectPromise = rawConnectPromise;
+    void rawConnectPromise.then(
+      () => this.clearRawConnectPromise(rawConnectPromise),
+      () => this.clearRawConnectPromise(rawConnectPromise),
+    );
+    return withTimeout(
+      rawConnectPromise,
       config.connectionTimeoutMs,
       "The mtcute connection attempt timed out.",
     )
       .then(() => {
-        this.connected = true;
-      })
-      .catch(async (error: unknown) => {
-        this.connected = false;
-        try {
-          await client.disconnect();
-          this.needsDisconnect = false;
-        } catch {
-          // A later disconnect()/destroy() still owns final cleanup.
+        if (!this.destroyed) {
+          this.connected = true;
         }
-        throw error;
       })
-      .finally(() => {
-        this.connectPromise = undefined;
+      .catch((error: unknown) => {
+        this.connected = false;
+        this.scheduleConnectCleanup(client);
+        throw error;
       });
-    await this.connectPromise;
+  }
+
+  private async ensureDisconnected(
+    client: MtcuteClientPort,
+    waitForRawConnect = true,
+  ): Promise<void> {
+    if (this.disconnectPromise) {
+      return this.disconnectPromise;
+    }
+    this.disconnectPromise = (async () => {
+      if (waitForRawConnect) {
+        await this.waitForRawConnect();
+      }
+      if (this.needsDisconnect) {
+        this.connected = false;
+        await client.disconnect();
+        this.needsDisconnect = false;
+      }
+    })().finally(() => {
+      this.disconnectPromise = undefined;
+    });
+    await this.disconnectPromise;
+  }
+
+  private async waitForRawConnect(): Promise<void> {
+    const rawConnectPromise = this.rawConnectPromise;
+    if (!rawConnectPromise) {
+      return;
+    }
+    try {
+      await rawConnectPromise;
+    } catch {
+      // The connection operation reports its original error to its caller.
+    }
+    this.clearRawConnectPromise(rawConnectPromise);
+  }
+
+  private scheduleConnectCleanup(client: MtcuteClientPort): void {
+    if (this.pendingConnectCleanup) {
+      return;
+    }
+    const cleanup = this.ensureDisconnected(client, false);
+    this.pendingConnectCleanup = cleanup;
+    void cleanup.then(
+      () => this.clearPendingConnectCleanup(cleanup),
+      () => this.clearPendingConnectCleanup(cleanup),
+    );
+  }
+
+  private async waitForPendingConnectCleanup(): Promise<void> {
+    const cleanup = this.pendingConnectCleanup;
+    if (cleanup) {
+      await cleanup;
+    }
+  }
+
+  private clearRawConnectPromise(promise: Promise<void>): void {
+    if (this.rawConnectPromise === promise) {
+      this.rawConnectPromise = undefined;
+    }
+  }
+
+  private clearPendingConnectCleanup(promise: Promise<void>): void {
+    if (this.pendingConnectCleanup === promise) {
+      this.pendingConnectCleanup = undefined;
+    }
+  }
+
+  private assertNotDestroyed(): void {
+    if (this.destroyed) {
+      throw new MtcuteTransportError(
+        "client_destroyed",
+        "internal",
+        false,
+        "The process-wide mtcute client has already been destroyed.",
+      );
+    }
   }
 
   private bindConfig(config: Readonly<MtcuteTransportConfig>): void {

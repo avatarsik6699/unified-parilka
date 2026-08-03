@@ -22,13 +22,7 @@ export type EmbeddingChunkVector = EmbeddingChunkInput & {
 };
 
 type EmbeddingsResponse = {
-  data?: Array<{
-    index?: number;
-    embedding?: number[];
-  }>;
-  error?: {
-    message?: string;
-  };
+  data?: unknown;
 };
 
 export const EMBEDDING_NORMALIZATION_VERSION = "l2-v1";
@@ -243,7 +237,7 @@ function embeddingEndpoint(baseUrl: string): string {
 }
 
 function validateEmbeddingVectors(
-  data: EmbeddingsResponse["data"],
+  data: unknown,
   inputCount: number,
 ): number[][] {
   if (!Array.isArray(data) || data.length !== inputCount) {
@@ -252,21 +246,19 @@ function validateEmbeddingVectors(
   const vectors = new Array<number[]>(inputCount);
   let dimensions: number | undefined;
   for (const item of data) {
-    const index = item.index;
-    const embedding = item.embedding;
+    if (item == null || typeof item !== "object") {
+      throw unexpectedEmbeddingShape();
+    }
+    const record = item as Record<string, unknown>;
+    const index = record.index;
+    const embedding = record.embedding;
     if (
+      typeof index !== "number" ||
       !Number.isInteger(index) ||
-      index == null ||
       index < 0 ||
       index >= inputCount ||
       vectors[index] != null ||
-      !Array.isArray(embedding) ||
-      embedding.length === 0 ||
-      embedding.some(
-        (component) =>
-          typeof component !== "number" ||
-          !Number.isFinite(component),
-      )
+      !isFiniteEmbeddingVector(embedding)
     ) {
       throw unexpectedEmbeddingShape();
     }
@@ -287,12 +279,23 @@ function validateEmbeddingVectors(
   return vectors;
 }
 
+function isFiniteEmbeddingVector(value: unknown): value is number[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every(
+      (component): component is number =>
+        typeof component === "number" && Number.isFinite(component),
+    )
+  );
+}
+
 function unexpectedEmbeddingShape(
   message = "Embedding API returned an unexpected response shape.",
 ): ToolError {
   return new ToolError({
     category: "internal",
-    retryable: true,
+    retryable: false,
     message,
   });
 }
@@ -441,6 +444,15 @@ function abortableSleep(
 }
 
 export function vectorToBlob(vector: number[]): Buffer {
+  if (
+    vector.length === 0 ||
+    vector.some(
+      (value) =>
+        !Number.isFinite(value) || !Number.isFinite(Math.fround(value)),
+    )
+  ) {
+    throw new TypeError("Embedding vector must contain finite float values.");
+  }
   const buffer = Buffer.allocUnsafe(vector.length * Float32Array.BYTES_PER_ELEMENT);
   for (let index = 0; index < vector.length; index += 1) {
     buffer.writeFloatLE(vector[index], index * Float32Array.BYTES_PER_ELEMENT);
@@ -448,19 +460,47 @@ export function vectorToBlob(vector: number[]): Buffer {
   return buffer;
 }
 
-export function blobToVector(blob: Uint8Array): Float32Array {
+export function blobToVector(
+  blob: Uint8Array,
+  expectedDimensions?: number,
+): Float32Array {
+  if (blob.byteLength % Float32Array.BYTES_PER_ELEMENT !== 0) {
+    throw new TypeError("Embedding blob byte length must be divisible by 4.");
+  }
   const buffer = Buffer.from(blob);
   const values = new Float32Array(buffer.length / Float32Array.BYTES_PER_ELEMENT);
+  if (
+    values.length === 0 ||
+    (expectedDimensions !== undefined && values.length !== expectedDimensions)
+  ) {
+    throw new TypeError(
+      expectedDimensions === undefined
+        ? "Embedding blob must contain at least one dimension."
+        : `Embedding blob expected ${expectedDimensions} dimensions but received ${values.length}.`,
+    );
+  }
   for (let index = 0; index < values.length; index += 1) {
     values[index] = buffer.readFloatLE(index * Float32Array.BYTES_PER_ELEMENT);
+    if (!Number.isFinite(values[index])) {
+      throw new TypeError("Embedding blob contains a non-finite value.");
+    }
   }
   return values;
 }
 
 export function cosineSimilarity(normalizedLeft: ArrayLike<number>, normalizedRight: ArrayLike<number>): number {
-  const length = Math.min(normalizedLeft.length, normalizedRight.length);
+  if (normalizedLeft.length !== normalizedRight.length) {
+    throw new TypeError("Cosine similarity requires vectors with the same dimensions.");
+  }
+  const length = normalizedLeft.length;
   let score = 0;
   for (let index = 0; index < length; index += 1) {
+    if (
+      !Number.isFinite(normalizedLeft[index]) ||
+      !Number.isFinite(normalizedRight[index])
+    ) {
+      throw new TypeError("Cosine similarity requires finite vector values.");
+    }
     score += normalizedLeft[index] * normalizedRight[index];
   }
   return score;
