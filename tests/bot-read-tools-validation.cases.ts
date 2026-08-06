@@ -17,9 +17,9 @@ test("strict schemas reject malformed, coerced, and extra arguments as data", as
     cache: emptyCache(),
   });
   const cases: Array<[string, unknown, string]> = [
-    ["search_chat", { query: "" }, "query"],
-    ["search_chat", { query: "x", limit: "5" }, "limit"],
-    ["search_chat", { query: "x", surprise: true }, "surprise"],
+    ["rag_bm25_search", { query: "" }, "query"],
+    ["rag_bm25_search", { query: "x", limit: "5" }, "limit"],
+    ["rag_bm25_search", { query: "x", surprise: true }, "surprise"],
     ["day_digest", { day_from: "2026-02-30" }, "day_from"],
     ["day_digest", { day_from: "вчера" }, "day_from"],
     ["thread_context", { message_id: 0 }, "message_id"],
@@ -61,7 +61,7 @@ test("cache and provider exceptions are returned as typed error data", async () 
     }),
   });
   const cacheFailure = asFailure(
-    await cacheTools.callTool("search_chat", { query: "x" }),
+    await cacheTools.callTool("rag_bm25_search", { query: "x" }),
   );
   assert.equal(cacheFailure.error.code, "cache_error");
   assert.equal(cacheFailure.error.retryable, false);
@@ -116,7 +116,7 @@ test("tool payloads are projected once and stay inside the hard character budget
   });
 
   for (const result of [
-    await tools.callTool("search_chat", { query: "huge" }),
+    await tools.callTool("rag_bm25_search", { query: "huge" }),
     await tools.callTool("day_digest", { day_from: "2026-07-30" }),
   ]) {
     assert.equal(result.ok, true);

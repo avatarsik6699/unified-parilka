@@ -46,10 +46,14 @@ export function composeBotDaemon(
       ? {}
       : { vector: options.vector }),
     logger: options.logger,
+    botSenderId: config.botId,
+    rerankMaxCandidates:
+      options.appConfig?.embeddings?.rerankMaxCandidates ?? 0,
   });
   const readTools = new BotReadTools({
     chatId: config.allowedChatId,
     cache,
+    botSenderId: config.botId,
     ...(options.webSearch === undefined
       ? {}
       : { webSearch: options.webSearch }),
@@ -90,6 +94,7 @@ export function composeBotDaemon(
       historyDescription: config.historyDescription,
       memoryMaxChars:
         options.appConfig?.memory?.memoryMaxChars ?? 2_000,
+      botSenderId: config.botId,
       ...(config.approximateMemberCount === undefined
         ? {}
         : {
@@ -137,6 +142,7 @@ export function composeBotDaemon(
         typingPort,
         toolProgressBotApiPort,
         logger: options.logger,
+        botSenderId: config.botId,
       }),
   );
   const workerPump = new BotWorkerPump({

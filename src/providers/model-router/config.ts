@@ -91,6 +91,14 @@ const providerSchema = z
 const modelCapabilitiesSchema = z
   .object({
     vision: z.boolean(),
+    // Declared per exact model reference; telemetry renders an unknown
+    // denominator as "?" instead of guessing from the model name.
+    contextWindowTokens: z
+      .number()
+      .int()
+      .positive()
+      .max(Number.MAX_SAFE_INTEGER)
+      .optional(),
   })
   .strict();
 

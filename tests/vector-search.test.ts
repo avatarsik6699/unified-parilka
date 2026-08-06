@@ -4,6 +4,7 @@ import {
   blobToVector,
   cosineSimilarity,
   embeddingNamespace,
+  localBgeM3Namespace,
   vectorToBlob,
 } from "../src/embeddings.js";
 import { MessageStore } from "../src/store.js";
@@ -348,10 +349,95 @@ test("vector search refuses candidate sets above the configured bound", async (t
     },
   ]);
 
-  await assert.rejects(
-    () => vectorRag.search({ chatId: CHAT.chatId, query: "first", limit: 1 }),
-    /Vector search candidate limit 1 exceeded/,
-  );
+  const capped = await vectorRag.search({ chatId: CHAT.chatId, query: "first", limit: 1 });
+  assert.equal(capped.available, false, "dense channel degrades instead of throwing");
+  assert.match(capped.error ?? "", /Vector search candidate limit 1 exceeded/);
+  assert.deepEqual(capped.hits, []);
+  assert.equal(capped.candidateCount, 2);
+  assert.equal(capped.candidateLimit, 1);
+  assert.deepEqual(capped.sparseHits, []);
+  assert.equal(capped.sparseAvailable, undefined, "external backend has no sparse channel");
+  assert.equal(capped.backend, "external_openai");
+});
+
+test("local BGE-M3 dense cap exceeded but sparseAvailable true and sparseHits nonempty", async (t) => {
+  const dimensions = 1024;
+  const denseVec = Array<number>(dimensions).fill(0);
+  denseVec[0] = 1;
+  mockFetch(t, async (_url, init) => {
+    const body = JSON.parse(String((init as RequestInit).body ?? "{}")) as {
+      contract?: string;
+      texts?: string[];
+    };
+    if (body.texts) {
+      return new Response(
+        JSON.stringify({
+          contract: "bge-m3-v1",
+          model: "BAAI/bge-m3",
+          results: body.texts.map(() => ({
+            dense: denseVec,
+            sparse: [{ token_id: 1, weight: 0.5 }],
+          })),
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return new Response(JSON.stringify({}), { status: 400 });
+  });
+  const cfg = config({
+    backend: "local_bge_m3",
+    localEndpoint: "http://127.0.0.1:8767",
+    dimensions,
+    vectorCandidateLimit: 1,
+  });
+  const store = new MessageStore(":memory:");
+  const vectorRag = new VectorRag(cfg, store);
+  const ns = localBgeM3Namespace("bge-m3", dimensions);
+  store.upsertMessages(CHAT, [
+    { chatId: CHAT.chatId, messageId: 1, senderName: "alice", text: "first" },
+    { chatId: CHAT.chatId, messageId: 2, senderName: "bob", text: "second" },
+  ]);
+  store.upsertEmbeddingChunks([
+    {
+      chatId: CHAT.chatId,
+      startMessageId: 1,
+      endMessageId: 1,
+      messageIds: [1],
+      messageCount: 1,
+      text: "first",
+      namespace: ns,
+      model: "bge-m3",
+      dimensions,
+      embedding: vectorToBlob(denseVec),
+      contentHash: "first-hash",
+      sparseTerms: [{ tokenId: 1, weight: 0.5 }],
+    },
+    {
+      chatId: CHAT.chatId,
+      startMessageId: 2,
+      endMessageId: 2,
+      messageIds: [2],
+      messageCount: 1,
+      text: "second",
+      namespace: ns,
+      model: "bge-m3",
+      dimensions,
+      embedding: vectorToBlob(denseVec),
+      contentHash: "second-hash",
+      sparseTerms: [{ tokenId: 1, weight: 0.3 }],
+    },
+  ]);
+
+  const result = await vectorRag.search({ chatId: CHAT.chatId, query: "first", limit: 5, includeMessages: true });
+
+  assert.equal(result.available, false, "dense channel degraded by candidate cap");
+  assert.match(result.error ?? "", /Vector search candidate limit 1 exceeded/);
+  assert.deepEqual(result.hits, []);
+  assert.equal(result.candidateCount, 2);
+  assert.equal(result.sparseAvailable, true, "sparse channel remains available");
+  assert.ok(result.sparseHits.length > 0, "sparse hits should be nonempty");
+  assert.equal(result.sparseHits[0]?.chunk.dimensions, dimensions);
+  assert.equal(result.backend, "local_bge_m3");
 });
 
 test("hybrid ranking merges overlapping keyword and vector evidence", () => {

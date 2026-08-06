@@ -4,14 +4,21 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DreamConsolidator } from "../src/dream/consolidator.js";
-import type {
-  DigestModelRouter,
-} from "../src/digests.js";
+import { dreamYesterday } from "../src/dream/planner.js";
+import type { DigestModelRouter } from "../src/digests.js";
 import { MessageStore } from "../src/store.js";
 import type { StoredMessage } from "../src/store.js";
 import type { ResolvedModelCandidate } from "../src/providers/model-router.js";
+import type { DreamReviewModelOutput } from "../src/dream/review.js";
+import {
+  DREAM_NOW_ISO,
+  DREAM_YESTERDAY,
+  dreamNow,
+} from "./support/dream.js";
 
 const CHAT_ID = "-1003179772905";
+const BOT_SENDER_ID = "100000000";
+const HUMAN_SENDER_ID = "200000000";
 
 function fixtureStore() {
   const directory = mkdtempSync(join(tmpdir(), "parilka-dream-"));
@@ -34,7 +41,7 @@ function fixtureStore() {
   };
 }
 
-function fakeRouter(text: string): DigestModelRouter {
+function fakeRouter(output: DreamReviewModelOutput): DigestModelRouter {
   return {
     async executeWithFallback<T>(
       _role: string,
@@ -51,7 +58,7 @@ function fakeRouter(text: string): DigestModelRouter {
         capabilities: { vision: false },
       };
       return {
-        value: text as T,
+        value: output as T,
         candidate,
         attempt: 1,
         failures: [],
@@ -60,7 +67,9 @@ function fakeRouter(text: string): DigestModelRouter {
   };
 }
 
-function invokingRouter(): DigestModelRouter {
+function invokingRouter(
+  makeOutput: () => DreamReviewModelOutput,
+): DigestModelRouter {
   return {
     async executeWithFallback<T>(
       _role: string,
@@ -83,20 +92,36 @@ function invokingRouter(): DigestModelRouter {
   };
 }
 
-function seedMessages(store: MessageStore, count: number): number[] {
-  const ids: number[] = [];
-  const messages: StoredMessage[] = [];
-  for (let index = 1; index <= count; index += 1) {
-    messages.push({
+function seedInteraction(
+  store: MessageStore,
+  options: {
+    day: string;
+    triggerId: number;
+    answerId: number;
+    text?: string;
+    replyToMessageId?: number;
+  },
+): void {
+  const baseDate = new Date(`${options.day}T12:00:00Z`).toISOString();
+  const messages: StoredMessage[] = [
+    {
       chatId: CHAT_ID,
-      messageId: index,
-      date: `2026-07-${String(index).padStart(2, "0")}T12:00:00Z`,
-      senderId: "user",
+      messageId: options.triggerId,
+      date: baseDate,
+      senderId: HUMAN_SENDER_ID,
       senderName: "Alice",
-      text: `message ${index}`,
-    });
-    ids.push(index);
-  }
+      text: options.text ?? "human trigger",
+    },
+    {
+      chatId: CHAT_ID,
+      messageId: options.answerId,
+      date: new Date(`${options.day}T12:00:01Z`).toISOString(),
+      senderId: BOT_SENDER_ID,
+      senderName: "Bot",
+      text: "bot answer",
+      replyToMessageId: options.triggerId,
+    },
+  ];
   store.upsertMessages(
     {
       chatId: CHAT_ID,
@@ -107,260 +132,310 @@ function seedMessages(store: MessageStore, count: number): number[] {
     },
     messages,
   );
-  return ids;
 }
 
-test("dream returns no_new_messages when threshold is not met", async () => {
-  const { store, cleanup } = fixtureStore();
-  try {
-    seedMessages(store, 5);
-    const consolidator = new DreamConsolidator({
-      router: fakeRouter("new block"),
-      maxOutputChars: 1_000,
-    });
-    const result = await consolidator.run(store, {
+function seedEmptyDay(store: MessageStore, day: string): void {
+  const date = new Date(`${day}T12:00:00Z`).toISOString();
+  store.upsertMessages(
+    {
       chatId: CHAT_ID,
-      threshold: 10,
-      maxMessages: 20,
-    });
-    assert.equal(result.status, "no_new_messages");
-    if (result.status === "no_new_messages") {
-      assert.equal(result.pendingCount, 5);
-    }
-  } finally {
-    cleanup();
-  }
-});
+      requested: CHAT_ID,
+      title: "Dream Test",
+      kind: "channel",
+      isForum: false,
+    },
+    [
+      {
+        chatId: CHAT_ID,
+        messageId: 1000,
+        date,
+        senderId: HUMAN_SENDER_ID,
+        senderName: "Alice",
+        text: "no bot reply today",
+      },
+    ],
+  );
+}
 
-test("dream consolidates messages and advances watermark", async () => {
+function makeConsolidator(
+  router: DigestModelRouter,
+  options: { maxInputChars?: number; totalTimeoutMs?: number; candidateTimeoutMs?: number } = {},
+): DreamConsolidator {
+  return new DreamConsolidator({
+    router,
+    botSenderId: BOT_SENDER_ID,
+    maxInputChars: options.maxInputChars ?? 120_000,
+    totalTimeoutMs: options.totalTimeoutMs,
+    candidateTimeoutMs: options.candidateTimeoutMs,
+    now: dreamNow,
+  });
+}
+
+test("dream bootstraps seven pending days and processes all of them in the first run", async () => {
   const { store, cleanup } = fixtureStore();
   try {
-    seedMessages(store, 12);
-    const consolidator = new DreamConsolidator({
-      router: fakeRouter("Alice was here."),
-      maxOutputChars: 1_000,
-    });
-    const result = await consolidator.run(store, {
-      chatId: CHAT_ID,
-      threshold: 10,
-      maxMessages: 20,
-    });
+    const yesterday = DREAM_YESTERDAY;
+    seedInteraction(store, { day: yesterday, triggerId: 1, answerId: 2 });
+    const consolidator = makeConsolidator(fakeRouter({ text: "final", toolCalls: 0, finishReason: "stop" }));
+    const result = await consolidator.run(store, { chatId: CHAT_ID });
     assert.equal(result.status, "success");
     if (result.status === "success") {
-      assert.equal(result.messageCount, 12);
-      assert.equal(result.newWatermark, 12);
-      assert.equal(result.revision, 1);
-      assert.equal(result.chars, 15);
+      assert.equal(result.reviewedDays, 1);
+      assert.equal(result.totalInteractions, 1);
+      assert.equal(result.days.length, 7); // 7 bootstrap days processed in one run
     }
-    const memory = store.getChatMemory(CHAT_ID);
-    assert.equal(memory?.memoryText, "Alice was here.");
-    assert.equal(memory?.lastConsolidatedMessageId, 12);
   } finally {
     cleanup();
   }
 });
 
-test("dream keeps its compact default output budget separate from day and week digests", async () => {
+test("dream bootstrap window is pinned to the injected clock, not the wall date", async () => {
+  // The fixed clock and the fixed fixture day must stay consistent; otherwise
+  // the suite silently depends on the real date again.
+  assert.equal(dreamYesterday(new Date(DREAM_NOW_ISO)), DREAM_YESTERDAY);
   const { store, cleanup } = fixtureStore();
   try {
-    seedMessages(store, 10);
-    let observedMaxOutputTokens: number | undefined;
-    const consolidator = new DreamConsolidator({
-      router: invokingRouter(),
-      maxOutputChars: 1_000,
-      generate: async ({ maxOutputTokens }) => {
-        observedMaxOutputTokens = maxOutputTokens;
-        return { text: "compact memory", finishReason: "stop" };
-      },
-    });
-
-    const result = await consolidator.run(store, {
-      chatId: CHAT_ID,
-      threshold: 10,
-      maxMessages: 20,
-    });
-
+    seedInteraction(store, { day: DREAM_YESTERDAY, triggerId: 1, answerId: 2 });
+    const consolidator = makeConsolidator(
+      fakeRouter({ text: "final", toolCalls: 0, finishReason: "stop" }),
+    );
+    const result = await consolidator.run(store, { chatId: CHAT_ID });
     assert.equal(result.status, "success");
-    assert.equal(observedMaxOutputTokens, 1_024);
+    if (result.status === "success") {
+      assert.equal(result.reviewedDays, 1);
+    }
+    const days = store
+      .listDreamDays({ chatId: CHAT_ID })
+      .map((row) => row.day)
+      .sort();
+    assert.deepEqual(days, [
+      "2026-07-25",
+      "2026-07-26",
+      "2026-07-27",
+      "2026-07-28",
+      "2026-07-29",
+      "2026-07-30",
+      DREAM_YESTERDAY,
+    ]);
   } finally {
     cleanup();
   }
 });
 
-test("dream clamps oversized output after retry", async () => {
+test("dream completes empty day without model call", async () => {
   const { store, cleanup } = fixtureStore();
   try {
-    seedMessages(store, 15);
-    let calls = 0;
+    const yesterday = DREAM_YESTERDAY;
+    seedEmptyDay(store, yesterday);
+    let modelCalls = 0;
+    const router = invokingRouter(() => {
+      modelCalls += 1;
+      return { text: "final", toolCalls: 0, finishReason: "stop" };
+    });
+    const consolidator = makeConsolidator(router);
+    const result = await consolidator.run(store, { chatId: CHAT_ID });
+    assert.equal(result.status, "success");
+    if (result.status === "success") {
+      assert.equal(result.reviewedDays, 0);
+      assert.equal(result.totalInteractions, 0);
+      assert.equal(modelCalls, 0);
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("dream selects only bot reply interactions", async () => {
+  const { store, cleanup } = fixtureStore();
+  try {
+    const yesterday = DREAM_YESTERDAY;
+    seedInteraction(store, { day: yesterday, triggerId: 1, answerId: 2 });
+    store.upsertMessages(
+      {
+        chatId: CHAT_ID,
+        requested: CHAT_ID,
+        title: "Dream Test",
+        kind: "channel",
+        isForum: false,
+      },
+      [
+        {
+          chatId: CHAT_ID,
+          messageId: 3,
+          date: new Date(`${yesterday}T12:00:02Z`).toISOString(),
+          senderId: HUMAN_SENDER_ID,
+          senderName: "Bob",
+          text: "just a message",
+        },
+      ],
+    );
+    const consolidator = makeConsolidator(fakeRouter({ text: "final", toolCalls: 0, finishReason: "stop" }));
+    const result = await consolidator.run(store, { chatId: CHAT_ID });
+    assert.equal(result.status, "success");
+    if (result.status === "success") {
+      assert.equal(result.totalInteractions, 1);
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("dream failure preserves previous memory and leaves job failed", async () => {
+  const { store, cleanup } = fixtureStore();
+  try {
+    const yesterday = DREAM_YESTERDAY;
+    seedInteraction(store, { day: yesterday, triggerId: 1, answerId: 2 });
+    store.upsertChatMemory({
+      chatId: CHAT_ID,
+      memoryText: "existing memory",
+      lastConsolidatedMessageId: 1,
+    });
     const router: DigestModelRouter = {
       async executeWithFallback<T>(
         _role: string,
         _attempt: (candidate: ResolvedModelCandidate, attemptNumber: number) => Promise<T>,
       ) {
-        const candidate = {
-          reference: "provider/model",
-          providerId: "provider",
-          modelId: "model",
-          model: {} as ResolvedModelCandidate["model"],
-          capabilities: { vision: false },
-        };
-        calls += 1;
-        const text =
-          calls === 1 ? "a".repeat(600) : "short summary";
-        return {
-          value: text as T,
-          candidate,
-          attempt: calls,
-          failures: [],
-        };
+        throw Object.assign(new Error("boom"), { code: "boom" });
       },
     };
-    const consolidator = new DreamConsolidator({
-      router,
-      maxOutputChars: 500,
-    });
-    const result = await consolidator.run(store, {
-      chatId: CHAT_ID,
-      threshold: 10,
-      maxMessages: 20,
-    });
-    assert.equal(result.status, "success");
-    if (result.status === "success") {
-      assert.equal(result.chars, 13);
+    const consolidator = makeConsolidator(router);
+    const result = await consolidator.run(store, { chatId: CHAT_ID });
+    assert.equal(result.status, "failed");
+    if (result.status === "failed") {
+      assert.equal(result.error, "boom");
     }
-    assert.equal(calls, 2);
+    const memory = store.getChatMemory(CHAT_ID);
+    assert.equal(memory?.memoryText, "existing memory");
+    assert.equal(memory?.lastConsolidatedMessageId, 1);
+    const jobs = store.listDreamDays({ chatId: CHAT_ID, status: "failed" });
+    assert.equal(jobs.length, 1);
   } finally {
     cleanup();
   }
 });
 
-test("dream fail-closed preserves old block and watermark", async () => {
+test("dream retry processes oldest failed job first", async () => {
   const { store, cleanup } = fixtureStore();
   try {
-    seedMessages(store, 5);
-    store.upsertChatMemory({
+    const yesterday = DREAM_YESTERDAY;
+    seedInteraction(store, { day: yesterday, triggerId: 1, answerId: 2 });
+    store.upsertDreamDay({
       chatId: CHAT_ID,
-      memoryText: "existing memory",
-      lastConsolidatedMessageId: 2,
+      day: yesterday,
+      status: "failed",
+      interactionCount: 1,
+      attempts: 1,
+      error: "previous failure",
+      createdAtMs: 1,
+      updatedAtMs: 1,
     });
-    seedMessages(store, 10);
-    const consolidator = new DreamConsolidator({
-      router: fakeRouter("a".repeat(600)),
-      maxOutputChars: 500,
-    });
-    const result = await consolidator.run(store, {
-      chatId: CHAT_ID,
-      threshold: 5,
-      maxMessages: 20,
-    });
-    assert.equal(result.status, "failed");
-    if (result.status === "failed") {
-      assert.equal(result.preservedRevision, 1);
-    }
+    const consolidator = makeConsolidator(fakeRouter({ text: "final", toolCalls: 0, finishReason: "stop" }));
+    const result = await consolidator.run(store, { chatId: CHAT_ID });
+    assert.equal(result.status, "success");
+    const jobs = store.listDreamDays({ chatId: CHAT_ID, status: "completed" });
+    assert.ok(jobs.some((j) => j.day === yesterday));
+  } finally {
+    cleanup();
+  }
+});
+
+test("dream runs are idempotent after bootstrap", async () => {
+  const { store, cleanup } = fixtureStore();
+  try {
+    const yesterday = DREAM_YESTERDAY;
+    seedInteraction(store, { day: yesterday, triggerId: 1, answerId: 2 });
+    const consolidator = makeConsolidator(fakeRouter({ text: "final", toolCalls: 0, finishReason: "stop" }));
+    const first = await consolidator.run(store, { chatId: CHAT_ID });
+    assert.equal(first.status, "success");
+    const second = await consolidator.run(store, { chatId: CHAT_ID });
+    assert.equal(second.status, "no_jobs");
+  } finally {
+    cleanup();
+  }
+});
+
+test("dream source projection preserves sender attribution and roles", async () => {
+  const { store, cleanup } = fixtureStore();
+  try {
+    const yesterday = DREAM_YESTERDAY;
+    seedInteraction(store, { day: yesterday, triggerId: 1, answerId: 2, text: "hello" });
+    const consolidator = makeConsolidator(fakeRouter({ text: "final", toolCalls: 0, finishReason: "stop" }));
+    await consolidator.run(store, { chatId: CHAT_ID });
+    const day = store.getDreamDay({ chatId: CHAT_ID, day: yesterday });
+    assert.equal(day?.status, "completed");
+    assert.equal(day?.interactionCount, 1);
+  } finally {
+    cleanup();
+  }
+});
+
+test("dream updates semantic memory and watermark after successful review", async () => {
+  const { store, cleanup } = fixtureStore();
+  try {
+    const yesterday = DREAM_YESTERDAY;
+    seedInteraction(store, { day: yesterday, triggerId: 1, answerId: 2 });
+    const consolidator = makeConsolidator(
+      fakeRouter({ text: "user prefers short answers", toolCalls: 1, finishReason: "stop" }),
+    );
+    const result = await consolidator.run(store, { chatId: CHAT_ID });
+    assert.equal(result.status, "success");
     const memory = store.getChatMemory(CHAT_ID);
-    assert.equal(memory?.memoryText, "existing memory");
+    assert.ok(memory?.memoryText.includes("user prefers short answers"));
     assert.equal(memory?.lastConsolidatedMessageId, 2);
   } finally {
     cleanup();
   }
 });
 
-test("dream reports a candidate timeout without mutating memory", async () => {
+test("dream failure preserves existing semantic memory and watermark", async () => {
   const { store, cleanup } = fixtureStore();
   try {
-    seedMessages(store, 10);
-    const consolidator = new DreamConsolidator({
-      router: invokingRouter(),
-      maxOutputChars: 1_000,
-      totalTimeoutMs: 1_500,
-      candidateTimeoutMs: 500,
-      generate: ({ signal }) =>
-        new Promise<never>((_resolve, reject) => {
-          if (signal.aborted) {
-            reject(signal.reason);
-            return;
-          }
-          signal.addEventListener("abort", () => reject(signal.reason), {
-            once: true,
-          });
-        }),
-    });
-    const result = await consolidator.run(store, {
+    const yesterday = DREAM_YESTERDAY;
+    seedInteraction(store, { day: yesterday, triggerId: 1, answerId: 2 });
+    store.upsertChatMemory({
       chatId: CHAT_ID,
-      threshold: 10,
-      maxMessages: 20,
+      memoryText: "existing semantic memory",
+      lastConsolidatedMessageId: 5,
     });
-    assert.equal(result.status, "failed");
-    if (result.status === "failed") {
-      assert.equal(result.error, "ETIMEDOUT");
-      assert.equal(result.preservedRevision, 0);
-    }
-    assert.equal(store.getChatMemory(CHAT_ID), undefined);
-  } finally {
-    cleanup();
-  }
-});
-
-test("dream retries one timed-out Qwen candidate within its total deadline", async () => {
-  const { store, cleanup } = fixtureStore();
-  try {
-    seedMessages(store, 10);
-    let calls = 0;
-    const consolidator = new DreamConsolidator({
-      router: invokingRouter(),
-      maxOutputChars: 1_000,
-      totalTimeoutMs: 1_500,
-      candidateTimeoutMs: 500,
-      generate: ({ signal }) => {
-        calls += 1;
-        if (calls === 1) {
-          return new Promise<never>((_resolve, reject) => {
-            signal.addEventListener("abort", () => reject(signal.reason), {
-              once: true,
-            });
-          });
-        }
-        return Promise.resolve({
-          text: "recovered memory",
-          finishReason: "stop",
-        });
+    const router: DigestModelRouter = {
+      async executeWithFallback<T>(
+        _role: string,
+        _attempt: (candidate: ResolvedModelCandidate, attemptNumber: number) => Promise<T>,
+      ) {
+        throw Object.assign(new Error("boom"), { code: "boom" });
       },
-    });
-
-    const result = await consolidator.run(store, {
-      chatId: CHAT_ID,
-      threshold: 10,
-      maxMessages: 20,
-    });
-
-    assert.equal(result.status, "success");
-    assert.equal(calls, 2);
-    assert.equal(store.getChatMemory(CHAT_ID)?.memoryText, "recovered memory");
+    };
+    const consolidator = makeConsolidator(router);
+    const result = await consolidator.run(store, { chatId: CHAT_ID });
+    assert.equal(result.status, "failed");
+    const memory = store.getChatMemory(CHAT_ID);
+    assert.equal(memory?.memoryText, "existing semantic memory");
+    assert.equal(memory?.lastConsolidatedMessageId, 5);
   } finally {
     cleanup();
   }
 });
 
-test("dream is idempotent without new messages", async () => {
+test("dream source hash changes when projected fields change", async () => {
   const { store, cleanup } = fixtureStore();
   try {
-    seedMessages(store, 12);
-    const consolidator = new DreamConsolidator({
-      router: fakeRouter("Alice was here."),
-      maxOutputChars: 1_000,
-    });
-    const first = await consolidator.run(store, {
-      chatId: CHAT_ID,
-      threshold: 10,
-      maxMessages: 20,
-    });
+    const yesterday = DREAM_YESTERDAY;
+    seedInteraction(store, { day: yesterday, triggerId: 1, answerId: 2, text: "hello" });
+    const consolidator = makeConsolidator(fakeRouter({ text: "final", toolCalls: 0, finishReason: "stop" }));
+    const first = await consolidator.run(store, { chatId: CHAT_ID });
     assert.equal(first.status, "success");
-    const second = await consolidator.run(store, {
-      chatId: CHAT_ID,
-      threshold: 10,
-      maxMessages: 20,
-    });
-    assert.equal(second.status, "no_new_messages");
+    const firstHash = store.getDreamDay({ chatId: CHAT_ID, day: yesterday })?.sourceHash;
+
+    const { store: store2, cleanup: cleanup2 } = fixtureStore();
+    seedInteraction(store2, { day: yesterday, triggerId: 1, answerId: 2, text: "hello world" });
+    const second = await makeConsolidator(
+      fakeRouter({ text: "final", toolCalls: 0, finishReason: "stop" }),
+    ).run(store2, { chatId: CHAT_ID });
+    assert.equal(second.status, "success");
+    const secondHash = store2.getDreamDay({ chatId: CHAT_ID, day: yesterday })?.sourceHash;
+
+    assert.notEqual(firstHash, secondHash);
+    cleanup2();
   } finally {
     cleanup();
   }

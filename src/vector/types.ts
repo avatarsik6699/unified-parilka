@@ -77,12 +77,33 @@ export type HybridSearchHit = {
 };
 
 export interface VectorSearchResult {
+  /**
+   * Dense channel state only. Kept as the backward-compatible "vector
+   * availability" for the public operator projection. Dense-only failures
+   * (candidate cap, corrupt blobs, dimension mismatch) set it to false while
+   * the learned sparse channel below stays independent and may still return
+   * hits. Common failures (query encode, service outage, maintenance,
+   * missing index) take down both channels.
+   */
   available: boolean;
   error?: string;
+  /** Backend that produced (or would produce) the dense channel. */
+  backend?: "external_openai" | "local_bge_m3";
   stats: Array<Record<string, unknown>>;
   candidateLimit?: number;
   candidateCount?: number;
   hits: VectorSearchHit[];
+  /**
+   * Learned sparse channel of the local BGE-M3 backend. Independent of
+   * `available`: it may be true/non-empty while the dense channel is
+   * degraded. Always an empty list for the external dense-only backend;
+   * `sparseAvailable` distinguishes "channel not supported" from
+   * "supported but degraded".
+   */
+  sparseHits: VectorSearchHit[];
+  sparseAvailable?: boolean;
+  sparseError?: string;
+  sparseCandidateCount?: number;
 }
 
 export interface VectorIndexParams {

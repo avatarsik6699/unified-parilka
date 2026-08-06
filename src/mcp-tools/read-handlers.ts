@@ -101,7 +101,7 @@ export async function searchMessages(
     afterId: args.after_id,
   });
   let vectorResult: VectorSearchResult;
-  let vector: VectorSearchResult;
+  let vector: PublicVectorSearchResult;
   try {
     vectorResult = await context.vectorRag.search({
       chatId: chat.chatId,
@@ -115,8 +115,8 @@ export async function searchMessages(
     vector = publicVectorSearchResult(context, vectorResult);
   } catch (error) {
     throwIfToolAborted(signal);
+    vectorResult = internalVectorFailure(context, error, chat.chatId);
     vector = publicVectorFailure(context, error, chat.chatId);
-    vectorResult = vector;
   }
   const hybridHits = context.vectorRag.hybrid(
     keywordHits,
@@ -387,13 +387,28 @@ function publicHybridSearchHit(hit: HybridSearchHit): HybridSearchHit {
   return publicHit;
 }
 
+/**
+ * Public operator MCP projection of a vector search result. The allowlist is
+ * intentionally narrower than the internal VectorSearchResult: backend and
+ * learned-sparse fields belong to the bot retrieval slice and must not leak
+ * into the stable operator contract.
+ */
+export type PublicVectorSearchResult = {
+  available: boolean;
+  error?: string;
+  stats: Array<Record<string, unknown>>;
+  hits: VectorSearchHit[];
+  candidateLimit?: number;
+  candidateCount?: number;
+};
+
 function publicVectorSearchResult(
   context: TelegramToolContext,
   result: VectorSearchResult,
-): VectorSearchResult {
+): PublicVectorSearchResult {
   const stats = publicEmbeddingStats(result.stats);
   const available = result.available === true;
-  const publicResult: VectorSearchResult = {
+  const publicResult: PublicVectorSearchResult = {
     available,
     stats,
     hits: result.hits.map(publicVectorSearchHit),
@@ -415,15 +430,59 @@ function publicVectorSearchResult(
     }
     return publicResult;
   }
-  publicResult.error = localVectorUnavailableReason(context, stats);
+  publicResult.error = publicVectorUnavailableReason(
+    context,
+    result,
+    stats,
+  );
   return publicResult;
+}
+
+/**
+ * Operator-facing reason for an unavailable dense channel. Built from
+ * config and bounded structured fields only — upstream error text is never
+ * surfaced. A dense candidate-cap overflow keeps its actionable hint even
+ * though it no longer throws (the sparse channel may still be alive).
+ */
+function publicVectorUnavailableReason(
+  context: TelegramToolContext,
+  result: VectorSearchResult,
+  stats: Array<Record<string, unknown>>,
+): string {
+  const candidateLimit = publicVectorCandidateLimit(
+    result.candidateLimit,
+    context.config.embeddings.vectorCandidateLimit,
+  );
+  if (
+    candidateLimit != null &&
+    typeof result.candidateCount === "number" &&
+    Number.isSafeInteger(result.candidateCount) &&
+    result.candidateCount > candidateLimit
+  ) {
+    return `Vector search candidate limit ${candidateLimit} exceeded. Narrow the search with before_id/after_id or raise TELEGRAM_EMBEDDINGS_VECTOR_CANDIDATE_LIMIT after benchmarking.`;
+  }
+  return localVectorUnavailableReason(context, stats);
+}
+
+function internalVectorFailure(
+  context: TelegramToolContext,
+  error: unknown,
+  chatId: string,
+): VectorSearchResult {
+  return {
+    available: false,
+    error: vectorFailureReason(context, error),
+    stats: publicEmbeddingStats(context.store.getEmbeddingStats(chatId)),
+    hits: [],
+    sparseHits: [],
+  };
 }
 
 function publicVectorFailure(
   context: TelegramToolContext,
   error: unknown,
   chatId: string,
-): VectorSearchResult {
+): PublicVectorSearchResult {
   return {
     available: false,
     error: vectorFailureReason(context, error),
@@ -490,6 +549,14 @@ function localVectorUnavailableReason(
   }
   if (!context.config.embeddings.enabled) {
     return "Embeddings are disabled. Set TELEGRAM_EMBEDDINGS_ENABLED=true.";
+  }
+  if (context.config.embeddings.backend === "local_bge_m3") {
+    // The loopback backend never needs an API key: an empty index is a
+    // no-index state, anything else is a neutral local service outage.
+    if (stats.length === 0) {
+      return "No vector chunks indexed yet. Run index_embeddings first.";
+    }
+    return "Local BGE-M3 vector service is unavailable.";
   }
   if (!context.config.embeddings.apiKey) {
     return "Embedding API key is missing. Set OPENAI_API_KEY or TELEGRAM_EMBEDDINGS_API_KEY.";

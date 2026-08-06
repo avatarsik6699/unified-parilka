@@ -1,5 +1,6 @@
 import type { DigestModelRouter } from "../digests.js";
 import { DreamConsolidator } from "../dream/consolidator.js";
+import type { JsonEventLogger } from "../observability/contracts.js";
 import type { MessageStore } from "../store.js";
 import type { CliOptions } from "./options.js";
 
@@ -7,23 +8,22 @@ export type DreamPassResult =
   | {
       status: "skipped";
       reason: "dry_run" | "no_model_config";
-      pendingCount: number;
     }
   | {
-      status: "no_new_messages";
-      pendingCount: number;
+      status: "no_jobs";
+      reason: "already_caught_up";
     }
   | {
       status: "failed";
       error: string;
-      preservedRevision: number;
+      days?: unknown[];
     }
   | {
       status: "success";
-      revision: number;
-      chars: number;
-      messageCount: number;
-      newWatermark: number;
+      days: unknown[];
+      reviewedDays: number;
+      totalInteractions: number;
+      newWatermark?: number;
       model: string;
       providerId: string;
       fallbackCount: number;
@@ -34,67 +34,60 @@ export interface DreamPassOptions
     CliOptions,
     | "chatId"
     | "apply"
-    | "dreamEveryNMessages"
-    | "dreamMaxMessages"
-    | "memoryMaxChars"
+    | "botId"
     | "modelConfigPath"
     | "modelTotalTimeoutMs"
     | "modelCandidateTimeoutMs"
-  > {}
+    | "memoryMaxChars"
+  > {
+  /** Optional test seam; defaults to the production wall clock. */
+  now?: () => Date;
+}
 
 export async function runDreamPass(
   store: MessageStore,
   options: DreamPassOptions,
   router: DigestModelRouter | undefined,
+  logger?: JsonEventLogger,
 ): Promise<DreamPassResult> {
-  const current = store.getChatMemory(options.chatId);
-  const pendingCount = store.countMessagesSince({
-    chatId: options.chatId,
-    messageId: current?.lastConsolidatedMessageId,
-  });
-
   if (!options.apply || router === undefined) {
     return {
       status: "skipped",
       reason: options.apply ? "no_model_config" : "dry_run",
-      pendingCount,
     };
-  }
-
-  if (pendingCount < options.dreamEveryNMessages) {
-    return { status: "no_new_messages", pendingCount };
   }
 
   const consolidator = new DreamConsolidator({
     router,
-    maxOutputChars: options.memoryMaxChars,
+    botSenderId: options.botId,
+    maxMemoryChars: options.memoryMaxChars,
     totalTimeoutMs: options.modelTotalTimeoutMs,
     candidateTimeoutMs: options.modelCandidateTimeoutMs,
+    logger,
+    now: options.now,
   });
 
   const result = await consolidator.run(store, {
     chatId: options.chatId,
-    threshold: options.dreamEveryNMessages,
-    maxMessages: options.dreamMaxMessages,
   });
 
-  if (result.status === "no_new_messages") {
-    return { status: "no_new_messages", pendingCount };
+  if (result.status === "no_jobs") {
+    return { status: "no_jobs", reason: result.reason };
   }
 
   if (result.status === "failed") {
     return {
       status: "failed",
       error: result.error,
-      preservedRevision: result.preservedRevision,
+      days: result.days,
     };
   }
 
   return {
     status: "success",
-    revision: result.revision,
-    chars: result.chars,
-    messageCount: result.messageCount,
+    days: result.days,
+    reviewedDays: result.reviewedDays,
+    totalInteractions: result.totalInteractions,
     newWatermark: result.newWatermark,
     model: result.model,
     providerId: result.providerId,

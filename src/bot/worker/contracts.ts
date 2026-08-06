@@ -49,6 +49,8 @@ export interface BotAgentRequest {
   fastMemory?: readonly StoredFastChatMemory[];
   longTermLessons?: readonly StoredChatLesson[];
   chatSkills?: readonly StoredChatSkill[];
+  /** Durable sender id of this bot's own published messages. */
+  botSenderId?: string;
 }
 
 export interface BotTurnAgent {
@@ -115,6 +117,8 @@ export interface BotTurnWorkerOptions {
   logger?: JsonEventLogger;
   scheduler?: WorkerScheduler;
   now?: () => number;
+  /** Durable sender id of this bot's own published messages. */
+  botSenderId?: string;
 }
 
 export type BotTurnWorkerResult =

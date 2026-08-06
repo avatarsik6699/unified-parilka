@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { redactUrlCredentials } from "../config/redaction.js";
+import {
+  embeddingBackendConfigured,
+  redactUrlCredentials,
+} from "../config/redaction.js";
 import { ok } from "../errors.js";
 import {
   healthSummary,
@@ -38,14 +41,33 @@ export function safeConfig(
     sync: config.sync,
     embeddings: {
       enabled: config.embeddings.enabled,
-      configured: Boolean(config.embeddings.apiKey),
-      baseUrl: redactUrlCredentials(
-        config.embeddings.baseUrl,
+      backend: config.embeddings.backend,
+      configured: embeddingBackendConfigured(
+        config.embeddings,
       ),
       model: config.embeddings.model,
       dimensions: config.embeddings.dimensions,
-      requestTimeoutMs:
-        config.embeddings.requestTimeoutMs,
+      ...(config.embeddings.backend === "local_bge_m3"
+        ? {
+            localEndpoint: config.embeddings.localEndpoint
+              ? redactUrlCredentials(
+                  config.embeddings.localEndpoint,
+                )
+              : "<unset>",
+            localRequestTimeoutMs:
+              config.embeddings.localRequestTimeoutMs,
+            rerankTimeoutMs:
+              config.embeddings.rerankTimeoutMs,
+            rerankMaxCandidates:
+              config.embeddings.rerankMaxCandidates,
+          }
+        : {
+            baseUrl: redactUrlCredentials(
+              config.embeddings.baseUrl,
+            ),
+            requestTimeoutMs:
+              config.embeddings.requestTimeoutMs,
+          }),
       maxRetries: config.embeddings.maxRetries,
       retryInitialMs: config.embeddings.retryInitialMs,
       retryMaxMs: config.embeddings.retryMaxMs,
@@ -122,8 +144,9 @@ export function getStatus(
     durableQueue,
     embeddings: {
       enabled: context.config.embeddings.enabled,
-      configured: Boolean(
-        context.config.embeddings.apiKey,
+      backend: context.config.embeddings.backend,
+      configured: embeddingBackendConfigured(
+        context.config.embeddings,
       ),
       model: context.config.embeddings.model,
       dimensions: context.config.embeddings.dimensions,

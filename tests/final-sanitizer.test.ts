@@ -35,7 +35,7 @@ test("удаляет явно выдуманные ссылки с author+et al.
   assert.equal(final.includes("А это практический совет"), true);
 });
 
-test("оставляет подтверждённые источники и убирает неподтверждённые ссылки", () => {
+test("externalSourcesRequested=false убирает подтверждённые и неподтверждённые источники", () => {
   const draft = [
     "Тут есть ссылка на пример:",
     "[paper](https://example.org/paper/phase-advance)",
@@ -46,9 +46,29 @@ test("оставляет подтверждённые источники и уб
     toolEvidence: allowedEvidence,
     researchMode: true,
     readToolFailures: [],
+    externalSourcesRequested: false,
   });
   assert.equal(final.includes("https://fake.example.ru/study"), false);
+  assert.equal(final.includes("https://example.org/paper/phase-advance"), false);
   assert.equal(final.includes("paper"), true);
+  assert.equal(final.includes("Подтвержденные источники"), false);
+});
+
+test("externalSourcesRequested=true сохраняет подтверждённые источники и убирает неподтверждённые", () => {
+  const draft = [
+    "Тут есть ссылка на пример:",
+    "[paper](https://example.org/paper/phase-advance)",
+    "И ложная ссылка: https://fake.example.ru/study",
+  ].join("\n");
+  const final = sanitizeFinalText({
+    text: draft,
+    toolEvidence: allowedEvidence,
+    researchMode: true,
+    readToolFailures: [],
+    externalSourcesRequested: true,
+  });
+  assert.equal(final.includes("https://fake.example.ru/study"), false);
+  assert.equal(final.includes("https://example.org/paper/phase-advance"), true);
   assert.equal(final.includes("Подтвержденные источники"), true);
 });
 
@@ -122,7 +142,7 @@ test("в research-режиме без evidence удаляет URL", () => {
   assert.equal(final.includes("https://nodejs.org/api"), false);
 });
 
-test("в research-режиме с web evidence сохраняет подтверждённые URL и удаляет неподтверждённые", () => {
+test("в research-режиме с web evidence externalSourcesRequested=false удаляет все URL", () => {
   const evidence: ReadToolEvidence[] = [
     {
       source: "web",
@@ -144,6 +164,35 @@ test("в research-режиме с web evidence сохраняет подтвер
     toolEvidence: evidence,
     researchMode: true,
     readToolFailures: [],
+    externalSourcesRequested: false,
+  });
+  assert.equal(final.includes("https://nodejs.org/api"), false);
+  assert.equal(final.includes("https://fake.example.ru/study"), false);
+});
+
+test("в research-режиме с web evidence externalSourcesRequested=true сохраняет подтверждённые URL", () => {
+  const evidence: ReadToolEvidence[] = [
+    {
+      source: "web",
+      chat: null,
+      message: null,
+      speaker: { id: null, name: null },
+      date: "2024",
+      title: "Node.js docs",
+      url: "https://nodejs.org/api",
+      text: "Documentation.",
+    },
+  ];
+  const draft = [
+    "Подтверждённая: https://nodejs.org/api",
+    "Неподтверждённая: https://fake.example.ru/study",
+  ].join("\n");
+  const final = sanitizeFinalText({
+    text: draft,
+    toolEvidence: evidence,
+    researchMode: true,
+    readToolFailures: [],
+    externalSourcesRequested: true,
   });
   assert.equal(final.includes("https://nodejs.org/api"), true);
   assert.equal(final.includes("https://fake.example.ru/study"), false);

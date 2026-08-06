@@ -485,4 +485,54 @@ declare protected applyMaintenanceSchema: () => void;
   protected applyRetireBotCallbackIntentsMigration(): void {
     this.db.exec("DROP TABLE IF EXISTS bot_callback_intents;");
   }
+
+  protected applyBotChatDreamDaysMigration(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS bot_chat_dream_days (
+        chat_id TEXT NOT NULL,
+        day TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('pending', 'running', 'completed', 'failed')),
+        source_hash TEXT,
+        interaction_count INTEGER NOT NULL DEFAULT 0,
+        first_message_id INTEGER,
+        last_message_id INTEGER,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        model TEXT,
+        provider TEXT,
+        created_at_ms INTEGER NOT NULL,
+        updated_at_ms INTEGER NOT NULL,
+        completed_at_ms INTEGER,
+        PRIMARY KEY(chat_id, day)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_bot_chat_dream_days_status
+        ON bot_chat_dream_days(chat_id, status, day);
+      CREATE INDEX IF NOT EXISTS idx_bot_chat_dream_days_day
+        ON bot_chat_dream_days(chat_id, day);
+    `);
+  }
+
+  /**
+   * Learned sparse postings for the local BGE-M3 backend. Each posting row
+   * belongs to a parent `message_embedding_chunks` row, so the parent
+   * namespace/model/dimensions already pin tokenizer and weight contract;
+   * mixing tokenizers across one parent row set is impossible.
+   */
+  protected applyLearnedSparsePostingsMigration(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS message_embedding_sparse_terms (
+        chunk_id INTEGER NOT NULL,
+        token_id INTEGER NOT NULL,
+        weight REAL NOT NULL,
+        PRIMARY KEY(chunk_id, token_id)
+      ) WITHOUT ROWID;
+
+      CREATE INDEX IF NOT EXISTS idx_embedding_sparse_terms_lookup
+        ON message_embedding_sparse_terms(token_id, chunk_id);
+    `);
+    for (const definition of MANAGED_TRIGGER_DEFINITIONS) {
+      this.ensureManagedTriggerDefinition(definition);
+    }
+  }
 }

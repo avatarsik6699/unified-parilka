@@ -40,12 +40,23 @@ modules under this directory.
 - `schema/migrations.ts`: version-to-version reconciliation.
 - `schema/objects.ts`: managed FTS/trigger definitions and schema helpers.
 - `schema/lifecycle.ts`: migration ordering and final schema validation.
-- `messages.ts`: chats, messages, keyword search, and message hydration.
+- `messages.ts`: chats, messages, keyword search, the deterministic lexical
+  FTS API (match modes, sender/date/id filters, id ordering), and message
+  hydration. History/thread reads exclude soft-deleted rows by default.
+- `transcript.ts`: live-only transcript reads (recent count and UTC period)
+  with an authoritative frozen upper message id, chronological bounded pages,
+  coverage metadata and the versioned keyset continuation cursor.
 - `bot-updates.ts`: durable Bot API inbox and update ingestion.
 - `bot-turns.ts`: turn leases and durable turn state machine.
 - `chat-knowledge.ts`: bounded chat-scoped fast notes, durable lessons and
   progressive skills; source-attributed upserts, credential rejection and
-  capacity pruning under the shared transaction kernel.
+  capacity pruning under the shared transaction kernel. Public upserts wrap
+  `*Locked` helpers for multi-write orchestration.
+- `dream-days.ts`: per-chat dream job rows (`pending`/`running`/`completed`/
+  `failed`) with idempotent upsert.
+- `dream-commit.ts`: purpose-built `commitDreamDay` — one short
+  `BEGIN IMMEDIATE` applying staged fast/lessons/skills, semantic memory and
+  the completed dream-day row after model work (no nested BEGIN).
 - `digests.ts`: day and rollup cache persistence.
 - `embeddings.ts`: embedding chunks, membership, and coverage.
 - `send-outbox.ts`: durable sends, throttle state, and startup reconciliation.

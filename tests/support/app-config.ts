@@ -15,8 +15,6 @@ export const DEFAULT_MTCUTE: AppConfig["telegram"]["mtcute"] = {
 };
 
 export const DEFAULT_MEMORY: AppConfig["memory"] = {
-  dreamEveryNMessages: 10,
-  dreamMaxMessages: 100,
   memoryMaxChars: 10_000,
 };
 
@@ -58,8 +56,13 @@ export function baseAppConfig(): AppConfig {
     },
     embeddings: {
       enabled: false,
+      backend: "external_openai",
       apiKey: "",
       baseUrl: "https://api.openai.com/v1",
+      localEndpoint: "",
+      localRequestTimeoutMs: 30_000,
+      rerankTimeoutMs: 10_000,
+      rerankMaxCandidates: 0,
       model: "text-embedding-3-small",
       dimensions: 256,
       apiBatchSize: 64,

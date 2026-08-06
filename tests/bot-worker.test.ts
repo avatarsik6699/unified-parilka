@@ -44,6 +44,31 @@ test("agent final guard rejects missing or malformed telemetry", () => {
     false,
   );
   assert.equal(
+    isAgentFinal({
+      ...valid,
+      telemetry: { ...telemetry, contextUsedTokens: -1 },
+    }),
+    false,
+  );
+  assert.equal(
+    isAgentFinal({
+      ...valid,
+      telemetry: { ...telemetry, contextWindowTokens: 0 },
+    }),
+    false,
+  );
+  assert.equal(
+    isAgentFinal({
+      ...valid,
+      telemetry: {
+        ...telemetry,
+        contextUsedTokens: undefined,
+        contextWindowTokens: undefined,
+      },
+    }),
+    true,
+  );
+  assert.equal(
     isAgentFinal({ ...valid, responseOrigin: "remote" }),
     false,
   );
@@ -92,7 +117,7 @@ test("live success uses bounded context/replay, exact draft, and no raw streamin
       assert.equal(fixture.store.getBotTurn(fixture.turnId)?.status, "sending");
       assert.match(
         fixture.store.getBotTurn(fixture.turnId)?.draftText ?? "",
-        new RegExp(`^${finalText}\\n\\ntest-model 🧠 · 10/5 · 0 tool calls · 0с$`, "u"),
+        new RegExp(`^${finalText}\\n\\ntest-model 🧠 · 10/1\\.0m · 0 tool calls · 0с$`, "u"),
       );
       publisherCalls.push(request);
       return {
@@ -120,7 +145,7 @@ test("live success uses bounded context/replay, exact draft, and no raw streamin
   assert.equal(publisherCalls[0]?.publication.mode, "rich");
   assert.match(
     publisherCalls[0]?.publication.markdown ?? "",
-    new RegExp(`^${finalText}\\n\\ntest-model 🧠 · 10/5 · 0 tool calls · 0с$`, "u"),
+    new RegExp(`^${finalText}\\n\\ntest-model 🧠 · 10/1\\.0m · 0 tool calls · 0с$`, "u"),
   );
   assert.equal(
     publisherCalls[0]?.publication.plainText,
@@ -128,7 +153,7 @@ test("live success uses bounded context/replay, exact draft, and no raw streamin
   );
   assert.match(
     fixture.store.getBotTurn(fixture.turnId)?.draftText ?? "",
-    new RegExp(`^${finalText}\\n\\ntest-model 🧠 · 10/5 · 0 tool calls · 0с$`, "u"),
+    new RegExp(`^${finalText}\\n\\ntest-model 🧠 · 10/1\\.0m · 0 tool calls · 0с$`, "u"),
   );
   assert.equal(fixture.store.getBotTurn(fixture.turnId)?.status, "sent");
   const serializedLogs = JSON.stringify(fixture.logs);
@@ -214,22 +239,22 @@ test("exact SKIP is durably drafted and published like every other model reply",
   assert.deepEqual(publisherCalls, [
     {
       mode: "rich",
-      markdown: "SKIP\n\ntest-model 🧠 · 10/5 · 0 tool calls · 0с",
-      plainText: "SKIP\n\ntest-model 🧠 · 10/5 · 0 tool calls · 0с",
+      markdown: "SKIP\n\ntest-model 🧠 · 10/1.0m · 0 tool calls · 0с",
+      plainText: "SKIP\n\ntest-model 🧠 · 10/1.0m · 0 tool calls · 0с",
       maxChunkUtf16: 4_096,
     },
   ]);
   assert.equal(fixture.store.getBotTurn(fixture.turnId)?.status, "sent");
   assert.equal(
     fixture.store.getBotTurn(fixture.turnId)?.draftText,
-    "SKIP\n\ntest-model 🧠 · 10/5 · 0 tool calls · 0с",
+    "SKIP\n\ntest-model 🧠 · 10/1.0m · 0 tool calls · 0с",
   );
 });
 
 test("model text with mentions and think tags is published and drafted unmodified", async (t) => {
   const fixture = makeFixture(t);
   const modelText = "@mallory посмотри сюда\n<think>не прячь этот текст</think>";
-  const expected = `${modelText}\n\ntest-model 🧠 · 10/5 · 0 tool calls · 0с`;
+  const expected = `${modelText}\n\ntest-model 🧠 · 10/1.0m · 0 tool calls · 0с`;
   const publisherCalls: TelegramPublication[] = [];
   const worker = fixture.worker({
     agent: async () => final(modelText),
@@ -262,7 +287,7 @@ test("model text with mentions and think tags is published and drafted unmodifie
 test("a local audio transcript remains a plain publication without neutralization", async (t) => {
   const fixture = makeFixture(t);
   const transcript = `Коля: «дословный текст из голосового, а не модельная цитата»\n@someone ${"x".repeat(4_500)}`;
-  const expected = `${transcript}\n\ntest-model 🧠 · 10/5 · 0 tool calls · 0с`;
+  const expected = `${transcript}\n\ntest-model 🧠 · 10/1.0m · 0 tool calls · 0с`;
   let observed: TelegramPublication | undefined;
   const worker = fixture.worker({
     agent: async () => ({
@@ -314,7 +339,7 @@ test("a final with a mention clears the tool-progress message before publication
     publisher: async ({ publication }) => {
       assert.equal(
         publication.plainText,
-        "@mallory unsafe final\n\ntest-model 🧠 · 10/5 · 0 tool calls · 0с",
+        "@mallory unsafe final\n\ntest-model 🧠 · 10/1.0m · 0 tool calls · 0с",
       );
       return { ok: true, chunksSent: 1 };
     },
@@ -339,7 +364,7 @@ test("a failed unmodified final stays an unknown-delivery fence", async (t) => {
       publisherCalls += 1;
       assert.equal(
         publication.plainText,
-        "@mallory unsafe final\n\ntest-model 🧠 · 10/5 · 0 tool calls · 0с",
+        "@mallory unsafe final\n\ntest-model 🧠 · 10/1.0m · 0 tool calls · 0с",
       );
       return {
         ok: false,
@@ -378,7 +403,7 @@ test("shadow mode saves the unmodified draft and terminates without publisher", 
   assert.equal(publisherCalls, 0);
   assert.match(
     fixture.store.getBotTurn(fixture.turnId)?.draftText ?? "",
-    /^<think>private chain<\/think>\nПубличный ответ\n\ntest-model 🧠 · 10\/5 · 0 tool calls · 0с$/u,
+    /^<think>private chain<\/think>\nПубличный ответ\n\ntest-model 🧠 · 10\/1\.0m · 0 tool calls · 0с$/u,
   );
   assert.equal(fixture.store.getBotTurn(fixture.turnId)?.status, "skipped");
 });
@@ -436,7 +461,7 @@ test("worker passes tool progress port and cleans up before durable final", asyn
     agent: async (request) => {
       receivedPort = request.toolProgressPort;
       request.toolProgressPort?.onToolStarted({
-        toolName: "search_chat",
+        toolName: "rag_bm25_search",
         callId: "c1",
       });
       return final("done");

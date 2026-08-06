@@ -214,6 +214,35 @@ test("semantic_search_messages projects only allowlisted vector fields", async (
   assertNoPrivateMarker(JSON.stringify(unavailable), privateMarker);
 });
 
+test("semantic_search_messages local backend needs no API key and keeps the public allowlist", async () => {
+  const cfg = configuredEmbeddingsConfig({
+    backend: "local_bge_m3",
+    apiKey: "",
+    model: "bge-m3",
+    dimensions: 1024,
+    localEndpoint: "http://127.0.0.1:8767",
+  });
+  const tools = makeTools(new MessageStore(":memory:"), cfg);
+  const result = await callTool(tools, "semantic_search_messages", {
+    query: "needle",
+  });
+  const vector = result.vector as { available?: boolean; error?: string };
+  assert.deepEqual(Object.keys(vector).sort(), [
+    "available",
+    "error",
+    "hits",
+    "stats",
+  ]);
+  assert.equal(vector.available, false);
+  assert.match(vector.error ?? "", /No vector chunks indexed yet/);
+  assert.doesNotMatch(vector.error ?? "", /API key/i);
+  // Internal retrieval fields must never leak into the operator contract.
+  assert.equal("sparseHits" in vector, false);
+  assert.equal("sparseAvailable" in vector, false);
+  assert.equal("sparseCandidateCount" in vector, false);
+  assert.equal("backend" in vector, false);
+});
+
 test("read surfaces project cached messages without raw JSON", async () => {
   const privateMarker = "STORED_RAW_JSON_DO_NOT_LEAK";
   const usefulTextMarker = "LEGITIMATE_STORED_TEXT_MUST_REMAIN";

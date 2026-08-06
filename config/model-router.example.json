@@ -16,10 +16,12 @@
   ],
   "modelCapabilities": {
     "openai_primary:your-openai-model-id": {
-      "vision": true
+      "vision": true,
+      "contextWindowTokens": 128000
     },
     "anthropic_fallback:your-anthropic-model-id": {
-      "vision": true
+      "vision": true,
+      "contextWindowTokens": 200000
     }
   },
   "roles": {

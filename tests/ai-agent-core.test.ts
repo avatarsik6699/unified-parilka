@@ -70,7 +70,7 @@ test("executes a read tool and wraps its output as untrusted data without attach
   const exactQuote = "эта реплика действительно была в истории";
   const model = mockModel([
     toolResponse([
-      toolCall("call-search", "search_chat", {
+      toolCall("call-search", "rag_bm25_search", {
         query: "реплика",
         limit: 1,
       }),
@@ -109,7 +109,7 @@ test("executes a read tool and wraps its output as untrusted data without attach
 test("compacts an oversized context through the selected model", async () => {
   const model = mockModel([
     toolResponse([
-      toolCall("compact-trigger", "search_chat", {
+      toolCall("compact-trigger", "rag_bm25_search", {
         query: "compact-trigger",
         limit: 1,
       }),
@@ -181,7 +181,7 @@ test("compacts an oversized context through the selected model", async () => {
 test("reports safe thinking boundaries around model and tool steps", async () => {
   const model = mockModel([
     toolResponse([
-      toolCall("call-search", "search_chat", { query: "реплика", limit: 1 }),
+      toolCall("call-search", "rag_bm25_search", { query: "реплика", limit: 1 }),
     ]),
     response([{ type: "text", text: "готово" }], "stop"),
   ]);
@@ -200,8 +200,8 @@ test("reports safe thinking boundaries around model and tool steps", async () =>
   assert.deepEqual(events, [
     "thinking:start",
     "thinking:ok",
-    "tool:start:search_chat",
-    "tool:ok:search_chat",
+    "tool:start:rag_bm25_search",
+    "tool:ok:rag_bm25_search",
     "thinking:start",
     "thinking:ok",
   ]);
@@ -209,7 +209,7 @@ test("reports safe thinking boundaries around model and tool steps", async () =>
 
 test("seven parallel requests execute without a shared count ceiling", async () => {
   const calls = Array.from({ length: 7 }, (_, index) =>
-    toolCall(`parallel-${index}`, "search_chat", {
+    toolCall(`parallel-${index}`, "rag_bm25_search", {
       query: `query-${index}`,
       limit: 1,
     }),
@@ -264,13 +264,13 @@ test("seven parallel requests execute without a shared count ceiling", async () 
 test("research depth gate retries a premature final through Qwen-compatible auto tool choice", async () => {
   const model = mockModel([
     toolResponse([
-      toolCall("scan", "search_chat", { query: "topic", limit: 1 }),
-      toolCall("drill", "search_chat", { query: "topic context", limit: 1 }),
+      toolCall("scan", "rag_bm25_search", { query: "topic", limit: 1 }),
+      toolCall("drill", "rag_bm25_search", { query: "topic context", limit: 1 }),
     ]),
     response([{ type: "text", text: "слишком ранний итог" }], "stop"),
     toolResponse([
-      toolCall("audit", "search_chat", { query: "topic counterpoint", limit: 1 }),
-      toolCall("source", "search_chat", { query: "topic primary source", limit: 1 }),
+      toolCall("audit", "rag_bm25_search", { query: "topic counterpoint", limit: 1 }),
+      toolCall("source", "rag_bm25_search", { query: "topic primary source", limit: 1 }),
     ]),
     response([{ type: "text", text: "проверенный итог" }], "stop"),
   ]);
@@ -312,7 +312,7 @@ test("research depth gate retries a premature final through Qwen-compatible auto
 
 test("research requests can execute forty tool calls", async () => {
   const calls = Array.from({ length: 40 }, (_, index) =>
-    toolCall(`research-${index}`, "search_chat", {
+    toolCall(`research-${index}`, "rag_bm25_search", {
       query: `research-${index}`,
       limit: 1,
     }),
@@ -346,7 +346,7 @@ test("research requests can execute forty tool calls", async () => {
 
 test("tool execution count has no fixed ceiling", async () => {
   const calls = Array.from({ length: 121 }, (_, index) =>
-    toolCall(`capped-${index}`, "search_chat", {
+    toolCall(`capped-${index}`, "rag_bm25_search", {
       query: `capped-${index}`,
       limit: 1,
     }),
@@ -391,7 +391,7 @@ test("malformed tool-call steps do not hit an arbitrary step ceiling", async () 
       {
         type: "tool-call" as const,
         toolCallId: `malformed-${index}`,
-        toolName: "search_chat",
+        toolName: "rag_bm25_search",
         input: '{"query":',
       },
     ]),

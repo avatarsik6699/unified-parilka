@@ -18,10 +18,12 @@
   ],
   "modelCapabilities": {
     "qwen:qwen3.8-max": {
-      "vision": true
+      "vision": true,
+      "contextWindowTokens": 1000000
     },
     "qwen_summary:qwen3.8-max": {
-      "vision": true
+      "vision": true,
+      "contextWindowTokens": 1000000
     }
   },
   "roles": {

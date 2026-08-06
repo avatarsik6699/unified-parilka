@@ -148,7 +148,7 @@ hash повторно проверяется после model call; prompt versi
 
 Agent loop не stream-ит сырой model output. Он даёт модели только:
 
-- `search_chat`;
+- `rag_bm25_search`;
 - `day_digest`;
 - `thread_context`;
 - `web_search`.

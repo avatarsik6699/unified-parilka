@@ -4,7 +4,9 @@ import {
 } from "./calendar.js";
 import {
   executeDayDigest,
-  executeSearchChat,
+  executeKeywordSearch,
+  executeReadChatSlice,
+  executeRagBm25Search,
   executeThreadContext,
   type CacheExecutorContext,
 } from "./cache-executors.js";
@@ -33,9 +35,11 @@ import {
 import { executeResearchLookup } from "./research-executor.js";
 import {
   dayDigestArgsSchema,
+  keywordSearchArgsSchema,
   paperSearchArgsSchema,
+  ragBm25SearchArgsSchema,
+  readChatSliceArgsSchema,
   researchLookupArgsSchema,
-  searchChatArgsSchema,
   threadContextArgsSchema,
   webFetchArgsSchema,
   webSearchArgsSchema,
@@ -108,6 +112,7 @@ export class BotReadTools {
       cache,
       timeZone,
       chatSearchTimeoutMs,
+      botSenderId: options.botSenderId,
     };
   }
 
@@ -130,11 +135,23 @@ export class BotReadTools {
 
     try {
       switch (name) {
-        case "search_chat":
-          return await executeSearchChat(
+        case "rag_bm25_search":
+          return await executeRagBm25Search(
             this.#cacheContext,
-            searchChatArgsSchema.parse(rawArgs ?? {}),
+            ragBm25SearchArgsSchema.parse(rawArgs ?? {}),
             options.signal,
+          );
+        case "keyword_search":
+          return executeKeywordSearch(
+            this.#cacheContext,
+            keywordSearchArgsSchema.parse(rawArgs ?? {}),
+            options.sourceMessageId,
+          );
+        case "read_chat_slice":
+          return executeReadChatSlice(
+            this.#cacheContext,
+            readChatSliceArgsSchema.parse(rawArgs ?? {}),
+            options.sourceMessageId,
           );
         case "day_digest":
           return executeDayDigest(

@@ -101,6 +101,104 @@ test("get_config redacts credentials in embeddings base URL", async () => {
   assert.equal(config.embeddings.baseUrl, "https://example.test/v1?api_key=redacted&foo=bar&token=redacted&KEY=redacted");
 });
 
+test("get_config reports the local BGE-M3 backend without an OpenAI endpoint", async () => {
+  const appConfig = configuredEmbeddingsConfig({
+    backend: "local_bge_m3",
+    apiKey: "",
+    localEndpoint: "http://127.0.0.1:8767",
+    model: "bge-m3",
+    dimensions: 1024,
+    localRequestTimeoutMs: 15_000,
+    rerankTimeoutMs: 5_000,
+    rerankMaxCandidates: 16,
+  });
+  const result = await callTool(makeTools(new MessageStore(":memory:"), appConfig), "get_config", {});
+  const embeddings = (result.config as { embeddings: Record<string, unknown> }).embeddings;
+
+  assert.equal(embeddings.backend, "local_bge_m3");
+  assert.equal(embeddings.configured, true);
+  assert.equal(embeddings.localEndpoint, "http://127.0.0.1:8767/");
+  assert.equal(embeddings.localRequestTimeoutMs, 15_000);
+  assert.equal(embeddings.rerankTimeoutMs, 5_000);
+  assert.equal(embeddings.rerankMaxCandidates, 16);
+  assert.equal(embeddings.model, "bge-m3");
+  assert.equal(embeddings.dimensions, 1024);
+  assert.equal("baseUrl" in embeddings, false);
+  assert.equal("requestTimeoutMs" in embeddings, false);
+  assert.doesNotMatch(JSON.stringify(result), /api\.openai\.com/u);
+});
+
+test("get_config redacts credentials in the local endpoint", async () => {
+  const appConfig = configuredEmbeddingsConfig({
+    backend: "local_bge_m3",
+    apiKey: "",
+    localEndpoint: "http://user:pass@127.0.0.1:8767",
+  });
+  const result = await callTool(makeTools(new MessageStore(":memory:"), appConfig), "get_config", {});
+  const embeddings = (result.config as { embeddings: Record<string, unknown> }).embeddings;
+
+  assert.equal(embeddings.localEndpoint, "http://127.0.0.1:8767/");
+  assert.doesNotMatch(JSON.stringify(result), /user:pass/u);
+});
+
+test("get_config keeps the external backend shape and key-driven configured", async () => {
+  const configured = await callTool(
+    makeTools(new MessageStore(":memory:"), configuredEmbeddingsConfig()),
+    "get_config",
+    {},
+  );
+  const external = (configured.config as { embeddings: Record<string, unknown> }).embeddings;
+
+  assert.equal(external.backend, "external_openai");
+  assert.equal(external.configured, true);
+  assert.equal(external.baseUrl, "https://api.openai.com/v1");
+  assert.equal(external.requestTimeoutMs, 60_000);
+  assert.equal("localEndpoint" in external, false);
+
+  const unconfigured = await callTool(
+    makeTools(new MessageStore(":memory:"), configuredEmbeddingsConfig({ apiKey: "" })),
+    "get_config",
+    {},
+  );
+  const missingKey = (unconfigured.config as { embeddings: Record<string, unknown> }).embeddings;
+
+  assert.equal(missingKey.backend, "external_openai");
+  assert.equal(missingKey.configured, false);
+});
+
+test("get_status names the active embedding backend and configured state", async () => {
+  const localConfig = configuredEmbeddingsConfig({
+    backend: "local_bge_m3",
+    apiKey: "",
+    localEndpoint: "http://127.0.0.1:8767",
+    model: "bge-m3",
+    dimensions: 1024,
+  });
+  const local = parseToolPayload(
+    await makeTools(new MessageStore(":memory:"), localConfig).callTool("get_status", {}),
+  );
+  const localEmbeddings = local.embeddings as { backend: string; configured: boolean };
+
+  assert.equal(localEmbeddings.backend, "local_bge_m3");
+  assert.equal(localEmbeddings.configured, true);
+
+  const external = parseToolPayload(
+    await makeTools(new MessageStore(":memory:"), configuredEmbeddingsConfig()).callTool("get_status", {}),
+  );
+  const externalEmbeddings = external.embeddings as { backend: string; configured: boolean };
+
+  assert.equal(externalEmbeddings.backend, "external_openai");
+  assert.equal(externalEmbeddings.configured, true);
+
+  const missingKey = parseToolPayload(
+    await makeTools(new MessageStore(":memory:"), configuredEmbeddingsConfig({ apiKey: "" })).callTool("get_status", {}),
+  );
+  const unconfiguredEmbeddings = missingKey.embeddings as { backend: string; configured: boolean };
+
+  assert.equal(unconfiguredEmbeddings.backend, "external_openai");
+  assert.equal(unconfiguredEmbeddings.configured, false);
+});
+
 test("unknown tool arguments return validation field paths", async () => {
   const cases: Array<{ tool: string; args: Record<string, unknown>; path: string }> = [
     { tool: "get_config", args: { extra: true }, path: "extra" },

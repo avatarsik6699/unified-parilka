@@ -5,28 +5,27 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { BOOLEAN_ENV_RULES, loadConfig } from "../src/config.js";
 
-test("memory config rejects max messages below dream threshold", () => {
+test("memory config loads bounded defaults", () => {
+  withEnv({}, () => {
+    const config = loadConfig();
+    assert.equal(config.memory.memoryMaxChars, 2000);
+  });
+});
+
+test("memory config ignores removed legacy dream count keys", () => {
+  // PARILKA_DREAM_EVERY_N_MESSAGES / PARILKA_DREAM_MAX_MESSAGES no longer
+  // belong to the day-job Dream config; leftover values in older env files
+  // must not break startup.
   withEnv(
     {
       PARILKA_DREAM_EVERY_N_MESSAGES: "100",
       PARILKA_DREAM_MAX_MESSAGES: "50",
     },
     () => {
-      assert.throws(
-        () => loadConfig(),
-        /PARILKA_DREAM_MAX_MESSAGES must be greater than or equal to PARILKA_DREAM_EVERY_N_MESSAGES/,
-      );
+      const config = loadConfig();
+      assert.equal(config.memory.memoryMaxChars, 2000);
     },
   );
-});
-
-test("memory config loads bounded defaults", () => {
-  withEnv({}, () => {
-    const config = loadConfig();
-    assert.equal(config.memory.dreamEveryNMessages, 50);
-    assert.equal(config.memory.dreamMaxMessages, 200);
-    assert.equal(config.memory.memoryMaxChars, 2000);
-  });
 });
 
 function unsetBooleanEnv(): Record<string, undefined> {

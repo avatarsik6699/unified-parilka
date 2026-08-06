@@ -180,6 +180,8 @@ export function stubTelemetry(): TurnTelemetry {
     totalInputTokens: 10,
     totalOutputTokens: 5,
     totalTokens: 15,
+    contextUsedTokens: 10,
+    contextWindowTokens: 1_000_000,
     toolCalls: 0,
     durationMs: 0,
     incomplete: false,

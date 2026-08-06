@@ -15,8 +15,10 @@ export interface CliOptions {
   apply: boolean;
   all: boolean;
   summaryOnly: boolean;
+  dreamOnly: boolean;
   chatId: string;
   dbPath: string;
+  botId: string;
   modelConfigPath?: string;
   maxInputChars?: number;
   maxOutputChars?: number;
@@ -25,8 +27,6 @@ export interface CliOptions {
   modelCandidateTimeoutMs?: number;
   maxDayGenerationsPerRun: number;
   maxWeekGenerationsPerRun: number;
-  dreamEveryNMessages: number;
-  dreamMaxMessages: number;
   memoryMaxChars: number;
 }
 
@@ -38,6 +38,7 @@ export function parseOptions(
   let apply = false;
   let all = false;
   let summaryOnly = false;
+  let dreamOnly = false;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]!;
     if (argument === "--apply") {
@@ -52,9 +53,14 @@ export function parseOptions(
       summaryOnly = true;
       continue;
     }
+    if (argument === "--dream-only") {
+      dreamOnly = true;
+      continue;
+    }
     const allowed = new Set([
       "--chat",
       "--db",
+      "--bot-id",
       "--model-config",
       "--max-input-chars",
       "--max-output-chars",
@@ -127,12 +133,24 @@ export function parseOptions(
     );
   }
 
+  const botIdValue =
+    values.get("--bot-id") ?? env.PARILKA_BOT_ID;
+  const botId = botIdValue ? telegramBotId(botIdValue) : "";
+  if (apply && modelConfigPath && botId === "") {
+    throw new CliConfigError(
+      "missing_bot_id",
+      "Dream mode requires --bot-id or PARILKA_BOT_ID to the application bot Telegram user id.",
+    );
+  }
+
   const options: CliOptions = {
     apply,
     all,
     summaryOnly,
+    dreamOnly,
     chatId,
     dbPath,
+    botId,
     modelConfigPath,
     maxInputChars: integerOption(
       values.get("--max-input-chars") ??
@@ -185,20 +203,6 @@ export function parseOptions(
         0,
         MAX_WEEK_GENERATIONS_PER_RUN,
       ) ?? DEFAULT_MAX_WEEK_GENERATIONS_PER_RUN,
-    dreamEveryNMessages: integerFromEnvironment(
-      env.PARILKA_DREAM_EVERY_N_MESSAGES,
-      "dream every N messages",
-      10,
-      500,
-      50,
-    ),
-    dreamMaxMessages: integerFromEnvironment(
-      env.PARILKA_DREAM_MAX_MESSAGES,
-      "dream max messages",
-      20,
-      1_000,
-      200,
-    ),
     memoryMaxChars: integerFromEnvironment(
       env.PARILKA_MEMORY_MAX_CHARS,
       "memory max chars",
@@ -207,13 +211,6 @@ export function parseOptions(
       2_000,
     ),
   };
-
-  if (options.dreamMaxMessages < options.dreamEveryNMessages) {
-    throw new CliConfigError(
-      "dream_max_below_threshold",
-      "PARILKA_DREAM_MAX_MESSAGES must be >= PARILKA_DREAM_EVERY_N_MESSAGES.",
-    );
-  }
 
   return options;
 }
@@ -224,6 +221,17 @@ function telegramChatId(value: string | undefined): string {
     throw new CliConfigError(
       "invalid_chat",
       "Digest chat id must be one negative Telegram chat id.",
+    );
+  }
+  return normalized;
+}
+
+function telegramBotId(value: string | undefined): string {
+  const normalized = value?.trim();
+  if (!normalized || !/^\d{5,20}$/u.test(normalized)) {
+    throw new CliConfigError(
+      "invalid_bot_id",
+      "Bot id must be a positive Telegram user id.",
     );
   }
   return normalized;

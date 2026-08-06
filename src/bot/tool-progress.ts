@@ -309,6 +309,9 @@ function toolInputPreview(
   }
   const query = textField(input, "query");
   if (query) {
+    if (toolName === "rag_bm25_search") {
+      return `rag: ${queryPreviewText(query)}`;
+    }
     return queryPreview(query);
   }
   if (toolName === "web_fetch") {
@@ -333,6 +336,26 @@ function toolInputPreview(
     const dayTo = textField(input, "day_to");
     if (dayFrom) {
       return `период: ${dayFrom}${dayTo ? ` — ${dayTo}` : ""}`;
+    }
+  }
+  if (toolName === "read_chat_slice") {
+    if (textField(input, "cursor")) {
+      return "срез: продолжение по курсору";
+    }
+    if (input.mode === "recent") {
+      const count = integerField(input, "count");
+      if (count !== undefined) {
+        return `срез: последние ${count}`;
+      }
+      return "срез: последние сообщения";
+    }
+    if (input.mode === "period") {
+      const dayFrom = textField(input, "day_from");
+      const dayTo = textField(input, "day_to");
+      if (dayFrom) {
+        return `срез: ${dayFrom}${dayTo ? ` — ${dayTo}` : ""}`;
+      }
+      return "срез: период";
     }
   }
   if (toolName === "thread_context") {

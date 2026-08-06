@@ -68,7 +68,7 @@ test("projects a production coordinator ID into durable numeric correlation", ()
 test("emits paired metadata-only tool lifecycle records", async () => {
   const model = mockModel([
     toolResponse([
-      toolCall("private-tool-call", "search_chat", {
+      toolCall("private-tool-call", "rag_bm25_search", {
         query: "PRIVATE_TOOL_QUERY",
         limit: 1,
       }),
@@ -91,7 +91,7 @@ test("emits paired metadata-only tool lifecycle records", async () => {
     updateId: 2,
     candidate: "primary:test",
     attempt: 1,
-    tool: "search_chat",
+    tool: "rag_bm25_search",
     kind: "read",
     sequence: 1,
   });

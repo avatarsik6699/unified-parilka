@@ -93,6 +93,97 @@ export type KeywordSearchHit = {
   rank: number;
 };
 
+export type LexicalSearchMatchMode = "all" | "any" | "phrase" | "prefix";
+
+export type LexicalSearchOrder = "relevance" | "newest" | "oldest";
+
+/**
+ * Deterministic lexical FTS search without any vector/embedding channel.
+ * Dates are UTC ISO strings; the start is inclusive and the end exclusive.
+ * Rows with a NULL date never match a date filter.
+ */
+export type LexicalSearchParams = {
+  chatId: string;
+  query: string;
+  match?: LexicalSearchMatchMode;
+  /** Exact filter: sender_id or sender_name equals this value. */
+  sender?: string;
+  excludeSenderIds?: readonly string[];
+  dateFromInclusive?: string;
+  dateToExclusive?: string;
+  beforeId?: number;
+  afterId?: number;
+  order?: LexicalSearchOrder;
+  limit?: number;
+};
+
+export type TranscriptForm = "recent" | "period";
+
+/**
+ * Live-only transcript read. The first call derives the authoritative upper
+ * message id (min of the optional caller upper bound and the chat's maximum
+ * stored id) and freezes it inside the opaque cursor, so continuations are
+ * stable against newer inserts. Dates are UTC ISO strings; the period start
+ * is inclusive and the end exclusive.
+ */
+export type LiveTranscriptRequest =
+  | {
+      chatId: string;
+      form: "recent";
+      count: number;
+      upperMessageId?: number;
+    }
+  | {
+      chatId: string;
+      form: "period";
+      startInclusive: string;
+      endExclusive: string;
+      upperMessageId?: number;
+    }
+  | {
+      chatId: string;
+      form: TranscriptForm;
+      cursor: string;
+      /** Application-owned maximum upper bound for this continuation. */
+      upperMessageId?: number;
+    };
+
+export type LiveTranscriptCoverage = {
+  /** Frozen authoritative upper message id of this snapshot. */
+  upperMessageId: number;
+  /** Live rows the snapshot can reach (id-bounded; date-bounded for period). */
+  totalAvailable: number;
+  /** Rows returned by this page. */
+  returnedCount: number;
+  /** Rows covered by the snapshot so far, including this page. */
+  coveredCount: number;
+  firstMessageId?: number;
+  lastMessageId?: number;
+  firstDate?: string;
+  lastDate?: string;
+  /** Page rows whose text is empty or whitespace-only (media or empty). */
+  emptyTextCount: number;
+  /** Same value as emptyTextCount; kept for backward compatibility. */
+  mediaOrEmptyTextCount: number;
+  /** True when the requested snapshot needs more pages than this one. */
+  truncated: boolean;
+  /**
+   * Rows that stay outside the requested snapshot even after full
+   * pagination: older live rows beyond the recent budget, or undated rows
+   * inside a period span.
+   */
+  omittedCount: number;
+  hasMore: boolean;
+  nextCursor?: string;
+};
+
+export type LiveTranscriptResult = {
+  form: TranscriptForm;
+  /** Chronological (message id ascending), deleted rows excluded. */
+  messages: StoredMessage[];
+  coverage: LiveTranscriptCoverage;
+};
+
 export type StoredEmbeddingChunk = {
   id: number;
   chatId: string;
@@ -108,6 +199,22 @@ export type StoredEmbeddingChunk = {
   contentHash: string;
   dirtyAt?: string;
   updatedAt: string;
+};
+
+/**
+ * One learned sparse posting produced together with the parent chunk's dense
+ * vector by a single local BGE-M3 encode pass. Token ids are vocabulary ids
+ * of the parent model's tokenizer; weights are finite positive floats.
+ */
+export type SparseTerm = {
+  tokenId: number;
+  weight: number;
+};
+
+/** Scored sparse posting lookup result for one current parent chunk. */
+export type SparseChunkScore = {
+  chunkId: number;
+  score: number;
 };
 
 export type StaleEmbeddingChunkReason =
@@ -304,6 +411,33 @@ export type UpsertChatSkillInput = Omit<
   StoredChatSkill,
   "key" | "createdAtMs" | "updatedAtMs"
 > & {
+  updatedAtMs?: number;
+};
+
+export type DreamDayStatus = "pending" | "running" | "completed" | "failed";
+
+export type StoredDreamDay = {
+  chatId: string;
+  day: string;
+  status: DreamDayStatus;
+  sourceHash?: string;
+  interactionCount: number;
+  firstMessageId?: number;
+  lastMessageId?: number;
+  attempts: number;
+  error?: string;
+  model?: string;
+  provider?: string;
+  createdAtMs: number;
+  updatedAtMs: number;
+  completedAtMs?: number;
+};
+
+export type UpsertDreamDayInput = Omit<
+  StoredDreamDay,
+  "createdAtMs" | "updatedAtMs"
+> & {
+  createdAtMs?: number;
   updatedAtMs?: number;
 };
 

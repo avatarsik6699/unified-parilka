@@ -16,7 +16,7 @@ import {
   type BotReadTools,
 } from "../read-tools.js";
 import type { AudioTranscribeToolResult } from "../media-tools.js";
-import { boundedSerialize } from "./evidence.js";
+import { boundedSerialize, maxCarriedToolResultChars } from "./evidence.js";
 
 export interface BotToolSetExecutionStarted {
   readonly kind: "read" | "memory";
@@ -108,6 +108,7 @@ export function createBotToolSet(options: CreateBotToolSetOptions): BotToolSet {
         });
         const output = await options.readTools.callTool(name, input, {
           signal: execution.abortSignal ?? options.turnSignal,
+          sourceMessageId: options.sourceMessageId,
         });
         options.onExecutionCompleted({
           kind: "read",
@@ -122,7 +123,7 @@ export function createBotToolSet(options: CreateBotToolSetOptions): BotToolSet {
         type: "text",
         value: wrapUntrustedToolData(
           name,
-          boundedSerialize(output),
+          boundedSerialize(output, maxCarriedToolResultChars(name)),
           options.nonce,
         ),
       }),
@@ -177,7 +178,9 @@ export function createBotToolSet(options: CreateBotToolSetOptions): BotToolSet {
   };
 
   const tools: ToolSet = {
-    search_chat: makeReadTool("search_chat"),
+    rag_bm25_search: makeReadTool("rag_bm25_search"),
+    keyword_search: makeReadTool("keyword_search"),
+    read_chat_slice: makeReadTool("read_chat_slice"),
     day_digest: makeReadTool("day_digest"),
     thread_context: makeReadTool("thread_context"),
     web_search: makeReadTool("web_search"),

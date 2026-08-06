@@ -4,11 +4,21 @@ The public entry points remain thin compatibility files:
 
 - `runtime.ts` — durable Bot API ingestion, polling, worker admission, lifecycle,
   and grammY adapters.
-- `read-tools.ts` — seven bounded evidence/read tools, including a native
+- `read-tools.ts` — nine bounded evidence/read tools, including a native
   public-page fetcher and an optional Unix-socket client for the private HH
   research gateway. The client holds only a runtime socket path and accepts a
   strict anonymized disclosure envelope; it never knows a research root,
-  manifest, database, credential or raw record.
+  manifest, database, credential or raw record. `keyword_search` and
+  `read_chat_slice` are purpose-built cache-only tools: they never call a
+  vector/embedding provider or Telegram, always exclude soft-deleted rows,
+  and clamp their authoritative upper bound to the application-owned
+  `sourceMessageId - 1` from the per-call options, never to a model-provided
+  id. The slice freezes that upper bound inside a versioned, strictly
+  validated keyset cursor, so continuations stay stable against newer
+  inserts. Projections remain bounded: ordinary tools keep the ~4 000-char
+  cap, `keyword_search` uses a moderate 20 000-char cap, and
+  `read_chat_slice` a 192 000-char cap so ~800 short messages arrive in one
+  call; metadata reports truncation and omission honestly.
 - `worker.ts` — one durable turn from claim through the send fence.
 - `grammy-publisher.ts` — the narrow Bot API port and publisher: primary native
   `sendRichMessage({ markdown, skip_entity_detection: true })`; classic
@@ -23,7 +33,7 @@ The public entry points remain thin compatibility files:
   evidence calls and allow up to two bounded continuation rounds if the model
   tries to finalise too early. The prompt separates external
   evidence (`web_search`/`web_fetch`/`paper_search`) from facts in this chat
-  (`search_chat`/digest/thread) and never treats chat search as an automatic
+  (`rag_bm25_search`/digest/thread) and never treats chat search as an automatic
   supplement to an external lookup. `research_lookup` is private evidence and
   the sole tool-specific data-disclosure boundary: its model-facing description
   forbids personal extraction, and the executor rejects such queries before the
@@ -57,7 +67,12 @@ The public entry points remain thin compatibility files:
   `sendRichMessage` up to Telegram's 32,768-byte Rich Message limit; local
   audio and replies beyond that limit use lossless classic plain-message
   chunks. It applies no content policy and does not rewrite model text.
-- `telemetry.ts` — per-turn usage accumulation and footer rendering.
+- `telemetry.ts` — per-turn usage accumulation and footer rendering. The
+  published footer reports the current context occupancy — the last completed
+  step's provider-reported input tokens over the successful final candidate's
+  declared `contextWindowTokens` (never cumulative input/output, never output
+  tokens), e.g. `qwen3.8-max 🧠 · 15.2k/1.0m · 2 tool calls · 1м 3с`; missing
+  values render `?`, and the million suffix is a lowercase `m`.
 - `typing.ts` — best-effort typing heartbeat.
 - `tool-progress.ts` — persisted single-message model/tool timeline: safe
   `thinking` status markers (never reasoning text) and an allowlisted
@@ -73,9 +88,10 @@ Their implementation is split by ownership:
 - `runtime/`: shared contracts and validation helpers, update processor,
   long-poller, worker pump, API lifecycle, and grammY adapters.
 - `read-tools/`: model-facing contracts and schemas, calendar conversion,
-  bounded payload projection, cache/web/paper/research executors, DNS-pinned
-  public-page fetch, owner-only Unix-socket research-gateway client and
-  abortable timeouts.
+  bounded per-tool payload projection, cache executors (hybrid search,
+  lexical find, transcript slice, thread, digests), web/paper/research
+  executors, DNS-pinned public-page fetch, owner-only Unix-socket
+  research-gateway client and abortable timeouts.
 - `../../dream/`: offline memory consolidation triggered by the digest timer.
 - `worker/`: turn contracts, validated worker settings, context/replay/fold
   preparation, lease heartbeat, durable dispatch, and orchestration.

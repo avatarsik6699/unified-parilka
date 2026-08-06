@@ -27,3 +27,8 @@ sessions/
 *.backup
 .DS_Store
 .slim/deepwork/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/

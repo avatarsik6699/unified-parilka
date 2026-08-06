@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { MessageStore } from "../src/store.js";
 
-test("v16 and v18 databases converge on v19 without callback intent state", (t) => {
+test("v16 and v18 databases converge on v20 without callback intent state", (t) => {
   const v16Path = tempDbPath(t);
   const v16 = new MessageStore(v16Path);
   v16.close();
@@ -15,7 +15,7 @@ test("v16 and v18 databases converge on v19 without callback intent state", (t) 
   downgradeV16.close();
 
   const migratedV16 = new MessageStore(v16Path);
-  assert.equal(migratedV16.getSchemaVersion(), 19);
+  assert.equal(migratedV16.getSchemaVersion(), 21);
   migratedV16.close();
 
   const v18Path = tempDbPath(t);
@@ -30,7 +30,7 @@ test("v16 and v18 databases converge on v19 without callback intent state", (t) 
   downgradeV18.close();
 
   const migratedV18 = new MessageStore(v18Path);
-  assert.equal(migratedV18.getSchemaVersion(), 19);
+  assert.equal(migratedV18.getSchemaVersion(), 21);
   migratedV18.close();
 
   const inspect = new DatabaseSync(v18Path, { readOnly: true });

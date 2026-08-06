@@ -12,7 +12,7 @@ test("operations turn recipe parses outer journald MESSAGE and matches numeric t
     updateId: 73,
     candidate: "primary:test",
     attempt: 1,
-    tool: "search_chat",
+    tool: "rag_bm25_search",
     kind: "read",
     sequence: 1,
   };

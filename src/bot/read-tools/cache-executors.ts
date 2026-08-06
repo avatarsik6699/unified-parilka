@@ -1,4 +1,4 @@
-import type { StoredMessage } from "../../store.js";
+import { TranscriptCursorError, type StoredMessage } from "../../store.js";
 import { calendarDayRange } from "./calendar.js";
 import type {
   BotReadToolCache,
@@ -14,7 +14,9 @@ import {
 } from "./payload.js";
 import type {
   DayDigestArgs,
-  SearchChatArgs,
+  KeywordSearchArgs,
+  ReadChatSliceArgs,
+  RagBm25SearchArgs,
   ThreadContextArgs,
 } from "./schemas.js";
 import { callCacheSearch } from "./timeouts.js";
@@ -24,11 +26,13 @@ export interface CacheExecutorContext {
   cache: BotReadToolCache;
   timeZone: string;
   chatSearchTimeoutMs: number;
+  /** Durable sender id of this bot's own published messages. */
+  botSenderId?: string;
 }
 
-export async function executeSearchChat(
+export async function executeRagBm25Search(
   context: CacheExecutorContext,
-  args: SearchChatArgs,
+  args: RagBm25SearchArgs,
   externalSignal: AbortSignal | undefined,
 ): Promise<BotReadToolSuccess> {
   const cached = await callCacheSearch({
@@ -63,9 +67,10 @@ export async function executeSearchChat(
   const evidence = chatEvidence(
     normalized.messages,
     context.chatId,
+    context.botSenderId,
   );
   return success(
-    "search_chat",
+    "rag_bm25_search",
     evidence.length === 0 ? "empty" : "done",
     {
       query: args.query,
@@ -75,8 +80,188 @@ export async function executeSearchChat(
       degradedChannels: [
         ...(normalized.degradedChannels ?? []),
       ],
+      ...(normalized.channels === undefined
+        ? {}
+        : { channels: normalized.channels }),
     },
     evidence,
+  );
+}
+
+/**
+ * Cache-only lexical search. The authoritative upper bound is derived from
+ * the application-owned trigger id, never from model-provided ids: the tool
+ * cannot see the trigger message or anything above it.
+ */
+export function executeKeywordSearch(
+  context: CacheExecutorContext,
+  args: KeywordSearchArgs,
+  sourceMessageId: number | undefined,
+): BotReadToolSuccess {
+  const range =
+    args.day_from === undefined
+      ? undefined
+      : calendarDayRange(args.day_from, args.day_to, context.timeZone);
+  const beforeId = clampUpperBeforeId(args.before_id, sourceMessageId);
+  const messages = fromCache(() =>
+    context.cache.findMessages({
+      chatId: context.chatId,
+      query: args.query,
+      match: args.match,
+      ...(args.sender === undefined ? {} : { sender: args.sender }),
+      includeBot: args.include_bot,
+      ...(range === undefined
+        ? {}
+        : {
+            startInclusive: range.startInclusive,
+            endExclusive: range.endExclusive,
+          }),
+      ...(beforeId === undefined ? {} : { beforeId }),
+      ...(args.after_id === undefined ? {} : { afterId: args.after_id }),
+      order: args.order,
+      limit: args.limit,
+    }),
+  );
+  const evidence = chatEvidence(messages, context.chatId, context.botSenderId);
+  return success(
+    "keyword_search",
+    evidence.length === 0 ? "empty" : "done",
+    {
+      query: args.query,
+      match: args.match,
+      order: args.order,
+      limit: args.limit,
+      returnedCount: evidence.length,
+      filters: {
+        ...(args.sender === undefined ? {} : { sender: args.sender }),
+        includeBot: args.include_bot,
+        ...(range === undefined
+          ? {}
+          : { dayFrom: range.dayFrom, dayTo: range.dayTo }),
+        ...(beforeId === undefined ? {} : { beforeId }),
+        ...(args.after_id === undefined ? {} : { afterId: args.after_id }),
+      },
+    },
+    evidence,
+  );
+}
+
+/**
+ * Cache-only continuous transcript slice. The snapshot upper bound is always
+ * `sourceMessageId - 1` from the application-owned call options, so the slice
+ * ends right before the current trigger and is stable against messages
+ * inserted after the turn started.
+ */
+export function executeReadChatSlice(
+  context: CacheExecutorContext,
+  args: ReadChatSliceArgs,
+  sourceMessageId: number | undefined,
+): BotReadToolSuccess {
+  const upperMessageId =
+    sourceMessageId === undefined ? undefined : sourceMessageId - 1;
+  const range =
+    args.mode === "period" && args.cursor === undefined && args.day_from !== undefined
+      ? calendarDayRange(args.day_from, args.day_to, context.timeZone)
+      : undefined;
+  const transcript = fromCache(() => {
+    if (args.cursor !== undefined) {
+      return context.cache.readSlice({
+        chatId: context.chatId,
+        form: args.mode,
+        cursor: args.cursor,
+        ...(upperMessageId === undefined
+          ? {}
+          : { upperMessageId }),
+      });
+    }
+    if (args.mode === "recent") {
+      if (args.count === undefined) {
+        throw new ReadToolExecutionError(
+          "invalid_arguments",
+          false,
+          "recent requires count.",
+        );
+      }
+      return context.cache.readSlice({
+        chatId: context.chatId,
+        form: "recent",
+        count: args.count,
+        ...(upperMessageId === undefined ? {} : { upperMessageId }),
+      });
+    }
+    if (range === undefined) {
+      throw new ReadToolExecutionError(
+        "invalid_arguments",
+        false,
+        "period requires day_from.",
+      );
+    }
+    return context.cache.readSlice({
+      chatId: context.chatId,
+      form: "period",
+      startInclusive: range.startInclusive,
+      endExclusive: range.endExclusive,
+      ...(upperMessageId === undefined ? {} : { upperMessageId }),
+    });
+  });
+
+  const { coverage } = transcript;
+  const projected = transcript.messages.map((message) => {
+    const isOwnTurn =
+      context.botSenderId !== undefined &&
+      message.senderId === context.botSenderId;
+    return {
+      sourceId: `chat:${message.messageId}`,
+      messageId: message.messageId,
+      senderId: message.senderId ?? null,
+      senderName: message.senderName ?? null,
+      date: message.date ?? null,
+      replyToMessageId: message.replyToMessageId ?? null,
+      authorRole: isOwnTurn ? "assistant" : "user",
+      isOwnTurn,
+      text: message.text,
+    };
+  });
+  return success(
+    "read_chat_slice",
+    projected.length === 0 ? "empty" : "done",
+    {
+      mode: transcript.form,
+      requested:
+        args.cursor !== undefined
+          ? { continuation: true }
+          : args.mode === "recent"
+            ? { count: args.count }
+            : {
+                dayFrom: range?.dayFrom,
+                dayTo: range?.dayTo,
+                startInclusive: range?.startInclusive,
+                endExclusive: range?.endExclusive,
+              },
+      coverage: {
+        upperMessageId: coverage.upperMessageId,
+        totalAvailable: coverage.totalAvailable,
+        returnedCount: coverage.returnedCount,
+        coveredCount: coverage.coveredCount,
+        ...(coverage.firstMessageId === undefined
+          ? {}
+          : {
+              firstMessageId: coverage.firstMessageId,
+              lastMessageId: coverage.lastMessageId,
+              firstDate: coverage.firstDate ?? null,
+              lastDate: coverage.lastDate ?? null,
+            }),
+        emptyTextCount: coverage.emptyTextCount,
+        truncated: coverage.truncated,
+        omittedCount: coverage.omittedCount,
+        hasMore: coverage.hasMore,
+        ...(coverage.nextCursor === undefined
+          ? {}
+          : { nextCursor: coverage.nextCursor }),
+      },
+      messages: projected,
+    },
+    [],
   );
 }
 
@@ -92,7 +277,7 @@ export function executeThreadContext(
       after: args.after,
     }),
   );
-  const evidence = chatEvidence(messages, context.chatId);
+  const evidence = chatEvidence(messages, context.chatId, context.botSenderId);
   return success(
     "thread_context",
     evidence.length === 0 ? "empty" : "done",
@@ -139,6 +324,7 @@ export function executeDayDigest(
   const sourceEvidence = chatEvidence(
     cached.sourceMessages ?? [],
     context.chatId,
+    context.botSenderId,
   );
   const evidence = deduplicateEvidence([
     ...projected.map(({ evidence: item }) => item),
@@ -164,10 +350,34 @@ function fromCache<T>(operation: () => T): T {
     if (error instanceof ReadToolExecutionError) {
       throw error;
     }
+    if (error instanceof TranscriptCursorError) {
+      throw new ReadToolExecutionError(
+        "invalid_arguments",
+        false,
+        "Slice cursor failed validation.",
+      );
+    }
     throw new ReadToolExecutionError(
       "cache_error",
       false,
       "Local cache read failed.",
     );
   }
+}
+
+/**
+ * `beforeId` is exclusive, so the trigger id itself is the correct clamp to
+ * hide the trigger and everything above it.
+ */
+function clampUpperBeforeId(
+  beforeId: number | undefined,
+  sourceMessageId: number | undefined,
+): number | undefined {
+  if (sourceMessageId === undefined) {
+    return beforeId;
+  }
+  if (beforeId === undefined) {
+    return sourceMessageId;
+  }
+  return Math.min(beforeId, sourceMessageId);
 }

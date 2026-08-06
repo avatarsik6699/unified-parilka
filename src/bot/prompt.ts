@@ -19,7 +19,9 @@ export const BOT_AGENT_CONTRACT = Object.freeze({
   researchMinToolCalls: 4,
   researchQualityRetries: 2,
   toolNames: [
-    "search_chat",
+    "rag_bm25_search",
+    "keyword_search",
+    "read_chat_slice",
     "day_digest",
     "thread_context",
     "web_search",
@@ -43,6 +45,38 @@ export function botResearchModeForText(value: string): BotResearchMode {
   return RESEARCH_REQUEST_PATTERN.test(value)
     ? "research"
     : "standard";
+}
+
+const SOURCE_EDGE_L = String.raw`(?<![\p{L}\p{N}])`;
+const SOURCE_EDGE_R = String.raw`(?![\p{L}\p{N}])`;
+const LINK_RU = String.raw`ссылк(?:а|и|у|ой|ою|е|ок|ам|ами|ах)`;
+const PROOF_RU = String.raw`пруф(?:а|у|ом|е|ы|ов|ам|ами|ах)?`;
+const SOURCE_RU = String.raw`источник(?:а|у|ом|е|и|ов|ам|ами|ах)?`;
+const NOUN_RU = String.raw`(?:${LINK_RU}|${SOURCE_RU}|${PROOF_RU})${SOURCE_EDGE_R}`;
+const NOUN_RU_LINK_PROOF = String.raw`(?:${LINK_RU}|${PROOF_RU})${SOURCE_EDGE_R}`;
+const NOUN_EN = String.raw`(?:sources?|links?|references?|citations?|proofs?|urls?)${SOURCE_EDGE_R}`;
+
+/** Only explicit request shapes match; bare nouns and lookalike words stay negative. */
+const EXTERNAL_SOURCES_REQUEST_PATTERNS: readonly RegExp[] = [
+  // Request verb + noun: «дай/покажи/нужны ссылки», "give/show sources".
+  new RegExp(String.raw`${SOURCE_EDGE_L}(?:дай(?:те)?|скинь(?:те)?|кинь(?:те)?|покажи(?:те)?|приведи(?:те)?|укажи(?:те)?|пришли(?:те)?|выдай(?:те)?|назови(?:те)?|перечисли(?:те)?|подели(?:сь|тесь)|нуж\p{L}*|жду|хочу)(?:\s*,?\s*(?:пожалуйста|мне|нам)\s*,?\s*|\s+)+${NOUN_RU}`, "iu"),
+  new RegExp(String.raw`${SOURCE_EDGE_L}(?:give|show|provide|share|send|list|cite|include|add|post|drop)(?:\s+(?:me|us|the|some|your|those|these|all)){0,3}\s+${NOUN_EN}`, "iu"),
+  // с/со and где are unconditional only for links/proofs; источников need a format verb.
+  new RegExp(String.raw`${SOURCE_EDGE_L}с(?:о)?\s+${NOUN_RU_LINK_PROOF}`, "iu"),
+  new RegExp(String.raw`${SOURCE_EDGE_L}(?:ответь(?:те)?|напиши(?:те)?|пришли(?:те)?|скинь(?:те)?|дай(?:те)?|сделай(?:те)?|оставь(?:те)?|подготовь(?:те)?)\s+с(?:о)?\s+${SOURCE_RU}${SOURCE_EDGE_R}`, "iu"),
+  new RegExp(String.raw`${SOURCE_EDGE_L}(?:откуда\s+(?:данные|информация|сведения)|где\s+${NOUN_RU_LINK_PROOF})`, "iu"),
+  new RegExp(String.raw`${SOURCE_EDGE_L}${PROOF_RU}${SOURCE_EDGE_R}\s*(?:в\s+студию|пожалуйста|плиз|plz|\?)`, "iu"),
+  new RegExp(String.raw`${SOURCE_EDGE_L}(?:${NOUN_RU}\s*,?\s*(?:пожалуйста|плиз)|${NOUN_EN}\s*,?\s*please)`, "iu"),
+  new RegExp(String.raw`${SOURCE_EDGE_L}with\s+${NOUN_EN}`, "iu"),
+];
+
+/**
+ * Detects an explicit request for external sources/URLs/proofs in the
+ * authoritative trigger. Only this signal gates automatic source-list output;
+ * tool results are always available for paraphrasing.
+ */
+export function botExternalSourcesRequestedForText(value: string): boolean {
+  return EXTERNAL_SOURCES_REQUEST_PATTERNS.some((pattern) => pattern.test(value));
 }
 
 export function botResearchMinimumToolCalls(mode: BotResearchMode): number {
@@ -75,6 +109,10 @@ export interface BotSystemPromptOptions {
   imageDelivered?: boolean;
   /** True only when the addressed turn includes transcribable local audio. */
   audioTranscriptionAvailable?: boolean;
+  /** Durable sender id of this bot's own published messages. */
+  botSenderId?: string;
+  /** True when the user explicitly asked for external sources/references/URLs. */
+  externalSourcesRequested?: boolean;
 }
 
 /**
@@ -205,8 +243,10 @@ export function buildBotSystemPrompt(options: BotSystemPromptOptions): string {
 У тебя есть ${historyDescription}, дневные сводки и внешний веб-поиск. Это твоё
 главное преимущество, поэтому пользуйся им до ответа:
 
-- \`search_chat\` — прошлое чата, люди, цитаты, решения и обсуждения;
-- \`day_digest\` — что происходило в конкретный день или диапазон дней;
+- \`rag_bm25_search\` — гибридный поиск по закэшированной истории чата (vector + BM25 RAG, ranked semantic/topical, non-contiguous). Используй, когда нужен факт, решение или высказывание из переписки; не используй для внешней справки;
+- \`keyword_search\` — точный лексический поиск слов/фраз/имён только по закэшированной истории, без vector/embedding provider и без Telegram. Используй для точных ключевых слов, имён и цитат, когда не нужна semantic ранжировка;
+- \`read_chat_slice\` — связный chronological срез: последние count сообщений или календарный период Europe/Moscow, до 1000 строк за вызов. Используй, когда нужен связный ход переписки, а не отдельные совпадения;
+- \`day_digest\` — что происходило в конкретный день или диапазоне дней;
 - \`thread_context\` — разговор вокруг найденного сообщения;
 - \`web_search\` — свежие и внешние факты, которых в истории чата быть не может;
 - \`web_fetch\` — текст одной публичной HTTPS-страницы без логина, cookies,
@@ -227,10 +267,10 @@ export function buildBotSystemPrompt(options: BotSystemPromptOptions): string {
   открывай важную первичную страницу через \`web_fetch\`, если сниппета мало для
   вывода. Не пытайся им открыть личный кабинет, Google Doc, localhost или
   страницу, которой нужен JavaScript: этот инструмент специально этого не умеет.
-- Если нужен факт из этой переписки — \`search_chat\`; \`day_digest\` и
+- Если нужен факт из этой переписки — \`rag_bm25_search\` (semantic/topical ranked) или \`keyword_search\` (точные слова/имена); \`day_digest\` и
   \`thread_context\` только когда нужны дата или окружение этой беседы.
 - Смешивай внешний и локальный поиск лишь когда пользователь прямо просит
-  связать внешнюю тему с историей чата. Не ходи в \`search_chat\` «на всякий
+  связать внешнюю тему с историей чата. Не ходи в \`rag_bm25_search\` или \`keyword_search\` «на всякий
   случай», за мнением чата или ради дополнительной детали к внешней справке.
   Если ответ зависит от данных за пределами этой переписки, это внешний запрос,
   а не повод искать по этому чату.
@@ -277,7 +317,12 @@ ${mediaSection}
 
 ${memorySection}${knowledgeSections}${memoryToolSection}${toolBudgetSection}
 
-Вопрос про прошлое чата или «кто что говорил» — сначала \`search_chat\`. Фрагмент
+# Собственные ходы бота
+Сообщения с authorRole=assistant и isOwnTurn=true — это твои собственные предыдущие ответы в этом чате. Они полезны для понимания хода диалога, но они НЕ являются независимым подтверждением фактов. Не цитируй свои прошлые ответы как доказательство и не приписывай им чужую атрибуцию. Если собственный предыдущий ответ ошибочен, а пользователь это не подтвердил, он не становится фактом.
+
+${renderExternalSourcesSection(options.externalSourcesRequested === true)}
+
+Вопрос про прошлое чата или «кто что говорил» — сначала \`rag_bm25_search\` (semantic/topical) или \`keyword_search\` (точные слова/имена); связный ход — \`read_chat_slice\`. Фрагмент
 непонятен без окружения — возьми \`thread_context\`. Относительная дата считается
 от ${today} по Europe/Moscow. Свежий внешний факт — сначала \`web_search\`.
 
@@ -445,6 +490,15 @@ function boundedMemberCount(value: number): number {
     );
   }
   return value;
+}
+
+function renderExternalSourcesSection(requested: boolean): string {
+  if (!requested) {
+    return `# Внешние источники
+Ссылки, URL и названия внешних источников не печатаются автоматически. Используй web/paper/research evidence для формирования полезного пересказа в ответе, но не добавляй блок «Источники» или список ссылок, если пользователь не просил их явно.`;
+  }
+  return `# Внешние источники
+Пользователь явно попросил ссылки/источники. Можно оставлять только подтверждённые URL из tool evidence (web_search, web_fetch, paper_search). Не придумывай ссылки, которых не было в результатах инструментов.`;
 }
 
 function renderResearchSection(mode: BotResearchMode): string {

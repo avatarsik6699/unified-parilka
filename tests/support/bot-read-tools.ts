@@ -4,7 +4,12 @@ import {
   type BotReadToolFailure,
   type BotReadToolResult,
 } from "../../src/bot/read-tools.js";
-import { MessageStore, type StoredMessage } from "../../src/store.js";
+import {
+  MessageStore,
+  type LiveTranscriptResult,
+  type StoredMessage,
+  type TranscriptForm,
+} from "../../src/store.js";
 import type { ChatInfo } from "../../src/telegram-client.js";
 
 export const CHAT: ChatInfo = {
@@ -14,10 +19,41 @@ export const CHAT: ChatInfo = {
   kind: "Supergroup",
 };
 
-export function storeCache(store: MessageStore): BotReadToolCache {
+export function storeCache(
+  store: MessageStore,
+  botSenderId?: string,
+): BotReadToolCache {
   return {
     search(params) {
       return store.search(params);
+    },
+    findMessages(params) {
+      return store
+        .searchLexical({
+          chatId: params.chatId,
+          query: params.query,
+          match: params.match,
+          ...(params.sender === undefined ? {} : { sender: params.sender }),
+          ...(params.includeBot === false && botSenderId !== undefined
+            ? { excludeSenderIds: [botSenderId] }
+            : {}),
+          ...(params.startInclusive === undefined
+            ? {}
+            : { dateFromInclusive: params.startInclusive }),
+          ...(params.endExclusive === undefined
+            ? {}
+            : { dateToExclusive: params.endExclusive }),
+          ...(params.beforeId === undefined
+            ? {}
+            : { beforeId: params.beforeId }),
+          ...(params.afterId === undefined ? {} : { afterId: params.afterId }),
+          order: params.order,
+          limit: params.limit,
+        })
+        .map((hit) => hit.message);
+    },
+    readSlice(params) {
+      return store.getLiveTranscript(params);
     },
     getThreadContext(params) {
       return store.getThreadContext(params);
@@ -28,12 +64,38 @@ export function storeCache(store: MessageStore): BotReadToolCache {
   };
 }
 
+export function emptyTranscript(
+  form: TranscriptForm = "recent",
+): LiveTranscriptResult {
+  return {
+    form,
+    messages: [],
+    coverage: {
+      upperMessageId: 0,
+      totalAvailable: 0,
+      returnedCount: 0,
+      coveredCount: 0,
+      emptyTextCount: 0,
+      mediaOrEmptyTextCount: 0,
+      truncated: false,
+      omittedCount: 0,
+      hasMore: false,
+    },
+  };
+}
+
 export function emptyCache(
   overrides: Partial<BotReadToolCache> = {},
 ): BotReadToolCache {
   return {
     search() {
       return [];
+    },
+    findMessages() {
+      return [];
+    },
+    readSlice() {
+      return emptyTranscript();
     },
     getThreadContext() {
       return [];

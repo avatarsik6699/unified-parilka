@@ -8,6 +8,7 @@ import {
 } from "../providers/model-router.js";
 import {
   BOT_AGENT_CONTRACT,
+  botExternalSourcesRequestedForText,
   botResearchMinimumToolCalls,
   botResearchModeForText,
   buildBotSystemPrompt,
@@ -187,6 +188,9 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
     );
     const researchMode = botResearchModeForText(request.trigger.text);
     const researchMinimumToolCalls = botResearchMinimumToolCalls(researchMode);
+    const externalSourcesRequested = botExternalSourcesRequestedForText(
+      request.trigger.text,
+    );
     const memoryWriteAllowed =
       this.#memoryTools !== undefined &&
       this.#memoryTools.isWriteAuthorizer(request.trigger.senderId) &&
@@ -333,6 +337,8 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
             imageDelivered: visionAttachment !== undefined,
             audioTranscriptionAvailable:
               audioExecution.available && !audioExecution.hasModelTranscription,
+            botSenderId: this.#prompt.botSenderId,
+            externalSourcesRequested,
           });
           const toolObserver = createBotToolExecutionObserver({
             traceContext,
@@ -568,6 +574,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
                 toolEvidence,
                 researchMode: researchMode === "research",
                 readToolFailures,
+                externalSourcesRequested,
               });
               if (sanitizedText.length === 0) {
                 throw new BotAgentProtocolError("empty_final");
@@ -590,6 +597,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
               usage.setFinalModel(
                 result.response.modelId ?? candidate.modelId,
                 candidate.providerId,
+                candidate.capabilities.contextWindowTokens,
               );
               usage.setExecutionStats({
                 toolCalls: startedExecutions,

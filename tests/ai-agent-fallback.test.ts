@@ -53,10 +53,10 @@ test("an empty successful provider response falls back as invalid candidate outp
 test("provider fallback keeps bounded carried tool data", async () => {
   const first = mockModel([
     toolResponse([
-      toolCall("first-1", "search_chat", {
+      toolCall("first-1", "rag_bm25_search", {
         query: "first-one",
       }),
-      toolCall("first-2", "search_chat", {
+      toolCall("first-2", "rag_bm25_search", {
         query: "first-two",
       }),
     ]),
@@ -66,19 +66,19 @@ test("provider fallback keeps bounded carried tool data", async () => {
   ]);
   const second = mockModel([
     toolResponse([
-      toolCall("second-1", "search_chat", {
+      toolCall("second-1", "rag_bm25_search", {
         query: "second-one",
       }),
-      toolCall("second-2", "search_chat", {
+      toolCall("second-2", "rag_bm25_search", {
         query: "second-two",
       }),
-      toolCall("second-3", "search_chat", {
+      toolCall("second-3", "rag_bm25_search", {
         query: "second-three",
       }),
-      toolCall("second-4", "search_chat", {
+      toolCall("second-4", "rag_bm25_search", {
         query: "second-four",
       }),
-      toolCall("second-5", "search_chat", {
+      toolCall("second-5", "rag_bm25_search", {
         query: "second-denied",
       }),
     ]),

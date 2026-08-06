@@ -4,7 +4,7 @@ export const SQLITE_BUSY_RETRY_ATTEMPTS = 6;
 
 export const SQLITE_BUSY_RETRY_INITIAL_MS = 25;
 
-export const SCHEMA_VERSION = 19;
+export const SCHEMA_VERSION = 21;
 
 export const DEFAULT_BOT_MAX_ATTEMPTS = 3;
 
@@ -74,9 +74,10 @@ export const MANAGED_TRIGGER_DEFINITIONS = [
   },
   {
     name: "embedding_chunks_ad",
-    version: 1,
+    version: 2,
     sql: `CREATE TRIGGER embedding_chunks_ad AFTER DELETE ON message_embedding_chunks BEGIN
       DELETE FROM message_embedding_chunk_messages WHERE chunk_id = old.id;
+      DELETE FROM message_embedding_sparse_terms WHERE chunk_id = old.id;
     END`,
   },
 ] as const;

@@ -3,6 +3,8 @@ import type { StoredMessage } from "../../store.js";
 import { isCalendarDay } from "./calendar.js";
 import {
   MAX_BOT_READ_TOOL_OUTPUT_CHARS,
+  MAX_FIND_CHAT_MESSAGES_OUTPUT_CHARS,
+  MAX_READ_CHAT_SLICE_OUTPUT_CHARS,
   type BotReadToolFailure,
   type BotReadToolName,
   type BotReadToolSuccess,
@@ -11,6 +13,21 @@ import {
   type ReadToolErrorCode,
   type ReadToolEvidence,
 } from "./contracts.js";
+
+/**
+ * Ordinary read tools keep the short historical cap. Only the purpose-built
+ * cache-only tools get a larger (still finite) projection budget so a real
+ * transcript of hundreds of short messages reaches the model in one call.
+ */
+export function maxReadToolOutputChars(tool: BotReadToolName): number {
+  if (tool === "read_chat_slice") {
+    return MAX_READ_CHAT_SLICE_OUTPUT_CHARS;
+  }
+  if (tool === "keyword_search") {
+    return MAX_FIND_CHAT_MESSAGES_OUTPUT_CHARS;
+  }
+  return MAX_BOT_READ_TOOL_OUTPUT_CHARS;
+}
 
 export function projectDigest(
   digest: CachedDigest,
@@ -80,6 +97,7 @@ export function projectDigest(
 export function chatEvidence(
   messages: readonly StoredMessage[],
   expectedChatId: string,
+  botSenderId?: string,
 ): ReadToolEvidence[] {
   if (!Array.isArray(messages)) {
     throw new ReadToolExecutionError(
@@ -103,14 +121,24 @@ export function chatEvidence(
         "Local cache returned malformed or cross-chat evidence.",
       );
     }
+    const isOwnTurn =
+      botSenderId !== undefined && message.senderId === botSenderId;
     return {
       source: "chat_message",
+      sourceId: `chat:${message.messageId}`,
       chat: { id: message.chatId },
-      message: { id: message.messageId },
+      message: {
+        id: message.messageId,
+        ...(message.replyToMessageId == null
+          ? {}
+          : { replyToMessageId: message.replyToMessageId }),
+      },
       speaker: {
         id: message.senderId ?? null,
         name: message.senderName ?? null,
       },
+      authorRole: isOwnTurn ? "assistant" : "user",
+      isOwnTurn,
       date: message.date ?? null,
       text: message.text,
     };
@@ -204,6 +232,7 @@ function boundToolPayload(
     result: structuredClone(result),
     evidence: structuredClone([...evidence]),
   };
+  const maxCharacters = maxReadToolOutputChars(tool);
   let truncated = false;
   let omittedEvidence = 0;
 
@@ -211,15 +240,15 @@ function boundToolPayload(
     root.result.projection = {
       truncated: true,
       omittedEvidence,
-      maxCharacters: MAX_BOT_READ_TOOL_OUTPUT_CHARS,
+      maxCharacters,
     };
   };
 
   const serializedLength = (): number =>
     JSON.stringify({ ok: true, tool, status, ...root }).length;
 
-  while (serializedLength() > MAX_BOT_READ_TOOL_OUTPUT_CHARS) {
-    const overflow = serializedLength() - MAX_BOT_READ_TOOL_OUTPUT_CHARS;
+  while (serializedLength() > maxCharacters) {
+    const overflow = serializedLength() - maxCharacters;
     const slot = longestStringSlot(root);
     if (slot && slot.value.length > 64) {
       const marker = "…[TRUNCATED]";
@@ -252,7 +281,7 @@ function boundToolPayload(
       projection: {
         truncated: true,
         omittedEvidence,
-        maxCharacters: MAX_BOT_READ_TOOL_OUTPUT_CHARS,
+        maxCharacters,
       },
     };
     break;

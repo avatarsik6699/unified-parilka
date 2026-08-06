@@ -1,7 +1,9 @@
-import type { StoredMessage } from "../../store.js";
+import type { LiveTranscriptResult, StoredMessage } from "../../store.js";
 
 export const BOT_READ_TOOL_NAMES = [
-  "search_chat",
+  "rag_bm25_search",
+  "keyword_search",
+  "read_chat_slice",
   "day_digest",
   "thread_context",
   "web_search",
@@ -10,6 +12,16 @@ export const BOT_READ_TOOL_NAMES = [
   "research_lookup",
 ] as const;
 export const MAX_BOT_READ_TOOL_OUTPUT_CHARS = 4_000;
+/** Moderate cap for the purpose-built lexical search tool. */
+export const MAX_FIND_CHAT_MESSAGES_OUTPUT_CHARS = 20_000;
+/**
+ * read_chat_slice may carry a real transcript (for example ~800 short
+ * messages in one call), so its bounded cap is far above the generic one.
+ * It is still a hard finite budget, never unbounded output.
+ */
+export const MAX_READ_CHAT_SLICE_OUTPUT_CHARS = 192_000;
+export const MAX_FIND_CHAT_MESSAGES_LIMIT = 50;
+export const MAX_READ_CHAT_SLICE_COUNT = 1_000;
 export const MAX_PAPER_SEARCH_RESULTS = 5;
 export const MAX_WEB_FETCH_TEXT_CHARS = 3_000;
 
@@ -28,9 +40,9 @@ export interface BotReadToolDefinition {
  */
 export const BOT_READ_TOOL_DEFINITIONS: readonly BotReadToolDefinition[] = [
   {
-    name: "search_chat",
+    name: "rag_bm25_search",
     description:
-      "Поиск только по локально закэшированной истории этого чата. Используй лишь когда нужен факт из прошлой переписки, решение или высказывание участника; не используй для внешней справки и не вызывай просто потому, что инструмент доступен.",
+      "Гибридный ranked semantic/topical поиск по отдельным местам локально закэшированной истории: BM25 + BGE-M3 dense + learned sparse; опционально локальный ColBERT rerank top-K. В legacy external_openai режиме доступны BM25+dense без sparse и ColBERT. Используй для факта, решения или высказывания из прошлой переписки; для точной фразы/имени выбирай keyword_search, для связного периода — read_chat_slice, для внешней справки этот инструмент не подходит.",
     inputSchema: objectSchema(
       {
         query: {
@@ -47,6 +59,113 @@ export const BOT_READ_TOOL_DEFINITIONS: readonly BotReadToolDefinition[] = [
         },
       },
       ["query"],
+    ),
+  },
+  {
+    name: "keyword_search",
+    description:
+      "Точный лексический поиск слов/фраз/имён только по локально закэшированной истории этого чата, без vector/embedding provider и без Telegram. Задавай точные слова: стемминга нет, для русского префиксный режим покрывает только общий префикс, поэтому предлагай варианты формулировок сам. Поддерживает фильтры по отправителю, дням Europe/Moscow и message_id, порядки relevance/newest/oldest. Не используй для внешней справки.",
+    inputSchema: objectSchema(
+      {
+        query: {
+          type: "string",
+          minLength: 1,
+          maxLength: 500,
+          description:
+            "Слова из искомой переписки. FTS5 unicode61 токенизирует пунктуацию и кавычки, поэтому они не сохраняются буквально; raw FTS-операторы не исполняются.",
+        },
+        match: {
+          type: "string",
+          enum: ["all", "any", "phrase", "prefix"],
+          description:
+            "all — все слова (по умолчанию), any — любое из слов, phrase — точная фраза, prefix — общий префикс каждого слова.",
+        },
+        sender: {
+          type: "string",
+          maxLength: 200,
+          description:
+            "Точный отправитель: его id или имя, как в найденных сообщениях.",
+        },
+        day_from: {
+          type: "string",
+          format: "date",
+          description: "Первый день включительно, YYYY-MM-DD Europe/Moscow.",
+        },
+        day_to: {
+          type: "string",
+          format: "date",
+          description:
+            "Последний день включительно, YYYY-MM-DD Europe/Moscow; требует day_from.",
+        },
+        before_id: {
+          type: "integer",
+          minimum: 1,
+          description: "Только сообщения с message_id меньше этого.",
+        },
+        after_id: {
+          type: "integer",
+          minimum: 1,
+          description: "Только сообщения с message_id больше этого.",
+        },
+        order: {
+          type: "string",
+          enum: ["relevance", "newest", "oldest"],
+          description:
+            "relevance — по BM25 (по умолчанию), newest/oldest — по message_id без рейтинга.",
+        },
+        include_bot: {
+          type: "boolean",
+          description:
+            "Включить собственные ответы бота. По умолчанию true — собственные ходы являются частью диалога, но не независимым подтверждением фактов. Передай false, чтобы исключить их явно.",
+        },
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: MAX_FIND_CHAT_MESSAGES_LIMIT,
+          description: "Количество сообщений, по умолчанию 10.",
+        },
+      },
+      ["query"],
+    ),
+  },
+  {
+    name: "read_chat_slice",
+    description:
+      "Непрерывный срез только локально закэшированной истории этого чата: последние count сообщений (mode=recent) или календарный период Europe/Moscow (mode=period). Срез автоматически заканчивается перед текущим обращением и устойчив к сообщениям, появившимся после старта среза. Используй, когда нужен связный ход переписки, последние сообщения или весь день, а не отдельные совпадения. Если есть hasMore, передай тот же mode и полученный nextCursor.",
+    inputSchema: objectSchema(
+      {
+        mode: {
+          type: "string",
+          enum: ["recent", "period"],
+          description:
+            "recent — последние count сообщений; period — дни от day_from до day_to включительно.",
+        },
+        count: {
+          type: "integer",
+          minimum: 1,
+          maximum: MAX_READ_CHAT_SLICE_COUNT,
+          description: "Только для mode=recent: сколько последних сообщений.",
+        },
+        day_from: {
+          type: "string",
+          format: "date",
+          description:
+            "Только для mode=period: первый день, YYYY-MM-DD Europe/Moscow.",
+        },
+        day_to: {
+          type: "string",
+          format: "date",
+          description:
+            "Только для mode=period: последний день включительно; без day_to — один день day_from.",
+        },
+        cursor: {
+          type: "string",
+          maxLength: 512,
+          description:
+            "Непрозрачный nextCursor из предыдущего результата; передавай только вместе с тем же mode.",
+        },
+      },
+      ["mode"],
     ),
   },
   {
@@ -190,9 +309,15 @@ export const BOT_READ_TOOL_DEFINITIONS: readonly BotReadToolDefinition[] = [
 
 export interface ReadToolEvidence {
   source: "chat_message" | "digest" | "web" | "paper" | "research";
+  /** Canonical source id for chat messages: chat:<messageId>. */
+  sourceId?: string;
   chat: { id: string } | null;
-  message: { id: number; endId?: number } | null;
+  message: { id: number; endId?: number; replyToMessageId?: number } | null;
   speaker: { id: string | null; name: string | null };
+  /** authorRole is "assistant" for the bot's own turns, "user" otherwise. */
+  authorRole?: "user" | "assistant";
+  /** True when this row is the bot's own published answer. */
+  isOwnTurn?: boolean;
   date: string | null;
   text: string;
   url?: string;
@@ -321,9 +446,41 @@ export interface DigestCacheQuery extends LocalDayRange {
 }
 
 /**
+ * Cache-only lexical search query. It must never call an embedding/vector
+ * provider or Telegram. Dates are UTC ISO half-open bounds already converted
+ * from Europe/Moscow days by the executor.
+ */
+export interface BotFindMessagesQuery {
+  chatId: string;
+  query: string;
+  match: "all" | "any" | "phrase" | "prefix";
+  sender?: string;
+  includeBot: boolean;
+  startInclusive?: string;
+  endExclusive?: string;
+  beforeId?: number;
+  afterId?: number;
+  order: "relevance" | "newest" | "oldest";
+  limit: number;
+}
+
+export type BotReadSliceRequest =
+  | { chatId: string; form: "recent"; count: number; upperMessageId?: number }
+  | {
+      chatId: string;
+      form: "period";
+      startInclusive: string;
+      endExclusive: string;
+      upperMessageId?: number;
+    }
+  | { chatId: string; form: "recent" | "period"; cursor: string };
+
+/**
  * Thread and digest reads are synchronous local SQLite operations. Search may
  * additionally use the configured embedding query provider, but it must never
- * call Telegram and must honor the supplied AbortSignal.
+ * call Telegram and must honor the supplied AbortSignal. keyword_search
+ * and read_chat_slice are strictly cache-only: no embedding provider, no
+ * vector port, no Telegram.
  */
 export interface BotReadToolCache {
   search(params: {
@@ -335,6 +492,8 @@ export interface BotReadToolCache {
     | readonly StoredMessage[]
     | CachedChatSearchResult
     | Promise<readonly StoredMessage[] | CachedChatSearchResult>;
+  findMessages(params: BotFindMessagesQuery): readonly StoredMessage[];
+  readSlice(params: BotReadSliceRequest): LiveTranscriptResult;
   getThreadContext(params: {
     chatId: string;
     messageId: number;
@@ -344,10 +503,32 @@ export interface BotReadToolCache {
   getDigests(params: DigestCacheQuery): CachedDigestResult;
 }
 
+/**
+ * Explicit per-channel outcome for hybrid retrieval. `unsupported` means the
+ * configured backend has no such channel (e.g. external dense-only provider);
+ * `disabled` means the channel is intentionally off (no vector port / rerank
+ * budget 0); `unavailable`/`failed` mean it degraded at query time.
+ */
+export type RetrievalChannelState =
+  | "ok"
+  | "failed"
+  | "unavailable"
+  | "disabled"
+  | "unsupported"
+  | "skipped";
+
+export interface RetrievalChannelStatus {
+  bm25: RetrievalChannelState;
+  dense: RetrievalChannelState;
+  sparse: RetrievalChannelState;
+  rerank: RetrievalChannelState;
+}
+
 export interface CachedChatSearchResult {
   messages: readonly StoredMessage[];
   mode: "hybrid" | "keyword" | "semantic";
   degradedChannels?: readonly string[];
+  channels?: RetrievalChannelStatus;
 }
 
 export interface WebSearchSource {
@@ -407,10 +588,19 @@ export interface BotReadToolsOptions {
   paperSearchTimeoutMs?: number;
   paperSearchRateLimitMs?: number;
   researchGatewayTimeoutMs?: number;
+  /** Durable sender id of this bot's own published messages. */
+  botSenderId?: string;
 }
 
 export interface BotReadToolCallOptions {
   signal?: AbortSignal;
+  /**
+   * Application-owned trigger message id of the current turn. Cache-only
+   * slice/find tools clamp their authoritative upper bound to
+   * `sourceMessageId - 1`, so they never rely on model-provided ids and can
+   * never return the trigger or messages above it.
+   */
+  sourceMessageId?: number;
 }
 
 function objectSchema(

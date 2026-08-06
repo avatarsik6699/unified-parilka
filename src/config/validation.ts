@@ -1,6 +1,11 @@
 import { isIP } from "node:net";
 import { resolve } from "node:path";
 import type { AppConfig } from "./types.js";
+import {
+  LOCAL_BGE_M3_DIMENSIONS,
+  LOCAL_BGE_M3_MAX_TEXT_CHARS,
+  LOCAL_BGE_M3_MODEL,
+} from "./types.js";
 
 export function validateRequiredApiCredentials(
   apiId: number,
@@ -106,12 +111,72 @@ export function validateConfig(config: AppConfig): void {
       "TELEGRAM_MTCUTE_AUTH_DB_PATH must be separate from TELEGRAM_DB_PATH.",
     );
   }
-  if (config.memory.dreamMaxMessages < config.memory.dreamEveryNMessages) {
+  validateEmbeddingBackend(config.embeddings);
+}
+
+function validateEmbeddingBackend(
+  embeddings: AppConfig["embeddings"],
+): void {
+  if (embeddings.backend === "local_bge_m3") {
+    validateLocalBgeM3Endpoint(embeddings.localEndpoint);
+    // The local backend is pinned to the fixed BGE-M3 identity so an
+    // incompatible dense/sparse index can never be mixed silently.
+    if (embeddings.model !== LOCAL_BGE_M3_MODEL) {
+      throw new Error(
+        `TELEGRAM_EMBEDDINGS_BACKEND=local_bge_m3 requires model ${LOCAL_BGE_M3_MODEL}.`,
+      );
+    }
+    if (embeddings.dimensions !== LOCAL_BGE_M3_DIMENSIONS) {
+      throw new Error(
+        `TELEGRAM_EMBEDDINGS_BACKEND=local_bge_m3 requires dimensions ${LOCAL_BGE_M3_DIMENSIONS}.`,
+      );
+    }
+    if (embeddings.chunkMaxChars > LOCAL_BGE_M3_MAX_TEXT_CHARS) {
+      throw new Error(
+        `TELEGRAM_EMBEDDINGS_CHUNK_MAX_CHARS must not exceed ${LOCAL_BGE_M3_MAX_TEXT_CHARS} for the local BGE-M3 backend.`,
+      );
+    }
+    return;
+  }
+  validateEmbeddingBaseUrl(embeddings.baseUrl);
+}
+
+function validateLocalBgeM3Endpoint(raw: string): void {
+  if (raw.trim() === "") {
     throw new Error(
-      "PARILKA_DREAM_MAX_MESSAGES must be greater than or equal to PARILKA_DREAM_EVERY_N_MESSAGES.",
+      "TELEGRAM_EMBEDDINGS_LOCAL_ENDPOINT is required when TELEGRAM_EMBEDDINGS_BACKEND=local_bge_m3.",
     );
   }
-  validateEmbeddingBaseUrl(config.embeddings.baseUrl);
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(
+      "TELEGRAM_EMBEDDINGS_LOCAL_ENDPOINT must be an absolute loopback URL.",
+    );
+  }
+  if (url.username || url.password || url.search || url.hash) {
+    throw new Error(
+      "TELEGRAM_EMBEDDINGS_LOCAL_ENDPOINT cannot contain credentials, query parameters, or a fragment.",
+    );
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(
+      "TELEGRAM_EMBEDDINGS_LOCAL_ENDPOINT must use HTTP or HTTPS on a loopback host.",
+    );
+  }
+  if (!isLoopbackHostname(url.hostname)) {
+    throw new Error(
+      "TELEGRAM_EMBEDDINGS_LOCAL_ENDPOINT must bind a loopback host; the local BGE-M3 service is never remote.",
+    );
+  }
+  // The endpoint is documented as a bare origin. A base path would make the
+  // client silently request /base/encode and fail with opaque 404s.
+  if (url.pathname !== "/" && url.pathname !== "") {
+    throw new Error(
+      "TELEGRAM_EMBEDDINGS_LOCAL_ENDPOINT must be a root origin without a path.",
+    );
+  }
 }
 
 function normalizeConfiguredChatRef(value: string): string {

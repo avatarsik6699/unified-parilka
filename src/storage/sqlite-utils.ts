@@ -13,6 +13,48 @@ export function escapeFtsQuery(query: string): string {
   return terms.map((term) => `"${term}"`).join(" AND ");
 }
 
+export type FtsMatchMode = "all" | "any" | "phrase" | "prefix";
+
+export const FTS_MATCH_MODES: readonly FtsMatchMode[] = [
+  "all",
+  "any",
+  "phrase",
+  "prefix",
+];
+
+export function splitFtsTerms(query: string): string[] {
+  return query.trim().split(/\s+/).filter(Boolean);
+}
+
+function quoteFtsTerm(term: string): string {
+  return `"${term.replace(/"/g, "\"\"")}"`;
+}
+
+/**
+ * Builds a safe FTS5 MATCH expression from untrusted input. Every whitespace
+ * separated term is double-quoted (with inner quotes doubled), so raw FTS5
+ * operators and column filters stay literal tokens. The unicode61 tokenizer
+ * folds case and splits on punctuation and quotes; it does not preserve them
+ * verbatim and provides no stemming. `prefix` therefore matches a shared
+ * literal prefix only.
+ */
+export function buildFtsMatchExpression(
+  query: string,
+  mode: FtsMatchMode,
+): string {
+  const terms = splitFtsTerms(query);
+  if (terms.length === 0) {
+    return "\"\"";
+  }
+  if (mode === "phrase") {
+    return quoteFtsTerm(terms.join(" "));
+  }
+  const quoted = terms.map((term) =>
+    mode === "prefix" ? `${quoteFtsTerm(term)}*` : quoteFtsTerm(term),
+  );
+  return quoted.join(mode === "any" ? " OR " : " AND ");
+}
+
 export function toSqlValues(values: readonly unknown[]): SQLInputValue[] {
   return values.map((value) => {
     if (

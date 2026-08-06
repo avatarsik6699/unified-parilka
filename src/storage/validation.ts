@@ -11,6 +11,7 @@ import {
 } from "./constants.js";
 import type {
   BotDurableStatus,
+  SparseTerm,
   StoredSendOutboxItem,
   UpsertDayDigestInput,
   UpsertDigestRollupInput,
@@ -180,6 +181,31 @@ export function validateDigestMetadata(
   }
 }
 
+const CANONICAL_UTC_ISO_RE =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
+
+export function assertIsoDateTime(value: string, name: string): void {
+  if (
+    typeof value !== "string" ||
+    !CANONICAL_UTC_ISO_RE.test(value) ||
+    Number.isNaN(Date.parse(value))
+  ) {
+    throw new Error(
+      `${name} must be a canonical UTC ISO-8601 date-time string (YYYY-MM-DDTHH:mm:ss.sssZ, no offsets).`,
+    );
+  }
+}
+
+/**
+ * Accept the same canonical UTC ISO-8601 forms as assertIsoDateTime, but
+ * normalize a trailing `Z` without milliseconds to the fixed `.sssZ` lexical
+ * form. This keeps SQLite string comparisons deterministic.
+ */
+export function normalizeIsoDateTime(value: string, name: string): string {
+  assertIsoDateTime(value, name);
+  return new Date(value).toISOString();
+}
+
 export function assertCalendarDay(value: string, name: string): void {
   if (!/^\d{4}-\d{2}-\d{2}$/u.test(value)) {
     throw new Error(`${name} must use YYYY-MM-DD.`);
@@ -231,4 +257,64 @@ export function normalizeBotStatuses(statuses: BotDurableStatus[] | undefined): 
     }
   }
   return unique;
+}
+
+/** Hard bound on stored learned sparse postings per parent chunk. */
+export const MAX_SPARSE_TERMS_PER_CHUNK = 1_024;
+/** Hard bound on query terms used for one sparse posting lookup. */
+export const MAX_SPARSE_QUERY_TERMS = 256;
+/** BGE-M3 vocabulary is ~250k ids; leave bounded headroom, never unbounded. */
+export const MAX_SPARSE_TOKEN_ID = 300_000;
+/** Learned weights are small positive floats; anything larger is malformed. */
+export const MAX_SPARSE_WEIGHT = 1_000;
+
+/**
+ * Validates and deterministically normalizes learned sparse terms.
+ *
+ * Duplicate token ids collapse to the maximum weight; the result keeps the
+ * top `maxTerms` entries by (weight desc, tokenId asc) and is ordered by
+ * tokenId ascending, so storage rows and SQL parameters are stable.
+ */
+export function normalizeSparseTerms(
+  terms: readonly SparseTerm[],
+  maxTerms: number,
+): SparseTerm[] {
+  if (!Number.isSafeInteger(maxTerms) || maxTerms < 1) {
+    throw new Error("maxTerms must be a positive safe integer.");
+  }
+  const byTokenId = new Map<number, number>();
+  for (const [index, term] of terms.entries()) {
+    if (
+      typeof term?.tokenId !== "number" ||
+      !Number.isSafeInteger(term.tokenId) ||
+      term.tokenId < 0 ||
+      term.tokenId > MAX_SPARSE_TOKEN_ID
+    ) {
+      throw new Error(
+        `Sparse term ${index} tokenId must be a safe integer between 0 and ${MAX_SPARSE_TOKEN_ID}.`,
+      );
+    }
+    if (
+      typeof term.weight !== "number" ||
+      !Number.isFinite(term.weight) ||
+      term.weight <= 0 ||
+      term.weight > MAX_SPARSE_WEIGHT
+    ) {
+      throw new Error(
+        `Sparse term ${index} weight must be finite and in (0, ${MAX_SPARSE_WEIGHT}].`,
+      );
+    }
+    const existing = byTokenId.get(term.tokenId);
+    if (existing === undefined || term.weight > existing) {
+      byTokenId.set(term.tokenId, term.weight);
+    }
+  }
+  return [...byTokenId.entries()]
+    .sort(
+      (left, right) =>
+        right[1] - left[1] || left[0] - right[0],
+    )
+    .slice(0, maxTerms)
+    .sort((left, right) => left[0] - right[0])
+    .map(([tokenId, weight]) => ({ tokenId, weight }));
 }

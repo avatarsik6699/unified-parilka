@@ -73,9 +73,19 @@ test("recent reconciliation tombstones deleted messages and removes searchable c
     batchSize: 5,
   });
 
-  const [message] = store.getHistory({ chatId: CHAT.chatId, limit: 1, order: "asc" });
+  const [message] = store.getHistory({
+    chatId: CHAT.chatId,
+    limit: 1,
+    order: "asc",
+    includeDeleted: true,
+  });
   assert.equal(result.reconciliation?.deleted, 1);
   assert.equal(typeof message?.deletedAt, "string");
+  // Default reads hide the tombstoned row entirely.
+  assert.equal(
+    store.getHistory({ chatId: CHAT.chatId, limit: 10, order: "asc" }).length,
+    0,
+  );
   assert.equal(store.search({ chatId: CHAT.chatId, query: "message", limit: 10 }).length, 0);
   assert.equal(store.search({ chatId: CHAT.chatId, query: "Alice", limit: 10 }).length, 0);
 });

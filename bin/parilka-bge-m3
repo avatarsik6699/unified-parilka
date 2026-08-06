@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+project_dir="${TELEGRAM_PROJECT_DIR:-$(cd -- "$script_dir/.." && pwd)}"
+service_dir="$project_dir/services/bge-m3"
+
+if [[ ! -f "$service_dir/server.py" ]]; then
+  echo "parilka-bge-m3: missing $service_dir/server.py" >&2
+  exit 1
+fi
+
+# The Python interpreter is operator-provisioned. Either point directly at an
+# interpreter with FlagEmbedding installed, or at a dedicated venv directory.
+python_bin="${PARILKA_BGE_M3_PYTHON:-}"
+if [[ -z "$python_bin" ]]; then
+  venv_dir="${PARILKA_BGE_M3_VENV:-$HOME/.venvs/parilka-bge-m3}"
+  python_bin="$venv_dir/bin/python"
+fi
+if [[ ! -x "$python_bin" ]]; then
+  echo "parilka-bge-m3: Python interpreter not found at $python_bin." >&2
+  echo "Provision a venv per services/bge-m3/README.md or set PARILKA_BGE_M3_PYTHON." >&2
+  exit 1
+fi
+
+cd "$service_dir"
+exec "$python_bin" server.py "$@"

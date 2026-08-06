@@ -35,6 +35,7 @@ import type {
   StoredBotTurn,
   StoredMessage,
 } from "../../src/store.js";
+import { emptyTranscript } from "./bot-read-tools.js";
 
 export const CHAT_ID = "-1004242";
 const USAGE = {
@@ -57,6 +58,7 @@ export function makeAgent(
     searchResults?: readonly StoredMessage[];
     mediaTools?: BotMediaToolsPort;
     memoryTools?: BotMemoryTools;
+    botSenderId?: string;
     agentOptions?: {
       contextCharLimit?: number;
       stepTimeoutMs?: number;
@@ -74,6 +76,8 @@ export function makeAgent(
       searchCalls += 1;
       return options.searchResults ?? [];
     },
+    findMessages: () => [],
+    readSlice: () => emptyTranscript(),
     getThreadContext: () => [],
     getDigests: () => ({ digests: [] }),
   };
@@ -89,6 +93,9 @@ export function makeAgent(
       readTools: new BotReadTools({
         chatId: CHAT_ID,
         cache,
+        ...(options.botSenderId === undefined
+          ? {}
+          : { botSenderId: options.botSenderId }),
       }),
       ...(options.mediaTools === undefined
         ? {}
@@ -100,6 +107,9 @@ export function makeAgent(
         botUsername: "parilka_bot",
         botName: "Парилка",
         chatTitle: "Тестовая парилка",
+        ...(options.botSenderId === undefined
+          ? {}
+          : { botSenderId: options.botSenderId }),
       },
       logger,
       now: () => new Date("2026-07-30T12:00:00.000Z"),
@@ -236,6 +246,7 @@ export function request(
     context?: readonly StoredMessage[];
     drainFold?: (boundary: TurnBoundary) => FoldBatch;
     toolProgressPort?: ToolProgressPort;
+    botSenderId?: string;
   } = {},
 ): BotAgentRequest {
   const trigger =
@@ -272,6 +283,9 @@ export function request(
     ...(overrides.toolProgressPort === undefined
       ? {}
       : { toolProgressPort: overrides.toolProgressPort }),
+    ...(overrides.botSenderId === undefined
+      ? {}
+      : { botSenderId: overrides.botSenderId }),
   };
 }
 

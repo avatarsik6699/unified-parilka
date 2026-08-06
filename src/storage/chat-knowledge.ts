@@ -65,6 +65,17 @@ export abstract class ChatKnowledgeMethods extends StoreCore {
   upsertFastChatMemory(
     input: UpsertFastChatMemoryInput,
   ): StoredFastChatMemory {
+    return this.immediateTransaction("upsertFastChatMemory", () =>
+      this.upsertFastChatMemoryLocked(input),
+    );
+  }
+
+  /**
+   * Assumes the caller already owns a `BEGIN IMMEDIATE` boundary.
+   */
+  protected upsertFastChatMemoryLocked(
+    input: UpsertFastChatMemoryInput,
+  ): StoredFastChatMemory {
     assertChatId(input.chatId);
     assertSafeKnowledgeText(input.title, MAX_FAST_TITLE_CHARS, "title");
     assertSafeKnowledgeText(input.note, MAX_FAST_NOTE_CHARS, "note");
@@ -73,42 +84,40 @@ export abstract class ChatKnowledgeMethods extends StoreCore {
     const requestedAtMs = input.updatedAtMs ?? Date.now();
     assertTimestamp(requestedAtMs, "updatedAtMs");
 
-    return this.immediateTransaction("upsertFastChatMemory", () => {
-      const updatedAtMs = this.nextKnowledgeUpdatedAt(
-        "bot_chat_fast_memory",
-        "memory_key",
+    const updatedAtMs = this.nextKnowledgeUpdatedAt(
+      "bot_chat_fast_memory",
+      "memory_key",
+      input.chatId,
+      key,
+      requestedAtMs,
+    );
+    this.db
+      .prepare(
+        `INSERT INTO bot_chat_fast_memory (
+           chat_id, memory_key, title, note, source_message_id,
+           created_at_ms, updated_at_ms
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(chat_id, memory_key) DO UPDATE SET
+           title = excluded.title,
+           note = excluded.note,
+           source_message_id = excluded.source_message_id,
+           updated_at_ms = excluded.updated_at_ms`,
+      )
+      .run(
         input.chatId,
         key,
-        requestedAtMs,
+        input.title.trim(),
+        input.note.trim(),
+        input.sourceMessageId ?? null,
+        updatedAtMs,
+        updatedAtMs,
       );
-      this.db
-        .prepare(
-          `INSERT INTO bot_chat_fast_memory (
-             chat_id, memory_key, title, note, source_message_id,
-             created_at_ms, updated_at_ms
-           ) VALUES (?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(chat_id, memory_key) DO UPDATE SET
-             title = excluded.title,
-             note = excluded.note,
-             source_message_id = excluded.source_message_id,
-             updated_at_ms = excluded.updated_at_ms`,
-        )
-        .run(
-          input.chatId,
-          key,
-          input.title.trim(),
-          input.note.trim(),
-          input.sourceMessageId ?? null,
-          updatedAtMs,
-          updatedAtMs,
-        );
-      this.pruneKnowledgeRows(
-        "bot_chat_fast_memory",
-        input.chatId,
-        MAX_FAST_CHAT_MEMORY_ITEMS,
-      );
-      return this.requireFastMemory(input.chatId, key);
-    });
+    this.pruneKnowledgeRows(
+      "bot_chat_fast_memory",
+      input.chatId,
+      MAX_FAST_CHAT_MEMORY_ITEMS,
+    );
+    return this.requireFastMemory(input.chatId, key);
   }
 
   listChatLessons(
@@ -165,6 +174,17 @@ export abstract class ChatKnowledgeMethods extends StoreCore {
   }
 
   upsertChatLesson(input: UpsertChatLessonInput): StoredChatLesson {
+    return this.immediateTransaction("upsertChatLesson", () =>
+      this.upsertChatLessonLocked(input),
+    );
+  }
+
+  /**
+   * Assumes the caller already owns a `BEGIN IMMEDIATE` boundary.
+   */
+  protected upsertChatLessonLocked(
+    input: UpsertChatLessonInput,
+  ): StoredChatLesson {
     assertChatId(input.chatId);
     assertSafeKnowledgeText(input.title, MAX_LESSON_TITLE_CHARS, "title");
     assertSafeKnowledgeText(input.problem, MAX_LESSON_FIELD_CHARS, "problem");
@@ -179,46 +199,44 @@ export abstract class ChatKnowledgeMethods extends StoreCore {
     const requestedAtMs = input.updatedAtMs ?? Date.now();
     assertTimestamp(requestedAtMs, "updatedAtMs");
 
-    return this.immediateTransaction("upsertChatLesson", () => {
-      const updatedAtMs = this.nextKnowledgeUpdatedAt(
-        "bot_chat_lessons",
-        "lesson_key",
+    const updatedAtMs = this.nextKnowledgeUpdatedAt(
+      "bot_chat_lessons",
+      "lesson_key",
+      input.chatId,
+      key,
+      requestedAtMs,
+    );
+    this.db
+      .prepare(
+        `INSERT INTO bot_chat_lessons (
+           chat_id, lesson_key, title, problem, solution, when_to_apply,
+           source_message_id, created_at_ms, updated_at_ms
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(chat_id, lesson_key) DO UPDATE SET
+           title = excluded.title,
+           problem = excluded.problem,
+           solution = excluded.solution,
+           when_to_apply = excluded.when_to_apply,
+           source_message_id = excluded.source_message_id,
+           updated_at_ms = excluded.updated_at_ms`,
+      )
+      .run(
         input.chatId,
         key,
-        requestedAtMs,
+        input.title.trim(),
+        input.problem.trim(),
+        input.solution.trim(),
+        input.whenToApply.trim(),
+        input.sourceMessageId ?? null,
+        updatedAtMs,
+        updatedAtMs,
       );
-      this.db
-        .prepare(
-          `INSERT INTO bot_chat_lessons (
-             chat_id, lesson_key, title, problem, solution, when_to_apply,
-             source_message_id, created_at_ms, updated_at_ms
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(chat_id, lesson_key) DO UPDATE SET
-             title = excluded.title,
-             problem = excluded.problem,
-             solution = excluded.solution,
-             when_to_apply = excluded.when_to_apply,
-             source_message_id = excluded.source_message_id,
-             updated_at_ms = excluded.updated_at_ms`,
-        )
-        .run(
-          input.chatId,
-          key,
-          input.title.trim(),
-          input.problem.trim(),
-          input.solution.trim(),
-          input.whenToApply.trim(),
-          input.sourceMessageId ?? null,
-          updatedAtMs,
-          updatedAtMs,
-        );
-      this.pruneKnowledgeRows(
-        "bot_chat_lessons",
-        input.chatId,
-        MAX_CHAT_LESSONS,
-      );
-      return this.requireLesson(input.chatId, key);
-    });
+    this.pruneKnowledgeRows(
+      "bot_chat_lessons",
+      input.chatId,
+      MAX_CHAT_LESSONS,
+    );
+    return this.requireLesson(input.chatId, key);
   }
 
   listChatSkills(
@@ -263,6 +281,17 @@ export abstract class ChatKnowledgeMethods extends StoreCore {
   }
 
   upsertChatSkill(input: UpsertChatSkillInput): StoredChatSkill {
+    return this.immediateTransaction("upsertChatSkill", () =>
+      this.upsertChatSkillLocked(input),
+    );
+  }
+
+  /**
+   * Assumes the caller already owns a `BEGIN IMMEDIATE` boundary.
+   */
+  protected upsertChatSkillLocked(
+    input: UpsertChatSkillInput,
+  ): StoredChatSkill {
     assertChatId(input.chatId);
     assertSafeKnowledgeText(input.name, MAX_SKILL_NAME_CHARS, "name");
     assertSafeKnowledgeText(
@@ -280,48 +309,46 @@ export abstract class ChatKnowledgeMethods extends StoreCore {
     const requestedAtMs = input.updatedAtMs ?? Date.now();
     assertTimestamp(requestedAtMs, "updatedAtMs");
 
-    return this.immediateTransaction("upsertChatSkill", () => {
-      const updatedAtMs = this.nextKnowledgeUpdatedAt(
-        "bot_chat_skills",
-        "skill_key",
+    const updatedAtMs = this.nextKnowledgeUpdatedAt(
+      "bot_chat_skills",
+      "skill_key",
+      input.chatId,
+      key,
+      requestedAtMs,
+    );
+    this.db
+      .prepare(
+        `INSERT INTO bot_chat_skills (
+           chat_id, skill_key, name, description, instructions,
+           source_message_id, created_at_ms, updated_at_ms
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(chat_id, skill_key) DO UPDATE SET
+           name = excluded.name,
+           description = excluded.description,
+           instructions = excluded.instructions,
+           source_message_id = excluded.source_message_id,
+           updated_at_ms = excluded.updated_at_ms`,
+      )
+      .run(
         input.chatId,
         key,
-        requestedAtMs,
+        input.name.trim(),
+        input.description.trim(),
+        input.instructions.trim(),
+        input.sourceMessageId ?? null,
+        updatedAtMs,
+        updatedAtMs,
       );
-      this.db
-        .prepare(
-          `INSERT INTO bot_chat_skills (
-             chat_id, skill_key, name, description, instructions,
-             source_message_id, created_at_ms, updated_at_ms
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(chat_id, skill_key) DO UPDATE SET
-             name = excluded.name,
-             description = excluded.description,
-             instructions = excluded.instructions,
-             source_message_id = excluded.source_message_id,
-             updated_at_ms = excluded.updated_at_ms`,
-        )
-        .run(
-          input.chatId,
-          key,
-          input.name.trim(),
-          input.description.trim(),
-          input.instructions.trim(),
-          input.sourceMessageId ?? null,
-          updatedAtMs,
-          updatedAtMs,
-        );
-      this.pruneKnowledgeRows(
-        "bot_chat_skills",
-        input.chatId,
-        MAX_CHAT_SKILLS,
-      );
-      const stored = this.getChatSkill({ chatId: input.chatId, name: key });
-      if (!stored) {
-        throw new Error("Chat skill disappeared after upsert.");
-      }
-      return stored;
-    });
+    this.pruneKnowledgeRows(
+      "bot_chat_skills",
+      input.chatId,
+      MAX_CHAT_SKILLS,
+    );
+    const stored = this.getChatSkill({ chatId: input.chatId, name: key });
+    if (!stored) {
+      throw new Error("Chat skill disappeared after upsert.");
+    }
+    return stored;
   }
 
   private requireFastMemory(
@@ -416,7 +443,7 @@ function assertSourceMessageId(value: number | undefined): void {
   }
 }
 
-function assertSafeKnowledgeText(
+export function assertSafeKnowledgeText(
   value: string,
   maximumLength: number,
   fieldName: string,
@@ -427,7 +454,10 @@ function assertSafeKnowledgeText(
   }
 }
 
-function normalizedKnowledgeKey(value: string, maximumLength: number): string {
+export function normalizedKnowledgeKey(
+  value: string,
+  maximumLength: number,
+): string {
   const key = value
     .normalize("NFKC")
     .replace(/\s+/gu, " ")

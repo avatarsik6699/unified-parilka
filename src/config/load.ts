@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import {
   boolFromEnv,
   csvFromEnv,
+  embeddingBackendFromEnv,
   intFromEnv,
   telegramTransportFromEnv,
 } from "./env-parsers.js";
@@ -11,6 +12,10 @@ import { expandPath } from "./paths.js";
 import type {
   AppConfig,
   TelegramAuthConfig,
+} from "./types.js";
+import {
+  LOCAL_BGE_M3_DIMENSIONS,
+  LOCAL_BGE_M3_MODEL,
 } from "./types.js";
 import {
   validateChatReferences,
@@ -36,6 +41,9 @@ export function loadConfig(): AppConfig {
   const embeddingDimensions = intFromEnv(
     "TELEGRAM_EMBEDDINGS_DIMENSIONS",
   );
+  const embeddingBackend = embeddingBackendFromEnv();
+  const embeddingLocal =
+    embeddingBackend === "local_bge_m3";
 
   const config: AppConfig = {
     telegram: {
@@ -129,14 +137,32 @@ export function loadConfig(): AppConfig {
       enabled: boolFromEnv(
         "TELEGRAM_EMBEDDINGS_ENABLED",
       ),
-      apiKey: embeddingApiKey,
+      backend: embeddingBackend,
+      // The local BGE-M3 backend is loopback-only and needs no credential;
+      // an API key is never attached to local requests.
+      apiKey: embeddingLocal ? "" : embeddingApiKey,
       baseUrl:
         process.env.TELEGRAM_EMBEDDINGS_BASE_URL?.trim() ||
         "https://api.openai.com/v1",
-      model:
-        process.env.TELEGRAM_EMBEDDINGS_MODEL?.trim() ||
-        "text-embedding-3-small",
-      dimensions: embeddingDimensions,
+      localEndpoint:
+        process.env.TELEGRAM_EMBEDDINGS_LOCAL_ENDPOINT?.trim() ||
+        "",
+      localRequestTimeoutMs: intFromEnv(
+        "TELEGRAM_EMBEDDINGS_LOCAL_REQUEST_TIMEOUT_MS",
+      ),
+      rerankTimeoutMs: intFromEnv(
+        "TELEGRAM_EMBEDDINGS_RERANK_TIMEOUT_MS",
+      ),
+      rerankMaxCandidates: intFromEnv(
+        "TELEGRAM_EMBEDDINGS_RERANK_MAX_CANDIDATES",
+      ),
+      model: embeddingLocal
+        ? LOCAL_BGE_M3_MODEL
+        : process.env.TELEGRAM_EMBEDDINGS_MODEL?.trim() ||
+          "text-embedding-3-small",
+      dimensions: embeddingLocal
+        ? LOCAL_BGE_M3_DIMENSIONS
+        : embeddingDimensions,
       apiBatchSize: intFromEnv(
         "TELEGRAM_EMBEDDINGS_API_BATCH_SIZE",
       ),
@@ -204,12 +230,6 @@ export function loadConfig(): AppConfig {
       ),
     },
     memory: {
-      dreamEveryNMessages: intFromEnv(
-        "PARILKA_DREAM_EVERY_N_MESSAGES",
-      ),
-      dreamMaxMessages: intFromEnv(
-        "PARILKA_DREAM_MAX_MESSAGES",
-      ),
       memoryMaxChars: intFromEnv(
         "PARILKA_MEMORY_MAX_CHARS",
       ),

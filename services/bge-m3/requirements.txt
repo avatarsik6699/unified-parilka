@@ -1,0 +1,18 @@
+# Selected top-level compatibility pins for the operator-owned Parilka BGE-M3
+# service. Not every package here is imported by the service directly:
+# transformers and sentencepiece are used by the FlagEmbedding/torch stack.
+# These pins are a compatibility baseline, NOT a full reproducible lock —
+# transitive dependencies are left to the resolver. If reproducibility
+# matters, record the resolved environment (pip freeze) separately.
+#
+# This file is metadata only: the slice that adds it does NOT install
+# anything. Install into a dedicated venv when the operator approves the
+# cutover (see README.md). Verify pin compatibility against
+# https://pypi.org/project/FlagEmbedding/ before upgrading; the service
+# contract depends only on BGEM3FlagModel.encode returning dense_vecs,
+# lexical_weights, and colbert_vecs.
+FlagEmbedding==1.3.4
+torch==2.5.1
+transformers==4.46.3
+numpy==2.1.3
+sentencepiece==0.2.2

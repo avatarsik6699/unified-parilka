@@ -3,6 +3,7 @@ import type { AppConfig } from "./config.js";
 import { fingerprintEmbeddingSource } from "./embedding-source.js";
 import { ToolError } from "./errors.js";
 import { providerIdentityUrl } from "./observability/redaction.js";
+import type { SparseTerm } from "./storage/types.js";
 
 export type EmbeddingChunkInput = {
   chatId: string;
@@ -19,6 +20,11 @@ export type EmbeddingChunkVector = EmbeddingChunkInput & {
   dimensions: number;
   embedding: Buffer;
   contentHash: string;
+  /**
+   * Learned sparse postings emitted by the same local BGE-M3 encode pass as
+   * the dense vector. Absent for external OpenAI-compatible providers.
+   */
+  sparseTerms?: readonly SparseTerm[];
 };
 
 type EmbeddingsResponse = {
@@ -311,6 +317,32 @@ export function embeddingNamespace(config: AppConfig): string {
   return `emb_${createHash("sha256").update(payload).digest("hex").slice(0, 24)}`;
 }
 
+/**
+ * Sparse postings contract of the local BGE-M3 backend. Bump when the
+ * tokenizer, weight normalization, or posting bounds change so an
+ * incompatible sparse index can never mix with a current one.
+ */
+export const LOCAL_SPARSE_CONTRACT_VERSION = "bge-m3-sparse-v1";
+
+/**
+ * Versioning namespace for the local BGE-M3 backend. It intentionally
+ * includes the backend kind and sparse contract version, never the loopback
+ * endpoint, so a port change does not invalidate a compatible index.
+ */
+export function localBgeM3Namespace(
+  model: string,
+  dimensions: number,
+): string {
+  const payload = JSON.stringify({
+    backend: "local_bge_m3",
+    model,
+    dimensions,
+    normalization: EMBEDDING_NORMALIZATION_VERSION,
+    sparseContract: LOCAL_SPARSE_CONTRACT_VERSION,
+  });
+  return `emb_${createHash("sha256").update(payload).digest("hex").slice(0, 24)}`;
+}
+
 function embeddingProviderKey(baseUrl: string): string {
   try {
     const host = new URL(baseUrl).hostname.toLowerCase();
@@ -506,7 +538,7 @@ export function cosineSimilarity(normalizedLeft: ArrayLike<number>, normalizedRi
   return score;
 }
 
-function normalizeVector(vector: number[]): number[] {
+export function normalizeVector(vector: number[]): number[] {
   let norm = 0;
   for (const value of vector) {
     norm += value * value;

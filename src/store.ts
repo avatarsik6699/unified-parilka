@@ -6,6 +6,8 @@ import {
 } from "./storage/chat-knowledge.js";
 import { StoreCore } from "./storage/core.js";
 import { DigestMethods, type DigestApi } from "./storage/digests.js";
+import { DreamCommitMethods, type DreamCommitApi } from "./storage/dream-commit.js";
+import { DreamDaysMethods, type DreamDaysApi } from "./storage/dream-days.js";
 import { MemoryMethods, type MemoryApi } from "./storage/memory.js";
 import { EmbeddingMethods, type EmbeddingApi } from "./storage/embeddings.js";
 import { installStoreDomain } from "./storage/install-domain.js";
@@ -18,12 +20,28 @@ import {
   SendOutboxMethods,
   type SendOutboxApi,
 } from "./storage/send-outbox.js";
+import {
+  SparsePostingsMethods,
+  type SparsePostingsApi,
+} from "./storage/sparse-postings.js";
 import { StatusMethods, type StatusApi } from "./storage/status.js";
 import { SyncOpsMethods, type SyncOpsApi } from "./storage/sync-ops.js";
+import {
+  TranscriptMethods,
+  TranscriptCursorError,
+  MAX_TRANSCRIPT_PAGE_ROWS,
+  MAX_TRANSCRIPT_RECENT_COUNT,
+  type TranscriptApi,
+} from "./storage/transcript.js";
 import type { MessageStoreOptions } from "./storage/types.js";
 
 export * from "./storage/message-adapter.js";
 export type * from "./storage/types.js";
+export {
+  TranscriptCursorError,
+  MAX_TRANSCRIPT_PAGE_ROWS,
+  MAX_TRANSCRIPT_RECENT_COUNT,
+} from "./storage/transcript.js";
 export {
   MAX_FAST_CHAT_MEMORY_ITEMS,
   MAX_CHAT_LESSONS,
@@ -37,18 +55,30 @@ export {
   MAX_SKILL_INSTRUCTIONS_CHARS,
   MAX_KNOWLEDGE_QUERY_CHARS,
 } from "./storage/chat-knowledge.js";
+export {
+  MAX_SPARSE_QUERY_TERMS,
+  MAX_SPARSE_TERMS_PER_CHUNK,
+  MAX_SPARSE_TOKEN_ID,
+  MAX_SPARSE_WEIGHT,
+  normalizeSparseTerms,
+} from "./storage/validation.js";
+export type { SparseChunkHit } from "./storage/sparse-postings.js";
 
 export interface MessageStore
   extends MessageApi,
     BotUpdateApi,
     BotTurnApi,
     DigestApi,
+    DreamDaysApi,
+    DreamCommitApi,
     EmbeddingApi,
+    SparsePostingsApi,
     ChatKnowledgeApi,
     MemoryApi,
     SendOutboxApi,
     SyncOpsApi,
-    StatusApi {}
+    StatusApi,
+    TranscriptApi {}
 
 /**
  * Stable compatibility facade over domain-focused SQLite method modules.
@@ -80,12 +110,16 @@ const domains = [
   BotUpdateMethods,
   BotTurnMethods,
   DigestMethods,
+  DreamDaysMethods,
+  DreamCommitMethods,
   EmbeddingMethods,
+  SparsePostingsMethods,
   ChatKnowledgeMethods,
   MemoryMethods,
   SendOutboxMethods,
   SyncOpsMethods,
   StatusMethods,
+  TranscriptMethods,
 ] as const;
 
 for (const domain of domains) {

@@ -8,6 +8,22 @@ const SECRET_URL_QUERY_PARAMS = new Set([
   "authorization",
 ]);
 
+/**
+ * Whether the ACTIVE embedding backend can run. The external
+ * OpenAI-compatible backend needs an API key; the loopback BGE-M3 backend
+ * takes no credential, so an apiKey-only check would falsely report it as
+ * unconfigured. loadConfig validates the endpoint shape when the local
+ * backend is selected.
+ */
+export function embeddingBackendConfigured(
+  embeddings: AppConfig["embeddings"],
+): boolean {
+  if (embeddings.backend === "local_bge_m3") {
+    return embeddings.localEndpoint !== "";
+  }
+  return embeddings.apiKey !== "";
+}
+
 export function redactedConfig(
   config: AppConfig,
 ): Record<string, unknown> {
@@ -39,10 +55,32 @@ export function redactedConfig(
     sync: config.sync,
     embeddings: {
       enabled: config.embeddings.enabled,
-      configured: Boolean(config.embeddings.apiKey),
-      baseUrl: redactUrlCredentials(
-        config.embeddings.baseUrl,
+      backend: config.embeddings.backend,
+      configured: embeddingBackendConfigured(
+        config.embeddings,
       ),
+      localConfigured: Boolean(
+        config.embeddings.localEndpoint,
+      ),
+      ...(config.embeddings.backend === "local_bge_m3"
+        ? {
+            localEndpoint: config.embeddings.localEndpoint
+              ? redactUrlCredentials(
+                  config.embeddings.localEndpoint,
+                )
+              : "<unset>",
+            localRequestTimeoutMs:
+              config.embeddings.localRequestTimeoutMs,
+            rerankTimeoutMs:
+              config.embeddings.rerankTimeoutMs,
+            rerankMaxCandidates:
+              config.embeddings.rerankMaxCandidates,
+          }
+        : {
+            baseUrl: redactUrlCredentials(
+              config.embeddings.baseUrl,
+            ),
+          }),
       model: config.embeddings.model,
       dimensions: config.embeddings.dimensions,
       apiBatchSize: config.embeddings.apiBatchSize,

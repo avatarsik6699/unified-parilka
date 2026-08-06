@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import {
   ModelRouter,
@@ -108,6 +109,62 @@ test("capabilities are validated per exact model reference and default fail-clos
     "openai_primary:gpt-vision": { vision: true, audio: true },
   });
   expectInvalidConfig(unknownCapability, /Unrecognized key: "audio"/);
+});
+
+test("contextWindowTokens is declared per exact model reference and validated", () => {
+  const input = config();
+  input.modelCapabilities["openai_primary:gpt-5.6"] = {
+    vision: true,
+    contextWindowTokens: 1_000_000,
+  };
+  const router = new ModelRouter(input, { env: ENV });
+
+  assert.deepEqual(
+    router.resolveCandidate("openai_primary:gpt-5.6").capabilities,
+    { vision: true, contextWindowTokens: 1_000_000 },
+  );
+  // Undeclared references stay unknown rather than guessed from the name.
+  assert.deepEqual(
+    router.resolveCandidate("openai_primary:gpt-5.6-mini").capabilities,
+    { vision: false },
+  );
+  assert.deepEqual(router.inspectConfig().modelCapabilities["openai_primary:gpt-5.6"], {
+    vision: true,
+    contextWindowTokens: 1_000_000,
+  });
+
+  for (const contextWindowTokens of [
+    0,
+    -1,
+    1.5,
+    "1000000",
+    Number.MAX_SAFE_INTEGER + 1,
+  ]) {
+    const invalid = config();
+    invalid.modelCapabilities["openai_primary:gpt-5.6"] = {
+      vision: true,
+      contextWindowTokens: contextWindowTokens as never,
+    };
+    expectInvalidConfig(invalid, /contextWindowTokens/);
+  }
+});
+
+test("production router config declares a 1,000,000-token window for qwen3.8-max", () => {
+  const path = fileURLToPath(
+    new URL("../config/model-router.production.json", import.meta.url),
+  );
+  const parsed = loadModelRouterConfigFile(path, {
+    env: { PARILKA_QWEN_API_KEY: "test-placeholder" },
+  });
+
+  assert.deepEqual(parsed.modelCapabilities["qwen:qwen3.8-max"], {
+    vision: true,
+    contextWindowTokens: 1_000_000,
+  });
+  assert.deepEqual(parsed.modelCapabilities["qwen_summary:qwen3.8-max"], {
+    vision: true,
+    contextWindowTokens: 1_000_000,
+  });
 });
 
 test("JSON files use the same schema and do not perform provider requests", () => {

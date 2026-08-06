@@ -136,6 +136,21 @@ export const NUMERIC_ENV_RULES = {
     min: 1,
     max: 16_384,
   },
+  TELEGRAM_EMBEDDINGS_LOCAL_REQUEST_TIMEOUT_MS: {
+    fallback: 30_000,
+    min: 100,
+    max: 10 * 60_000,
+  },
+  TELEGRAM_EMBEDDINGS_RERANK_TIMEOUT_MS: {
+    fallback: 10_000,
+    min: 100,
+    max: 10 * 60_000,
+  },
+  TELEGRAM_EMBEDDINGS_RERANK_MAX_CANDIDATES: {
+    fallback: 0,
+    min: 0,
+    max: 32,
+  },
   TELEGRAM_EMBEDDINGS_API_BATCH_SIZE: {
     fallback: 64,
     min: 1,
@@ -225,16 +240,6 @@ export const NUMERIC_ENV_RULES = {
     fallback: 25,
     min: 1,
     max: 100_000,
-  },
-  PARILKA_DREAM_EVERY_N_MESSAGES: {
-    fallback: 50,
-    min: 10,
-    max: 500,
-  },
-  PARILKA_DREAM_MAX_MESSAGES: {
-    fallback: 200,
-    min: 20,
-    max: 1_000,
   },
   PARILKA_MEMORY_MAX_CHARS: {
     fallback: 2_000,

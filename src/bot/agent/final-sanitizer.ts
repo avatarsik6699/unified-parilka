@@ -10,6 +10,7 @@ interface SanitizeFinalTextOptions {
   readonly toolEvidence: readonly ReadToolEvidence[];
   readonly researchMode: boolean;
   readonly readToolFailures: readonly ReadToolFailure[];
+  readonly externalSourcesRequested?: boolean;
 }
 
 interface AllowedSourceCatalog {
@@ -31,6 +32,7 @@ export function sanitizeFinalText(
     options.toolEvidence.some(
       (item) => item.source === "web" || item.source === "paper",
     );
+  const externalSourcesRequested = options.externalSourcesRequested === true;
   const webSearchFailed = hasReadToolFailure(options.readToolFailures, [
     "web_search",
     "web_fetch",
@@ -67,8 +69,12 @@ export function sanitizeFinalText(
         MARKDOWN_LINK,
         (_, label: string, href: string): string => {
           const normalized = normalizeUrl(href);
-          if (normalized === "" || allowed.urls.has(normalized)) {
-            return label;
+          if (
+            externalSourcesRequested &&
+            normalized !== "" &&
+            allowed.urls.has(normalized)
+          ) {
+            return `[${label}](${href})`;
           }
           return label === "" ? "" : label;
         },
@@ -78,16 +84,16 @@ export function sanitizeFinalText(
         RAW_URL,
         (url) => {
           const normalized = normalizeUrl(url);
-          return normalized !== "" && allowed.urls.has(normalized)
+          return externalSourcesRequested &&
+            normalized !== "" &&
+            allowed.urls.has(normalized)
             ? url
             : "";
         },
       );
 
-      if (!hasAllowedMention) {
-        if (isSourceHeader(line) && sanitizedLine.trim() === "") {
-          continue;
-        }
+      if (!externalSourcesRequested && isSourceHeader(line)) {
+        continue;
       }
     }
 
@@ -97,7 +103,7 @@ export function sanitizeFinalText(
   }
 
   const collapsed = kept.join("\n").replace(/\n{3,}/gu, "\n\n").trim();
-  if (options.researchMode === true) {
+  if (externalSourcesRequested) {
     const appended = appendAllowedSourcesSummary(collapsed, allowed, options.toolEvidence);
     return appended;
   }

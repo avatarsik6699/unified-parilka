@@ -8,7 +8,7 @@ group chat. Application shells только компонуют independently tes
 
 ```text
 Bot API ──► parilka-bot ───────────────┐
-                                       ├──► SQLite WAL v19 ◄── maintenance/digests
+                                       ├──► SQLite WAL v21 ◄── maintenance/digests
 MTProto ──► parilka-sync ──────────────┘
                  │
                  └──► HTTP 127.0.0.1:8766/mcp
@@ -35,7 +35,7 @@ MCP harness ──stdio──► thin proxy─┘
 | MCP | `src/mcp-tools/`, `src/mcp-loopback.ts` | 13 operator tools, loopback session transport и stdio proxy |
 | Digests | `src/digest/` | source planning/hash, sequential day/week generation, process lock и offline dream memory consolidation |
 | Providers | `src/providers/` | validated roles/candidates, hardened HTTP, fallback classification |
-| Vector | `src/vector/`, `src/embeddings.ts` | opt-in index, atomic source recheck, search/fusion |
+| Vector | `src/vector/`, `src/embeddings.ts` | opt-in index, atomic source recheck, dense + learned sparse search/fusion, bounded ColBERT rerank; backend `external_openai` (legacy) или операторский loopback BGE-M3 (`services/bge-m3`) |
 | Maintenance | `src/maintenance/`, `src/maintenance-cli.ts` | bounded retention, deferred FTS, WAL checkpoint, schema integrity; `parilka-maintain` |
 | Operational CLI | `src/{python-import,digest-cli}/` | offline migration, digest and dream command implementations compiled into `dist` |
 | Operations | `operations/`, `systemd/`, `bin/` | human-reviewed install, migration, retention и rollback procedures |
@@ -70,9 +70,21 @@ operator MCP ──► Telegram gateway + storage + serialized sync
 
 - Storage не импортирует process shells, bot agent или MCP registry.
 - Bot model никогда не получает operator MCP write/sync tools. Его обычный
-  registry состоит из семи evidence/search tools (`search_chat`, `day_digest`,
-  `thread_context`, `web_search`, `web_fetch`, `paper_search`, `research_lookup`)
+  registry состоит из девяти evidence/search tools (`rag_bm25_search`,
+  `keyword_search`, `read_chat_slice`, `day_digest`, `thread_context`,
+  `web_search`, `web_fetch`, `paper_search`, `research_lookup`)
   и двух bounded memory reads.
+- `keyword_search` и `read_chat_slice` — cache-only слой поверх
+  deterministic lexical FTS и live-only transcript API: они не вызывают
+  vector/embedding provider и Telegram. Оба автоматически ограничиваются
+  application-owned `sourceMessageId - 1` текущего turn и не полагаются на
+  model-provided trigger ID. `read_chat_slice` замораживает authoritative
+  upper message id в версионированном keyset cursor, поэтому срез устойчив к
+  новым вставкам. Projection остаётся bounded: обычные read tools сохраняют
+  короткий cap ~4 000 chars, `keyword_search` — умеренный 20 000,
+  `read_chat_slice` — увеличенный 192 000, чтобы ~800 коротких сообщений
+  доходили одним вызовом; metadata честно сообщает truncation/omission.
+  В operator MCP эти инструменты не добавляются.
   Три memory-write tool появляются только для адресного trigger с прямой
   просьбой сохранить/обновить память от numeric Telegram account из закрытого
   operator-configured env allowlist. Allowlist не попадает в model context;
@@ -90,7 +102,9 @@ operator MCP ──► Telegram gateway + storage + serialized sync
   автоматический retry запрещён, состояние становится `lost_ack`/unknown
   delivery.
 - Embedding result коммитится только после atomic повторной проверки exact
-  source IDs и canonical rendered text.
+  source IDs и canonical rendered text. Для локального BGE-M3 dense vector и
+  learned sparse postings одного чанка пишутся одной транзакцией; postings
+  принадлежат parent chunk namespace и каскадно удаляются вместе с ним.
 - Fast notes, durable lessons и skills строго chat-scoped, bounded и
   source-attributed; их upsert/pruning выполняется в том же SQLite transaction
   kernel. Их содержимое всегда остаётся недоверенными данными для модели.

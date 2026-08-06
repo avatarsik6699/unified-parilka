@@ -422,8 +422,13 @@ function config(transport: "mtcute" | "gramjs" = "mtcute"): AppConfig {
     },
     embeddings: {
       enabled: false,
+      backend: "external_openai",
       apiKey: "",
       baseUrl: "https://api.openai.com/v1",
+      localEndpoint: "",
+      localRequestTimeoutMs: 30_000,
+      rerankTimeoutMs: 10_000,
+      rerankMaxCandidates: 0,
       model: "text-embedding-3-small",
       dimensions: 256,
       apiBatchSize: 64,
@@ -451,8 +456,6 @@ function config(transport: "mtcute" | "gramjs" = "mtcute"): AppConfig {
       maxRunningPerChat: 1,
     },
     memory: {
-      dreamEveryNMessages: 10,
-      dreamMaxMessages: 100,
       memoryMaxChars: 10_000,
     },
   };

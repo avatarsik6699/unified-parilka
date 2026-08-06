@@ -3,7 +3,10 @@ import {
   NUMERIC_ENV_RULES,
   type NumericEnvRule,
 } from "./env-rules.js";
-import type { TelegramTransport } from "./types.js";
+import type {
+  EmbeddingBackendKind,
+  TelegramTransport,
+} from "./types.js";
 
 type NumericEnvName = keyof typeof NUMERIC_ENV_RULES;
 type BooleanEnvName = keyof typeof BOOLEAN_ENV_RULES;
@@ -79,6 +82,23 @@ export function telegramTransportFromEnv(): TelegramTransport {
   }
   throw new Error(
     `TELEGRAM_TRANSPORT must be one of mtcute or gramjs; got ${JSON.stringify(raw)}.`,
+  );
+}
+
+export function embeddingBackendFromEnv(): EmbeddingBackendKind {
+  const raw = process.env.TELEGRAM_EMBEDDINGS_BACKEND;
+  if (raw == null || raw.trim() === "") {
+    return "external_openai";
+  }
+  const normalized = raw.trim().toLowerCase();
+  if (
+    normalized === "external_openai" ||
+    normalized === "local_bge_m3"
+  ) {
+    return normalized;
+  }
+  throw new Error(
+    `TELEGRAM_EMBEDDINGS_BACKEND must be one of external_openai or local_bge_m3; got ${JSON.stringify(raw)}.`,
   );
 }
 

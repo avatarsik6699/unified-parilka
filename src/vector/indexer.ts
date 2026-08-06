@@ -2,7 +2,6 @@ import type { AppConfig } from "../config.js";
 import {
   EMBEDDING_NORMALIZATION_VERSION,
   type EmbeddingChunkInput,
-  type EmbeddingClient,
 } from "../embeddings.js";
 import { ToolError } from "../errors.js";
 import { redactUrl } from "../observability/redaction.js";
@@ -10,6 +9,7 @@ import {
   MessageStore,
   type StoredMessage,
 } from "../store.js";
+import type { VectorBackend } from "./backend.js";
 import {
   formatChunkSource,
   formatMessageForChunk,
@@ -39,7 +39,7 @@ export class VectorIndexer {
   constructor(
     private readonly config: AppConfig,
     private readonly store: MessageStore,
-    private readonly embeddings: EmbeddingClient,
+    private readonly backend: VectorBackend,
     private readonly namespace: string,
   ) {}
 
@@ -67,8 +67,8 @@ export class VectorIndexer {
       ? this.store.deleteEmbeddingChunks({
           chatId: params.chatId,
           namespace: this.namespace,
-          model: this.config.embeddings.model,
-          dimensions: this.config.embeddings.dimensions,
+          model: this.backend.model,
+          dimensions: this.backend.dimensions,
         })
       : undefined;
     let nextAfterMessageId = params.afterMessageId;
@@ -85,14 +85,17 @@ export class VectorIndexer {
     for (
       let index = 0;
       index < plan.chunks.length;
-      index += this.config.embeddings.apiBatchSize
+      index += this.backend.maxEncodeBatch
     ) {
       throwIfVectorAborted(params.signal);
       const batch = plan.chunks.slice(
         index,
-        index + this.config.embeddings.apiBatchSize,
+        index + this.backend.maxEncodeBatch,
       );
-      const vectors = await this.embeddings.embedChunks(
+      // One encode pass per batch: for the local BGE-M3 backend the same
+      // response carries dense vectors and learned sparse terms, so cadence
+      // never pays a second model call.
+      const vectors = await this.backend.encodeChunks(
         batch,
         params.signal,
       );
@@ -121,8 +124,8 @@ export class VectorIndexer {
     return {
       ok: true,
       chatId: params.chatId,
-      model: this.config.embeddings.model,
-      dimensions: this.config.embeddings.dimensions,
+      model: this.backend.model,
+      dimensions: this.backend.dimensions,
       namespace: this.namespace,
       normalizationVersion: EMBEDDING_NORMALIZATION_VERSION,
       chunksCreated,
@@ -140,8 +143,8 @@ export class VectorIndexer {
       coverage: this.store.getEmbeddingCoverageStats({
         chatId: params.chatId,
         namespace: this.namespace,
-        model: this.config.embeddings.model,
-        dimensions: this.config.embeddings.dimensions,
+        model: this.backend.model,
+        dimensions: this.backend.dimensions,
       }),
       stats: this.store.getEmbeddingStats(params.chatId),
     };
@@ -165,7 +168,7 @@ export class VectorIndexer {
           "Embedding indexing is temporarily unavailable while chunk membership backfill is pending. Run state maintenance with --apply.",
       });
     }
-    this.embeddings.assertConfigured();
+    this.backend.assertConfigured();
     const requestedLimitChunks = Math.max(
       1,
       params.limitChunks ??
@@ -190,12 +193,13 @@ export class VectorIndexer {
     const firstRun = existingChunks === 0;
 
     return {
-      provider: embeddingProvider(
-        this.config.embeddings.baseUrl,
-      ),
-      baseUrl: redactUrl(this.config.embeddings.baseUrl),
-      model: this.config.embeddings.model,
-      dimensions: this.config.embeddings.dimensions,
+      provider: this.backend.providerLabel(),
+      baseUrl:
+        this.backend.kind === "local_bge_m3"
+          ? "loopback"
+          : redactUrl(this.config.embeddings.baseUrl),
+      model: this.backend.model,
+      dimensions: this.backend.dimensions,
       namespace: this.namespace,
       normalizationVersion: EMBEDDING_NORMALIZATION_VERSION,
       chatId: params.chatId,
@@ -224,13 +228,12 @@ export class VectorIndexer {
       coverage: this.store.getEmbeddingCoverageStats({
         chatId: params.chatId,
         namespace: this.namespace,
-        model: this.config.embeddings.model,
-        dimensions: this.config.embeddings.dimensions,
+        model: this.backend.model,
+        dimensions: this.backend.dimensions,
       }),
       firstRun,
       requiresConfirmation: firstRun && plan.chunks.length > 0,
-      privacy:
-        "Embedding indexing sends cached Telegram message text to the configured external embeddings provider.",
+      privacy: this.backend.privacyNotice(),
     };
   }
 
@@ -325,8 +328,8 @@ export class VectorIndexer {
         : this.store.getMessagesNeedingEmbedding({
             chatId,
             namespace: this.namespace,
-            model: this.config.embeddings.model,
-            dimensions: this.config.embeddings.dimensions,
+            model: this.backend.model,
+            dimensions: this.backend.dimensions,
             afterId: cursor,
             limit: fetchLimit,
           });
@@ -359,7 +362,7 @@ export class VectorIndexer {
         }
         if (
           totalChars + bufferChars + additionalChars >
-          this.config.embeddings.maxCharsPerRun
+            this.config.embeddings.maxCharsPerRun
         ) {
           truncatedByCharBudget = true;
           break outer;
@@ -386,17 +389,6 @@ export class VectorIndexer {
       chunks: chunks.slice(0, params.limitChunks),
       truncatedByCharBudget,
     };
-  }
-}
-
-function embeddingProvider(baseUrl: string): string {
-  try {
-    const host = new URL(baseUrl).hostname;
-    return host.endsWith("openai.com")
-      ? "OpenAI"
-      : `OpenAI-compatible (${host})`;
-  } catch {
-    return "OpenAI-compatible";
   }
 }
 

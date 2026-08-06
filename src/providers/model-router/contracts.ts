@@ -39,6 +39,12 @@ export interface ModelFallbackDecision {
  */
 export interface ModelCapabilities {
   vision: boolean;
+  /**
+   * Declared maximum context window in tokens for this exact model reference.
+   * Telemetry rendering uses it as the denominator of the occupancy display;
+   * it is never guessed from the model name. Absent when not declared.
+   */
+  contextWindowTokens?: number;
 }
 
 export interface ResolvedModelCandidate {

@@ -204,8 +204,13 @@ function createSmokeConfig(
     },
     embeddings: {
       enabled: false,
+      backend: "external_openai",
       apiKey: "",
       baseUrl: "https://api.openai.com/v1",
+      localEndpoint: "",
+      localRequestTimeoutMs: 30_000,
+      rerankTimeoutMs: 10_000,
+      rerankMaxCandidates: 0,
       model: "text-embedding-3-small",
       dimensions: 256,
       apiBatchSize: 64,
@@ -225,8 +230,6 @@ function createSmokeConfig(
       searchLimit: 12,
     },
     memory: {
-      dreamEveryNMessages: 50,
-      dreamMaxMessages: 200,
       memoryMaxChars: 2_000,
     },
     throttle: {

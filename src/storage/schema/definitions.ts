@@ -138,6 +138,13 @@ declare protected ensureColumn: (
         PRIMARY KEY(chunk_id, message_id)
       );
 
+      CREATE TABLE IF NOT EXISTS message_embedding_sparse_terms (
+        chunk_id INTEGER NOT NULL,
+        token_id INTEGER NOT NULL,
+        weight REAL NOT NULL,
+        PRIMARY KEY(chunk_id, token_id)
+      ) WITHOUT ROWID;
+
       CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
         text,
         sender_name,
@@ -176,6 +183,8 @@ declare protected ensureColumn: (
         ON message_embedding_chunk_messages(chat_id, message_id);
       CREATE INDEX IF NOT EXISTS idx_embedding_chunk_messages_chunk_position
         ON message_embedding_chunk_messages(chunk_id, position);
+      CREATE INDEX IF NOT EXISTS idx_embedding_sparse_terms_lookup
+        ON message_embedding_sparse_terms(token_id, chunk_id);
       CREATE INDEX IF NOT EXISTS idx_send_outbox_chat_status
         ON send_outbox(chat_id, status, expires_at_ms);
       CREATE INDEX IF NOT EXISTS idx_send_outbox_user_status

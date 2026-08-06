@@ -80,14 +80,14 @@ test("sends a progress message on the first tool start", async () => {
   const store = fakeStore();
   const { publisher } = makePublisher({ port, store });
 
-  publisher.onToolStarted({ toolName: "search_chat", callId: "c1" });
+  publisher.onToolStarted({ toolName: "rag_bm25_search", callId: "c1" });
   await drain();
   await publisher.finish(new AbortController().signal);
 
   assert.equal(port.calls.length, 2);
   assert.equal(port.calls[0].kind, "send");
   assert.equal(port.calls[0].chatId, "-1004242");
-  assert.equal(port.calls[0].text, "⏳ search_chat");
+  assert.equal(port.calls[0].text, "⏳ rag_bm25_search");
   assert.ok(port.calls[0].signal instanceof AbortSignal);
   assert.equal(port.calls[1].kind, "delete");
   assert.equal(store.states.length, 3);
@@ -99,16 +99,16 @@ test("edits the existing message as tools complete", async () => {
   const port = fakePort();
   const { publisher } = makePublisher({ port });
 
-  publisher.onToolStarted({ toolName: "search_chat", callId: "c1" });
+  publisher.onToolStarted({ toolName: "rag_bm25_search", callId: "c1" });
   await drain();
-  publisher.onToolCompleted({ toolName: "search_chat", callId: "c1" }, true);
+  publisher.onToolCompleted({ toolName: "rag_bm25_search", callId: "c1" }, true);
   await drain();
   await publisher.finish(new AbortController().signal);
 
   const texts = port.calls
     .filter((call) => call.kind === "send" || call.kind === "edit")
     .map((call) => call.text);
-  assert.deepEqual(texts, ["⏳ search_chat", "✓ search_chat"]);
+  assert.deepEqual(texts, ["⏳ rag_bm25_search", "✓ rag_bm25_search"]);
 });
 
 test("shows thinking as a separate safe status before a tool call", async () => {
@@ -269,13 +269,13 @@ test("survives send/edit/delete failures without throwing", async () => {
 
 test("renderProgressText joins statuses and truncates", () => {
   const pending = new Map([
-    ["a", { kind: "tool" as const, toolName: "search_chat", state: "running" as const }],
+    ["a", { kind: "tool" as const, toolName: "rag_bm25_search", state: "running" as const }],
     ["b", { kind: "tool" as const, toolName: "web_search", state: "ok" as const }],
     ["c", { kind: "tool" as const, toolName: "day_digest", state: "error" as const }],
   ]);
   assert.equal(
     renderProgressText(pending, 100),
-    "⏳ search_chat\n✓ web_search\n✗ day_digest",
+    "⏳ rag_bm25_search\n✓ web_search\n✗ day_digest",
   );
 
   const long = new Map([["x", { kind: "tool" as const, toolName: "very_long_tool_name", state: "running" as const }]]);

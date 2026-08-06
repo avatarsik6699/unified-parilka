@@ -15,11 +15,13 @@ import {
   storeCache,
 } from "./support/bot-read-tools.js";
 
-test("the direct registry preserves the seven useful read-tool contracts", () => {
+test("the direct registry preserves the nine useful read-tool contracts", () => {
   assert.deepEqual(
     BOT_READ_TOOL_DEFINITIONS.map(({ name }) => name),
     [
-      "search_chat",
+      "rag_bm25_search",
+      "keyword_search",
+      "read_chat_slice",
       "day_digest",
       "thread_context",
       "web_search",
@@ -33,7 +35,7 @@ test("the direct registry preserves the seven useful read-tool contracts", () =>
   }
 });
 
-test("search_chat reads MessageStore locally and emits attributable evidence", async (t) => {
+test("rag_bm25_search reads MessageStore locally and emits attributable evidence", async (t) => {
   const store = new MessageStore(":memory:");
   t.after(() => store.close());
   store.upsertMessages(CHAT, [
@@ -66,7 +68,7 @@ test("search_chat reads MessageStore locally and emits attributable evidence", a
     },
   });
 
-  const result = await tools.callTool("search_chat", {
+  const result = await tools.callTool("rag_bm25_search", {
     query: "needle",
     limit: 3,
   });
@@ -86,9 +88,12 @@ test("search_chat reads MessageStore locally and emits attributable evidence", a
   assert.deepEqual(result.evidence, [
     {
       source: "chat_message",
+      sourceId: "chat:10",
       chat: { id: CHAT.chatId },
       message: { id: 10 },
       speaker: { id: "42", name: "alice" },
+      authorRole: "user",
+      isOwnTurn: false,
       date: "2026-07-30T08:15:00.000Z",
       text: "needle про архитектуру",
     },
@@ -96,7 +101,7 @@ test("search_chat reads MessageStore locally and emits attributable evidence", a
   assert.equal(webCalls, 0);
 });
 
-test("search_chat accepts an async hybrid adapter and reports degraded channels", async () => {
+test("rag_bm25_search accepts an async hybrid adapter and reports degraded channels", async () => {
   let signal: AbortSignal | undefined;
   const tools = new BotReadTools({
     chatId: CHAT.chatId,
@@ -112,7 +117,7 @@ test("search_chat accepts an async hybrid adapter and reports degraded channels"
     }),
   });
 
-  const result = await tools.callTool("search_chat", { query: "hybrid" });
+  const result = await tools.callTool("rag_bm25_search", { query: "hybrid" });
   assert.equal(signal?.aborted, false);
   assert.equal(result.ok, true);
   if (result.ok) {
@@ -182,7 +187,7 @@ test("empty cache is a successful empty result for all SQLite tools", async () =
   });
 
   const results = await Promise.all([
-    tools.callTool("search_chat", { query: "ничего" }),
+    tools.callTool("rag_bm25_search", { query: "ничего" }),
     tools.callTool("thread_context", { message_id: 100 }),
     tools.callTool("day_digest", { day_from: "2026-07-30" }),
   ]);
@@ -252,9 +257,12 @@ test("day_digest passes inclusive Moscow days as an exact UTC half-open range", 
     },
     {
       source: "chat_message",
+      sourceId: "chat:301",
       chat: { id: CHAT.chatId },
       message: { id: 301 },
       speaker: { id: "speaker-301", name: "alice" },
+      authorRole: "user",
+      isOwnTurn: false,
       date: "2026-07-29T21:00:00.000Z",
       text: "дословное сообщение для проверки кэша",
     },

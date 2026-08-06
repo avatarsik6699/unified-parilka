@@ -40,6 +40,8 @@ export function isAgentFinal(value: unknown): value is BotAgentFinalResult {
     !isOptionalNonNegativeInteger(telemetry.totalInputTokens) ||
     !isOptionalNonNegativeInteger(telemetry.totalOutputTokens) ||
     !isOptionalNonNegativeInteger(telemetry.totalTokens) ||
+    !isOptionalNonNegativeInteger(telemetry.contextUsedTokens) ||
+    !isOptionalPositiveInteger(telemetry.contextWindowTokens) ||
     !isNonNegativeInteger(telemetry.toolCalls) ||
     !isNonNegativeInteger(telemetry.durationMs) ||
     typeof telemetry.incomplete !== "boolean"
@@ -74,6 +76,12 @@ function isOptionalNonNegativeInteger(
   value: unknown,
 ): value is number | undefined {
   return value === undefined || isNonNegativeInteger(value);
+}
+
+function isOptionalPositiveInteger(
+  value: unknown,
+): value is number | undefined {
+  return value === undefined || (isNonNegativeInteger(value) && value > 0);
 }
 
 function isNonNegativeInteger(value: unknown): value is number {

@@ -36,40 +36,49 @@ export abstract class MemoryMethods extends StoreCore {
   }
 
   upsertChatMemory(input: UpsertChatMemoryInput): StoredChatMemory {
+    return this.immediateTransaction("upsertChatMemory", () =>
+      this.upsertChatMemoryLocked(input),
+    );
+  }
+
+  /**
+   * Assumes the caller already owns a `BEGIN IMMEDIATE` boundary.
+   */
+  protected upsertChatMemoryLocked(
+    input: UpsertChatMemoryInput,
+  ): StoredChatMemory {
     assertNonEmptyBounded(input.chatId, 256, "chatId");
     const updatedAtMs = input.updatedAtMs ?? Date.now();
     assertTimestamp(updatedAtMs, "updatedAtMs");
-    return this.immediateTransaction("upsertChatMemory", () => {
-      this.db
-        .prepare(
-          `INSERT INTO bot_chat_memory (
-             chat_id, memory_text, last_consolidated_message_id,
-             revision, updated_at_ms
-           )
-           VALUES (
-             ?, ?, ?,
-             COALESCE((SELECT revision FROM bot_chat_memory WHERE chat_id = ?), 0) + 1,
-             ?
-           )
-           ON CONFLICT(chat_id) DO UPDATE SET
-             memory_text = excluded.memory_text,
-             last_consolidated_message_id = excluded.last_consolidated_message_id,
-             revision = excluded.revision,
-             updated_at_ms = excluded.updated_at_ms`,
-        )
-        .run(
-          input.chatId,
-          input.memoryText,
-          input.lastConsolidatedMessageId ?? null,
-          input.chatId,
-          updatedAtMs,
-        );
-      const stored = this.getChatMemory(input.chatId);
-      if (!stored) {
-        throw new Error("Chat memory disappeared after upsert.");
-      }
-      return stored;
-    });
+    this.db
+      .prepare(
+        `INSERT INTO bot_chat_memory (
+           chat_id, memory_text, last_consolidated_message_id,
+           revision, updated_at_ms
+         )
+         VALUES (
+           ?, ?, ?,
+           COALESCE((SELECT revision FROM bot_chat_memory WHERE chat_id = ?), 0) + 1,
+           ?
+         )
+         ON CONFLICT(chat_id) DO UPDATE SET
+           memory_text = excluded.memory_text,
+           last_consolidated_message_id = excluded.last_consolidated_message_id,
+           revision = excluded.revision,
+           updated_at_ms = excluded.updated_at_ms`,
+      )
+      .run(
+        input.chatId,
+        input.memoryText,
+        input.lastConsolidatedMessageId ?? null,
+        input.chatId,
+        updatedAtMs,
+      );
+    const stored = this.getChatMemory(input.chatId);
+    if (!stored) {
+      throw new Error("Chat memory disappeared after upsert.");
+    }
+    return stored;
   }
 
   countMessagesSince(params: {

@@ -4,7 +4,11 @@ import type {
   BotToolSetExecutionCompleted,
   BotToolSetExecutionStarted,
 } from "./tool-set.js";
-import { boundedSerialize, type CarriedToolResult } from "./evidence.js";
+import {
+  boundedSerialize,
+  maxCarriedToolResultChars,
+  type CarriedToolResult,
+} from "./evidence.js";
 
 export interface BotToolTraceContext {
   readonly turnId: number;
@@ -103,7 +107,10 @@ export function createBotToolExecutionObserver(
       options.carriedTools.push({
         sequence,
         name: execution.name,
-        serialized: boundedSerialize(execution.output),
+        serialized: boundedSerialize(
+          execution.output,
+          maxCarriedToolResultChars(execution.name),
+        ),
       });
       options.log("info", "bot.agent.tool", {
         ...options.traceContext,

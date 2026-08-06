@@ -53,6 +53,7 @@ export class BotTurnWorker {
   readonly #logger: JsonEventLogger | undefined;
   readonly #scheduler: WorkerScheduler;
   readonly #now: () => number;
+  readonly #botSenderId: string | undefined;
 
   constructor(options: BotTurnWorkerOptions) {
     this.#store = options.store;
@@ -72,6 +73,7 @@ export class BotTurnWorker {
     this.#logger = settings.logger;
     this.#scheduler = settings.scheduler;
     this.#now = settings.now;
+    this.#botSenderId = options.botSenderId;
   }
 
   async runOnce(): Promise<BotTurnWorkerResult> {
@@ -224,6 +226,7 @@ export class BotTurnWorker {
             fastMemory: loaded.fastMemory,
             longTermLessons: loaded.longTermLessons,
             chatSkills: loaded.chatSkills,
+            botSenderId: this.#botSenderId,
           }),
           timers.interruption,
         ]);

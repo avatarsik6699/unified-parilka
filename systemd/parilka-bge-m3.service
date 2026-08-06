@@ -1,0 +1,44 @@
+[Unit]
+Description=Parilka local BGE-M3 encode/rerank service (loopback only)
+Documentation=file:%h/repos/parilka-unified/services/bge-m3/README.md
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=10min
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=%h/repos/parilka-unified
+# This service needs no Telegram/provider credentials. Do not point it at a
+# shared EnvironmentFile with secrets; operator overrides belong in a
+# dedicated drop-in or explicit non-secret Environment values below.
+Environment=PARILKA_BGE_M3_VENV=%h/.venvs/parilka-bge-m3
+# Loopback bind is enforced by the service itself (it refuses non-loopback
+# --host); the unit hard-codes 127.0.0.1 so it cannot be overridden remotely.
+ExecStart=%h/repos/parilka-unified/bin/parilka-bge-m3 --host 127.0.0.1 --port 8767
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=1min
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+# Only the model/tokenizer caches need writes; the runtime venv stays
+# read-only.
+ReadWritePaths=%h/.cache/huggingface
+ReadWritePaths=%h/.cache/torch
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectClock=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=parilka-bge-m3
+
+[Install]
+WantedBy=default.target

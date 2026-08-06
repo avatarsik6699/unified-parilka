@@ -27,6 +27,37 @@ Operator documentation находится вне архитектурного `d
 Runbook описывает процедуру, но сам по себе не авторизует новый stop/start,
 send, rollback, commit, push или deploy.
 
+## Retrieval: local BGE-M3
+
+Целевой retrieval backend — локальный loopback BGE-M3
+(`TELEGRAM_EMBEDDINGS_BACKEND=local_bge_m3`, см. [ADR 0004](../docs/adr/0004-local-bge-m3-retrieval.md)
+и [../services/bge-m3/README.md](../services/bge-m3/README.md)): один encode
+выдаёт dense 1024 и learned sparse postings, опционально bounded ColBERT
+rerank top-K без хранения token vectors. Внешний OpenAI-совместимый dense
+provider сохранён только как backward-compatible отключённая опция.
+
+Статус и границы:
+
+- `systemd/parilka-bge-m3.service` поставляется **disabled**; модельные
+  артефакты не vendored. Provisioning venv, download модели, backfill
+  индексация, enable unit и любой restart сервисов требуют отдельного
+  operator approval — этот раздел описывает процедуру, но не авторизует её.
+- Migration старых внешних векторов не нужна: в production
+  `message_embedding_chunks` пуст (0 строк), новый индекс строится
+  backfill'ом через обычный estimate/confirmation gate
+  (`npm run embed-once -- --confirm-estimate` после одобрения).
+- При недоступном локальном сервисе `rag_bm25_search` честно деградирует до
+  BM25 и сообщает статус каналов; `keyword_search` и `read_chat_slice`
+  остаются provider-free и работают всегда.
+- Schema v21 additive (`message_embedding_sparse_terms`, каскадный
+  delete-триггер). Rehearsal миграции обязателен на temp-копии snapshot:
+  `PRAGMA quick_check`, count/hash evidence, повторный idempotent open.
+- Eval seam: `npm run benchmark:retrieval` — offline fixture-прогон четырёх
+  классов запросов (точные имена/цитаты, русская морфология/сленг,
+  парафразы, mixed RU/EN) без сети и без production мутаций. Реальные
+  quality-цифры снимаются с approved snapshot-копии при включённом
+  локальном сервисе, не на live DB.
+
 ## Bot memory and dreaming
 
 - `bot_chat_memory` хранит один bounded Dream-блок на чат, watermark
@@ -51,16 +82,25 @@ send, rollback, commit, push или deploy.
   skills), но не ограничивает memory reads для остальных участников и не
   меняет автоматическую Dream-консолидацию.
 - Dream-консолидация запускается существующим `parilka-digests --apply`
-  (`parilka-maintain.timer`, 04:20). Она срабатывает только когда с момента
-  последнего watermark накопилось `>= PARILKA_DREAM_EVERY_N_MESSAGES`
-  (default 50), но читает не больше `PARILKA_DREAM_MAX_MESSAGES` (default 200).
+  (`parilka-maintain.timer`, 04:20): daily apply job всегда прогоняет Dream
+  после digest-фаз. При первом запуске чата Dream bootstrap'ит ровно 7
+  завершённых Moscow calendar days (заканчивая вчерашним) и обрабатывает их
+  oldest-first; повторные запуски добавляют пропущенные дни до вчерашнего и
+  retry'ят `failed`/`running` дни, никогда не переоткрывая историю до
+  bootstrap floor.
+- Вход дня — только реальные bot-reply interactions плюс соседний контекст
+  (8 live сообщений до trigger, все live сообщения от trigger до последнего
+  answer chunk, 30 live сообщений после); остальные сообщения дня не читаются.
+  `--bot-id`/`PARILKA_BOT_ID` обязателен, когда apply + model config запускает
+  Dream; dry-run digest без Dream не требует его.
 - При падении модели/невалидном выводе старый блок и watermark сохраняются
-  (fail-closed), а digest CLI завершается ненулевым кодом. Dream использует те
-  же `PARILKA_DIGEST_MODEL_TOTAL_TIMEOUT_MS` и
-  `PARILKA_DIGEST_MODEL_CANDIDATE_TIMEOUT_MS`, что day/week summaries, но имеет
-  отдельный компактный default 1024 output tokens (day/week budget не меняет) и
-  одну bounded retry того же candidate после его timeout — без второго
-  провайдера.
+  (fail-closed), а digest CLI завершается ненулевым кодом. Dream читает те же
+  `PARILKA_DIGEST_MODEL_TOTAL_TIMEOUT_MS` и
+  `PARILKA_DIGEST_MODEL_CANDIDATE_TIMEOUT_MS`, что и day/week summaries; без
+  них Dream fallback'ит на внутренние defaults 300 s total / 60 s на candidate
+  (day/week summaries: 120 s / 45 s). Default бюджета ответа модели — 8192
+  output tokens (day/week budget 2048 не меняется), после timeout того же
+  candidate предусмотрена одна bounded retry без второго провайдера.
   Повторный прогон без новых сообщений не пишет в `bot_chat_memory`.
 - Сбросить только Dream-блок можно через SQL:
   `DELETE FROM bot_chat_memory WHERE chat_id = '<chat_id>';`. Это сбросит
@@ -71,9 +111,11 @@ send, rollback, commit, push или deploy.
   writer.
 - Параметры:
   - `PARILKA_MEMORY_MAX_CHARS` — бюджет блока (500–4000, default 2000).
-  - `PARILKA_DREAM_EVERY_N_MESSAGES` — порог консолидации (10–500, default 50).
-  - `PARILKA_DREAM_MAX_MESSAGES` — сколько сообщений читать за проход
-    (20–1000, default 200, должен быть >= порога).
+  - `PARILKA_DIGEST_MODEL_TOTAL_TIMEOUT_MS` /
+    `PARILKA_DIGEST_MODEL_CANDIDATE_TIMEOUT_MS` — общие model deadlines
+    digest/Dream apply прогона.
+  - Удалённые `PARILKA_DREAM_EVERY_N_MESSAGES` и `PARILKA_DREAM_MAX_MESSAGES`
+    больше не читаются; старые значения в env файлах просто игнорируются.
 
 ## MCP trust boundary
 

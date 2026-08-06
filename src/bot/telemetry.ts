@@ -2,7 +2,11 @@
  * Per-turn model usage accumulation and telemetry footer rendering.
  *
  * The accumulator lives inside the agent loop and collects usage from every
- * completed model step across all provider attempts. The footer is appended to
+ * completed model step across all provider attempts. Aggregate totals stay
+ * internal diagnostics; the published footer only reports the current context
+ * occupancy: the provider-reported input tokens of the LAST completed model
+ * step (repeated/cached prefixes are neither summed nor subtracted) against
+ * the final candidate's declared context window. The footer is appended to
  * the final model text before publication, so it passes through the same
  * rich-render and Telegram chunking pipeline.
  */
@@ -20,9 +24,23 @@ export interface TurnTelemetry {
   readonly finalProviderId: string;
   readonly reasoningMode: string | undefined;
   readonly steps: readonly StepUsageRecord[];
+  /**
+   * Aggregate input tokens across all completed steps. Internal diagnostics
+   * only; it double-counts repeated context and is never rendered verbatim.
+   */
   readonly totalInputTokens: number | undefined;
   readonly totalOutputTokens: number | undefined;
   readonly totalTokens: number | undefined;
+  /**
+   * Current context occupancy: the provider-reported input tokens of the last
+   * completed model step only. Rendered as the footer numerator.
+   */
+  readonly contextUsedTokens: number | undefined;
+  /**
+   * Declared context window of the successful final candidate, from exact
+   * model-router capabilities metadata. Rendered as the footer denominator.
+   */
+  readonly contextWindowTokens: number | undefined;
   /** Number of tool executions that actually started during this turn. */
   readonly toolCalls: number;
   /** Wall-clock duration of the model/agent request, excluding publication. */
@@ -35,6 +53,7 @@ export class TurnUsageAccumulator {
   readonly #steps: StepUsageRecord[] = [];
   #finalModelId = "";
   #finalProviderId = "";
+  #finalContextWindowTokens: number | undefined;
   #reasoningMode: string | undefined;
   #toolCalls = 0;
   #durationMs = 0;
@@ -63,9 +82,16 @@ export class TurnUsageAccumulator {
     }
   }
 
-  setFinalModel(modelId: string, providerId: string): void {
+  setFinalModel(
+    modelId: string,
+    providerId: string,
+    contextWindowTokens?: number,
+  ): void {
     this.#finalModelId = boundedString(modelId, 128);
     this.#finalProviderId = boundedString(providerId, 64);
+    this.#finalContextWindowTokens = safePositiveTokenCount(
+      contextWindowTokens,
+    );
   }
 
   setExecutionStats(input: {
@@ -100,6 +126,11 @@ export class TurnUsageAccumulator {
       }
     }
 
+    // Current occupancy is the LAST step's provider-reported input count only:
+    // earlier steps re-send (largely) the same prefix, so summing them would
+    // invent usage, and a post-compaction step must visibly lower the number.
+    const lastStep = this.#steps[this.#steps.length - 1];
+
     return Object.freeze({
       finalModelId: this.#finalModelId || "unknown",
       finalProviderId: this.#finalProviderId || "unknown",
@@ -108,6 +139,8 @@ export class TurnUsageAccumulator {
       totalInputTokens: totalInput,
       totalOutputTokens: totalOutput,
       totalTokens: totalAll,
+      contextUsedTokens: lastStep?.inputTokens,
+      contextWindowTokens: this.#finalContextWindowTokens,
       toolCalls: this.#toolCalls,
       durationMs: this.#durationMs,
       incomplete,
@@ -118,20 +151,25 @@ export class TurnUsageAccumulator {
 /**
  * Renders a compact, unobtrusive telemetry footer for the final answer.
  *
- * Format: `model 🧠 · input/output · tool calls · duration`
+ * Format: `model 🧠 · contextUsed/contextWindow · tool calls · duration`,
+ * e.g. `qwen3.8-max 🧠 · 15.2k/1.0m · 2 tool calls · 1м 3с`.
  *
- * Missing values are shown as `?` rather than invented. The footer is plain
- * text and follows the same publication path as the rest of the answer.
+ * The token pair is the current context occupancy — the last completed step's
+ * provider-reported input tokens — over the final candidate's declared
+ * context window. It is never cumulative input/output, and output tokens are
+ * deliberately absent. Missing values are shown as `?` rather than invented.
+ * The footer is plain text and follows the same publication path as the rest
+ * of the answer.
  */
 export function buildTelemetryFooter(telemetry: TurnTelemetry): string {
   const model = displayModelName(
     telemetry.finalModelId,
     telemetry.finalProviderId,
   );
-  const input = formatTokens(telemetry.totalInputTokens);
-  const output = formatTokens(telemetry.totalOutputTokens);
+  const used = formatTokens(telemetry.contextUsedTokens);
+  const window = formatTokens(telemetry.contextWindowTokens);
 
-  return `${model} 🧠 · ${input}/${output} · ${telemetry.toolCalls} tool calls · ${formatDuration(telemetry.durationMs)}`;
+  return `${model} 🧠 · ${used}/${window} · ${telemetry.toolCalls} tool calls · ${formatDuration(telemetry.durationMs)}`;
 }
 
 /** Extracts optional provider reasoning usage without trusting response shape. */
@@ -177,7 +215,7 @@ function formatTokens(value: number | undefined): string {
     return "?";
   }
   if (value >= 1_000_000) {
-    return `${(value / 1_000_000).toFixed(1)}M`;
+    return `${(value / 1_000_000).toFixed(1)}m`;
   }
   if (value >= 1_000) {
     return `${(value / 1_000).toFixed(1)}k`;
@@ -205,6 +243,11 @@ function safeTokenCount(value: unknown): number | undefined {
     value >= 0
     ? value
     : undefined;
+}
+
+function safePositiveTokenCount(value: unknown): number | undefined {
+  const count = safeTokenCount(value);
+  return count !== undefined && count > 0 ? count : undefined;
 }
 
 function safeNonNegativeInteger(value: unknown): number | undefined {

@@ -11,9 +11,14 @@ import {
   rowToStoredMessage,
 } from "./mappers.js";
 import { normalizeChunkMessageIds, toSqlValues } from "./sqlite-utils.js";
+import {
+  MAX_SPARSE_TERMS_PER_CHUNK,
+  normalizeSparseTerms,
+} from "./validation.js";
 import type {
   EmbeddingChunkCommitResult,
   MaintenanceJobName,
+  SparseTerm,
   StaleEmbeddingChunkReason,
   StoredEmbeddingChunk,
   StoredMessage,
@@ -29,6 +34,10 @@ export abstract class EmbeddingMethods extends StoreCore {
 declare protected assertMaintenanceJobReady: (
     name: MaintenanceJobName,
     message: string,
+  ) => void;
+  declare protected replaceEmbeddingSparseTermsLocked: (
+    chunkId: number,
+    sparseTerms: readonly SparseTerm[] | undefined,
   ) => void;
 
   getEmbeddingCursor(params: { chatId: string; namespace: string; model: string; dimensions?: number }): number | undefined {
@@ -466,10 +475,15 @@ declare protected assertMaintenanceJobReady: (
     if (!row) {
       throw new Error("Failed to read embedding chunk id after upsert.");
     }
+    const chunkId = Number(row.id);
     this.replaceEmbeddingChunkMessagesLocked(
-      Number(row.id),
+      chunkId,
       chunk.chatId,
       messageIds,
+    );
+    this.replaceEmbeddingSparseTermsLocked(
+      chunkId,
+      chunk.sparseTerms,
     );
   }
 
@@ -577,6 +591,12 @@ function validateEmbeddingChunkShape(
   ) {
     throw new Error(
       `Embedding chunk ${chunkIndex} count and range must exactly match message ids.`,
+    );
+  }
+  if (chunk.sparseTerms !== undefined) {
+    normalizeSparseTerms(
+      chunk.sparseTerms,
+      MAX_SPARSE_TERMS_PER_CHUNK,
     );
   }
 }

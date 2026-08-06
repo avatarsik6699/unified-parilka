@@ -16,3 +16,6 @@ ADR, небольшое уточнение — датированным addendum
   ответа бота, canonical plain projection и classic plain fallback.
 - [ADR 0003](0003-layered-chat-memory.md): bounded per-chat fast/long memory
   и progressive skills с явным user-gated обновлением.
+- [ADR 0004](0004-local-bge-m3-retrieval.md): локальный BGE-M3 как целевой
+  retrieval backend (dense + learned sparse одним encode, bounded ColBERT
+  rerank top-K), внешний dense provider — backward-compatible опция.

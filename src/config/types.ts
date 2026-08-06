@@ -6,6 +6,19 @@ export const ToolSchemas = {
 
 export type TelegramTransport = "mtcute" | "gramjs";
 
+export type EmbeddingBackendKind =
+  | "external_openai"
+  | "local_bge_m3";
+
+/** Fixed identity of the local BGE-M3 backend; validated, not configurable. */
+export const LOCAL_BGE_M3_MODEL = "bge-m3";
+export const LOCAL_BGE_M3_DIMENSIONS = 1024;
+/**
+ * Shared per-text character bound of the local BGE-M3 wire contract; config
+ * validation refuses chunk windows wider than the service can accept.
+ */
+export const LOCAL_BGE_M3_MAX_TEXT_CHARS = 8_000;
+
 export type TelegramAuthConfig = {
   apiId: number;
   apiHash: string;
@@ -60,8 +73,21 @@ export type AppConfig = {
   };
   embeddings: {
     enabled: boolean;
+    /**
+     * external_openai keeps the backward-compatible OpenAI-compatible HTTPS
+     * provider; local_bge_m3 is the recommended production path and talks to
+     * the operator-owned loopback BGE-M3 service (dense + learned sparse in
+     * one encode, optional bounded ColBERT rerank).
+     */
+    backend: EmbeddingBackendKind;
     apiKey: string;
     baseUrl: string;
+    /** Loopback BGE-M3 service origin; required for backend local_bge_m3. */
+    localEndpoint: string;
+    localRequestTimeoutMs: number;
+    rerankTimeoutMs: number;
+    /** 0 disables the optional bounded ColBERT top-K rerank. Hard max 32. */
+    rerankMaxCandidates: number;
     model: string;
     dimensions?: number;
     apiBatchSize: number;
@@ -89,8 +115,6 @@ export type AppConfig = {
     maxRunningPerChat: number;
   };
   memory: {
-    dreamEveryNMessages: number;
-    dreamMaxMessages: number;
     memoryMaxChars: number;
   };
 };

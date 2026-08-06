@@ -31,6 +31,7 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
 
   declare protected applyBackfillExhaustedMigration: () => void;
   declare protected applyBaseSchema: () => void;
+  declare protected applyBotChatDreamDaysMigration: () => void;
   declare protected applyBotChatMemoryMigration: () => void;
   declare protected applyBotChatKnowledgeMigration: () => void;
   declare protected applyRetireBotCallbackIntentsMigration: () => void;
@@ -43,6 +44,7 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
   declare protected applyDigestQueryIndex: () => void;
   declare protected applyEmbeddingChunkMembershipMigration: () => void;
   declare protected applyEmbeddingNamespaceMigration: () => void;
+  declare protected applyLearnedSparsePostingsMigration: () => void;
   declare protected applyManagedSqlObjectVersionMigration: () => void;
   declare protected applyMessageReconciliationMigration: () => void;
   declare protected applyRecentCatchupMigration: () => void;
@@ -129,6 +131,14 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
         this.applyRetireBotCallbackIntentsMigration();
         this.db.exec("PRAGMA user_version = 19");
       }
+      if (currentVersion < 20) {
+        this.applyBotChatDreamDaysMigration();
+        this.db.exec("PRAGMA user_version = 20");
+      }
+      if (currentVersion < 21) {
+        this.applyLearnedSparsePostingsMigration();
+        this.db.exec("PRAGMA user_version = 21");
+      }
       // This is a backwards-compatible performance index, not a data-model
       // change. Reconcile it for every writable compatible open so databases
       // created by an earlier build do not make one full corpus scan per day.
@@ -153,12 +163,14 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
       "bot_chat_fast_memory",
       "bot_chat_lessons",
       "bot_chat_skills",
+      "bot_chat_dream_days",
       "chat_day_digests",
       "chat_digest_rollups",
       "schema_object_versions",
       "maintenance_jobs",
       "message_embedding_chunks",
       "message_embedding_chunk_messages",
+      "message_embedding_sparse_terms",
       "messages_fts",
     ]) {
       this.assertSqliteObject("table", table);
@@ -171,6 +183,7 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
       "idx_embedding_chunks_range",
       "idx_embedding_chunk_messages_lookup",
       "idx_embedding_chunk_messages_chunk_position",
+      "idx_embedding_sparse_terms_lookup",
       "idx_send_outbox_chat_status",
       "idx_send_outbox_user_status",
       "idx_bot_updates_status",
@@ -179,6 +192,8 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
       "idx_bot_chat_fast_memory_recent",
       "idx_bot_chat_lessons_recent",
       "idx_bot_chat_skills_recent",
+      "idx_bot_chat_dream_days_status",
+      "idx_bot_chat_dream_days_day",
       "idx_chat_day_digests_range",
       "idx_chat_digest_rollups_range",
       "idx_messages_digest_date",
@@ -192,6 +207,7 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
     this.assertColumns("messages", ["id", "chat_id", "message_id", "text", "deleted_at", "updated_at"]);
     this.assertColumns("message_embedding_chunks", ["id", "chat_id", "embedding_namespace", "dirty_at", "updated_at"]);
     this.assertColumns("message_embedding_chunk_messages", ["chunk_id", "chat_id", "message_id", "position"]);
+    this.assertColumns("message_embedding_sparse_terms", ["chunk_id", "token_id", "weight"]);
     this.assertColumns("send_outbox", [
       "id",
       "dedupe_key",
@@ -281,6 +297,22 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
       "source_message_id",
       "created_at_ms",
       "updated_at_ms",
+    ]);
+    this.assertColumns("bot_chat_dream_days", [
+      "chat_id",
+      "day",
+      "status",
+      "source_hash",
+      "interaction_count",
+      "first_message_id",
+      "last_message_id",
+      "attempts",
+      "error",
+      "model",
+      "provider",
+      "created_at_ms",
+      "updated_at_ms",
+      "completed_at_ms",
     ]);
     this.assertColumns("chat_day_digests", [
       "chat_id",

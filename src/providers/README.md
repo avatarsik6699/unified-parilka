@@ -33,6 +33,12 @@ from model-name spelling and not discovered by probing a user's image. A
 fallback/subagent must use its own resolved capability, so a text-only model
 does not receive image bytes or attempt a nonexistent Vision tool.
 
+The manifest also carries an optional validated `contextWindowTokens` — the
+declared maximum context window of that exact model reference. Bot telemetry
+renders it as the denominator of the occupancy footer and shows `?` when it is
+undeclared; it is never guessed from the model name, and on fallback the
+successful final candidate's declared value wins.
+
 `protocol: "openai"` means the compatible Chat Completions wire format
 (`/chat/completions`), not the OpenAI Responses API. `protocol: "deepseek"`
 uses the official DeepSeek adapter and defaults `thinkingMode` to `disabled`,
