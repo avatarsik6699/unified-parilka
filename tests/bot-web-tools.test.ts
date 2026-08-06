@@ -145,6 +145,14 @@ test("tool visibility depends on candidate vision capability", () => {
   assert.ok(!textOnly.toolOrder.includes("inspect_web_images"));
 });
 
+test("the model-facing tool registry exposes static_page_fetch and not web_fetch", () => {
+  const { tools, toolOrder } = makeToolSet(testPort(), false);
+  assert.ok("static_page_fetch" in tools);
+  assert.equal("web_fetch" in tools, false);
+  assert.ok(toolOrder.includes("static_page_fetch"));
+  assert.equal(toolOrder.includes("web_fetch"), false);
+});
+
 test("injected port cannot expose inspect_web_images to a text-only candidate", () => {
   // The port has no vision state at all; the candidate capability drives
   // visibility, so even a mismatched candidate list stays correct.

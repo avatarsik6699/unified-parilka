@@ -72,7 +72,7 @@ operator MCP ──► Telegram gateway + storage + serialized sync
 - Bot model никогда не получает operator MCP write/sync tools. Его обычный
   registry состоит из девяти evidence/search tools (`rag_bm25_search`,
   `keyword_search`, `read_chat_slice`, `day_digest`, `thread_context`,
-  `web_search`, `web_fetch`, `paper_search`, `research_lookup`)
+  `web_search`, `static_page_fetch`, `paper_search`, `research_lookup`)
   и двух bounded memory reads.
 - `keyword_search` и `read_chat_slice` — cache-only слой поверх
   deterministic lexical FTS и live-only transcript API: они не вызывают
@@ -117,8 +117,8 @@ operator MCP ──► Telegram gateway + storage + serialized sync
   — fail-closed defaults.
 - Network endpoints валидируются; credentials, redirects и oversized bodies
   не проходят provider boundary.
-- `web_fetch` не использует Chrome/CDP/MCP или браузерный профиль: только
-  public HTTPS, DNS pinning до соединения, без cookies, JavaScript и
+- `static_page_fetch` не использует Chrome/CDP/MCP или браузерный профиль:
+  только public HTTPS, DNS pinning до соединения, без cookies, JavaScript и
   автоматических redirect; ответ ограничен 1 MiB и 3 000 видимыми символами.
 - Model/tool/Telegram content недоверенно; logs не содержат message bodies,
   secrets или raw provider payloads.

@@ -251,14 +251,18 @@ Web search выбирается через `PARILKA_BOT_WEB_SEARCH_PROVIDER` (`a
 частью rulesync. Отключённый там `gemini-search` восстанавливать для Parilka не
 нужно.
 
-### Встроенный web fetch
+### Встроенный static page fetch
 
-`web_fetch` не зависит от browser MCP, Chrome/Brave-профиля или Lightpanda и
-не требует отдельной настройки. Он открывает одну публичную HTTPS-страницу
-только через DNS-pinned соединение, не передаёт cookies или логины, не исполняет
-JavaScript и не следует redirect автоматически. Ответ ограничен 1 MiB входного
-тела и 3 000 видимыми символами; переход по redirect модель запрашивает
-отдельным вызовом и тот снова проходит проверку адреса.
+`static_page_fetch` не зависит от browser MCP, Chrome/Brave-профиля или
+Lightpanda и не требует отдельной настройки. Он открывает ровно одну
+статическую публичную HTTPS-страницу только через DNS-pinned соединение, не
+передаёт cookies или логины, не исполняет JavaScript и не следует redirect
+автоматически. Ответ ограничен 1 MiB входного тела и 3 000 видимыми
+символами; переход по redirect модель запрашивает отдельным вызовом и тот
+снова проходит проверку адреса. Для x.com/twitter.com, Instagram, TikTok и
+других login-gated или JS-рендеренных страниц инструмент не предназначен:
+там используется `firecrawl_crawl`, а если прямой обход не даёт контента —
+`searxng_search`.
 
 ### Опциональный HH research gateway
 
@@ -664,7 +668,7 @@ embedding/model вызовы не выполняются.
 - edit/delete исторического дня пересчитывается сразу; порог в 25 сообщений
   применяется только к append-only дополнению после сохранённого конца дня;
 - web search — generic HTTP JSON adapter или bot-owned native Vertex Gemini
-  grounding через gcloud ADC; оба опциональны и вне rulesync; `web_fetch` —
+  grounding через gcloud ADC; оба опциональны и вне rulesync; `static_page_fetch` —
   отдельный встроенный публичный HTTPS-fetcher без browser state;
 - отдельной human-approval policy нет; MCP `approval_id` — self-issued
   payload capability;

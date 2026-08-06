@@ -314,7 +314,7 @@ function toolInputPreview(
     }
     return queryPreview(query);
   }
-  if (toolName === "web_fetch" || toolName === "firecrawl_crawl") {
+  if (toolName === "static_page_fetch" || toolName === "firecrawl_crawl") {
     const url = textField(input, "url");
     if (url) {
       return urlPreview(url);

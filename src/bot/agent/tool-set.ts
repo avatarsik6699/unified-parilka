@@ -200,7 +200,7 @@ export function createBotToolSet(options: CreateBotToolSetOptions): BotToolSet {
     day_digest: makeReadTool("day_digest"),
     thread_context: makeReadTool("thread_context"),
     web_search: makeReadTool("web_search"),
-    web_fetch: makeReadTool("web_fetch"),
+    static_page_fetch: makeReadTool("static_page_fetch"),
     paper_search: makeReadTool("paper_search"),
     research_lookup: makeReadTool("research_lookup"),
   };

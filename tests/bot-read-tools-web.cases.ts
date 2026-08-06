@@ -127,7 +127,7 @@ test("web_search enforces timeout and caller abort even when provider hangs", as
   assert.equal(externalTimeout.error.retryable, true);
 });
 
-test("web_fetch exposes bounded page text, source evidence, and an AbortSignal", async () => {
+test("static_page_fetch exposes bounded page text, source evidence, and an AbortSignal", async () => {
   let observedUrl: string | undefined;
   let observedMaxChars: number | undefined;
   let observedSignal: AbortSignal | undefined;
@@ -153,7 +153,7 @@ test("web_fetch exposes bounded page text, source evidence, and an AbortSignal",
     webFetch: provider,
   });
 
-  const result = await tools.callTool("web_fetch", {
+  const result = await tools.callTool("static_page_fetch", {
     url: "  https://example.com/release  ",
     max_chars: 800,
   });
@@ -167,6 +167,7 @@ test("web_fetch exposes bounded page text, source evidence, and an AbortSignal",
     return;
   }
   assert.equal(result.status, "done");
+  assert.equal(result.tool, "static_page_fetch");
   assert.deepEqual(result.result, {
     url: "https://example.com/release",
     status: 200,
@@ -188,7 +189,19 @@ test("web_fetch exposes bounded page text, source evidence, and an AbortSignal",
   }]);
 });
 
-test("web_fetch clamps an injected provider to the requested visible-text budget", async () => {
+test("no exposed web_fetch alias: the legacy name is an unknown tool", async () => {
+  const tools = new BotReadTools({
+    chatId: CHAT.chatId,
+    cache: emptyCache(),
+  });
+  const legacy = asFailure(
+    await tools.callTool("web_fetch", { url: "https://example.com" }),
+  );
+  assert.equal(legacy.error.code, "unknown_tool");
+  assert.equal(legacy.error.retryable, false);
+});
+
+test("static_page_fetch clamps an injected provider to the requested visible-text budget", async () => {
   const provider: WebFetchProvider = {
     async fetch({ url }) {
       return {
@@ -206,7 +219,7 @@ test("web_fetch clamps an injected provider to the requested visible-text budget
     webFetch: provider,
   });
 
-  const result = await tools.callTool("web_fetch", {
+  const result = await tools.callTool("static_page_fetch", {
     url: "https://example.com/article",
     max_chars: 500,
   });
@@ -219,7 +232,7 @@ test("web_fetch clamps an injected provider to the requested visible-text budget
   assert.match(String(result.result.text), /…$/u);
 });
 
-test("web_fetch enforces timeout and caller abort even when the page provider hangs", async () => {
+test("static_page_fetch enforces timeout and caller abort even when the page provider hangs", async () => {
   let timeoutSignalObserved = false;
   const hangingProvider: WebFetchProvider = {
     async fetch({ signal }) {
@@ -243,7 +256,7 @@ test("web_fetch enforces timeout and caller abort even when the page provider ha
   });
 
   const timeout = asFailure(
-    await tools.callTool("web_fetch", { url: "https://example.com" }),
+    await tools.callTool("static_page_fetch", { url: "https://example.com" }),
   );
   assert.equal(timeout.error.code, "timeout");
   assert.equal(timeout.error.retryable, true);
@@ -253,7 +266,7 @@ test("web_fetch enforces timeout and caller abort even when the page provider ha
   controller.abort(new Error("turn ended"));
   const aborted = asFailure(
     await tools.callTool(
-      "web_fetch",
+      "static_page_fetch",
       { url: "https://example.com" },
       { signal: controller.signal },
     ),
@@ -262,7 +275,7 @@ test("web_fetch enforces timeout and caller abort even when the page provider ha
   assert.equal(aborted.error.retryable, false);
 });
 
-test("built-in web_fetch DNS-pins public HTTPS pages, strips HTML, and never follows redirects", async () => {
+test("built-in static_page_fetch DNS-pins public HTTPS pages, strips HTML, and never follows redirects", async () => {
   let transportCalls = 0;
   const provider = new PublicWebFetchProvider({
     lookup: async (hostname) => {
@@ -289,7 +302,7 @@ test("built-in web_fetch DNS-pins public HTTPS pages, strips HTML, and never fol
     webFetch: provider,
   });
 
-  const page = await tools.callTool("web_fetch", {
+  const page = await tools.callTool("static_page_fetch", {
     url: "https://example.com/article",
     max_chars: 500,
   });
@@ -319,7 +332,7 @@ test("built-in web_fetch DNS-pins public HTTPS pages, strips HTML, and never fol
     cache: emptyCache(),
     webFetch: redirectProvider,
   });
-  const redirect = await redirectTools.callTool("web_fetch", {
+  const redirect = await redirectTools.callTool("static_page_fetch", {
     url: "https://example.com/article",
   });
 
@@ -332,7 +345,7 @@ test("built-in web_fetch DNS-pins public HTTPS pages, strips HTML, and never fol
   assert.equal(transportCalls, 2);
 });
 
-test("built-in web_fetch rejects literal and DNS-resolved private targets before transport", async () => {
+test("built-in static_page_fetch rejects literal and DNS-resolved private targets before transport", async () => {
   let transported = false;
   const provider = new PublicWebFetchProvider({
     lookup: async () => [{ address: "127.0.0.1", family: 4 }],
@@ -348,26 +361,26 @@ test("built-in web_fetch rejects literal and DNS-resolved private targets before
   });
 
   const resolvedPrivate = asFailure(
-    await tools.callTool("web_fetch", { url: "https://example.com" }),
+    await tools.callTool("static_page_fetch", { url: "https://example.com" }),
   );
   assert.equal(resolvedPrivate.error.code, "unsafe_url");
   assert.equal(resolvedPrivate.error.retryable, false);
   assert.equal(transported, false);
 
   const literalPrivate = asFailure(
-    await tools.callTool("web_fetch", { url: "https://127.0.0.1" }),
+    await tools.callTool("static_page_fetch", { url: "https://127.0.0.1" }),
   );
   assert.equal(literalPrivate.error.code, "unsafe_url");
   assert.equal(transported, false);
 
   const literalIpv6Private = asFailure(
-    await tools.callTool("web_fetch", { url: "https://[::1]" }),
+    await tools.callTool("static_page_fetch", { url: "https://[::1]" }),
   );
   assert.equal(literalIpv6Private.error.code, "unsafe_url");
   assert.equal(transported, false);
 });
 
-test("built-in web_fetch rejects special IPv6 DNS records but permits public IPv6", async () => {
+test("built-in static_page_fetch rejects special IPv6 DNS records but permits public IPv6", async () => {
   for (const address of ["2001:0000::1", "2002::1"]) {
     let transported = false;
     const provider = new PublicWebFetchProvider({
@@ -384,7 +397,7 @@ test("built-in web_fetch rejects special IPv6 DNS records but permits public IPv
     });
 
     const failure = asFailure(
-      await tools.callTool("web_fetch", { url: "https://example.com" }),
+      await tools.callTool("static_page_fetch", { url: "https://example.com" }),
     );
     assert.equal(failure.error.code, "unsafe_url");
     assert.equal(failure.error.retryable, false);
@@ -408,7 +421,7 @@ test("built-in web_fetch rejects special IPv6 DNS records but permits public IPv
     cache: emptyCache(),
     webFetch: publicProvider,
   });
-  const page = await publicTools.callTool("web_fetch", {
+  const page = await publicTools.callTool("static_page_fetch", {
     url: "https://example.com/ipv6",
   });
 
@@ -416,7 +429,7 @@ test("built-in web_fetch rejects special IPv6 DNS records but permits public IPv
   assert.equal(observedAddress, "2606:4700:4700::1111");
 });
 
-test("built-in web_fetch fails closed for unallocated IPv6 prefixes", async () => {
+test("built-in static_page_fetch fails closed for unallocated IPv6 prefixes", async () => {
   for (const address of ["2004::1", "3000::1", "3ffe::1"]) {
     let transported = false;
     const tools = new BotReadTools({
@@ -431,7 +444,7 @@ test("built-in web_fetch fails closed for unallocated IPv6 prefixes", async () =
       }),
     });
     const failure = asFailure(
-      await tools.callTool("web_fetch", { url: "https://example.com" }),
+      await tools.callTool("static_page_fetch", { url: "https://example.com" }),
     );
     assert.equal(failure.error.code, "unsafe_url");
     assert.equal(transported, false, address);
@@ -461,7 +474,7 @@ test("built-in web_fetch fails closed for unallocated IPv6 prefixes", async () =
         },
       }),
     });
-    const page = await tools.callTool("web_fetch", {
+    const page = await tools.callTool("static_page_fetch", {
       url: "https://example.com/ipv6",
     });
     assert.equal(page.ok, true, address);

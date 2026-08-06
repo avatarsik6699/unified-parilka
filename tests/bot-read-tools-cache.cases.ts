@@ -16,8 +16,11 @@ import {
 } from "./support/bot-read-tools.js";
 
 test("the direct registry preserves the nine useful read-tool contracts", () => {
+  const names: readonly string[] = BOT_READ_TOOL_DEFINITIONS.map(
+    ({ name }) => name,
+  );
   assert.deepEqual(
-    BOT_READ_TOOL_DEFINITIONS.map(({ name }) => name),
+    names,
     [
       "rag_bm25_search",
       "keyword_search",
@@ -25,11 +28,13 @@ test("the direct registry preserves the nine useful read-tool contracts", () => 
       "day_digest",
       "thread_context",
       "web_search",
-      "web_fetch",
+      "static_page_fetch",
       "paper_search",
       "research_lookup",
     ],
   );
+  assert.ok(names.includes("static_page_fetch"));
+  assert.ok(!names.includes("web_fetch"));
   for (const definition of BOT_READ_TOOL_DEFINITIONS) {
     assert.equal(definition.inputSchema.additionalProperties, false);
   }

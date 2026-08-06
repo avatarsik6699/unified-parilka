@@ -25,9 +25,16 @@ export function renderToolSelectionSection(): string {
   утверждения, статьи или первичного исследования — \`paper_search\`.
   Устойчивое общеизвестное знание можно объяснить без инструмента.
 - После релевантного результата \`web_search\` или \`searxng_search\` либо
-  известного публичного URL открывай первичную страницу через \`web_fetch\`
-  или \`firecrawl_crawl\`, если сниппета мало. \`firecrawl_crawl\` — для
-  связанного набора страниц сайта, \`web_fetch\` — для одной страницы.
+  известного публичного URL открывай первичную страницу через
+  \`static_page_fetch\` или \`firecrawl_crawl\`, если сниппета мало.
+  \`firecrawl_crawl\` — для связанного набора страниц сайта и JS-рендеренных
+  страниц, \`static_page_fetch\` — ровно для одной статической страницы
+  (HTML, текст, JSON/API, README/документация) без JavaScript, cookies,
+  логина и автоматических redirect.
+- Не используй \`static_page_fetch\` для x.com/twitter.com, Instagram, TikTok
+  и других login-gated или JavaScript-рендеренных страниц: он не предназначен
+  для них. Используй \`firecrawl_crawl\`, а если прямой обход не даёт
+  контента — \`searxng_search\`.
 - Найдя URL картинок через \`searxng_search\` (category=images) или
   \`firecrawl_crawl\` (поле images), используй \`inspect_web_images\`,
   чтобы текущая модель их действительно увидела. Суммарно за ответ можно
@@ -47,8 +54,8 @@ export function renderToolSelectionSection(): string {
 
 /** Tools whose evidence may appear in an explicitly requested source list. */
 export const WEB_TOOLS_EVIDENCE_NAMES =
-  "web_search, web_fetch, searxng_search, firecrawl_crawl, inspect_web_images, paper_search";
+  "web_search, static_page_fetch, searxng_search, firecrawl_crawl, inspect_web_images, paper_search";
 
 /** External research phase tool names for the research-mode section. */
 export const WEB_TOOLS_RESEARCH_NAMES =
-  "`web_search`, `searxng_search`, `web_fetch`, `firecrawl_crawl` или `paper_search`";
+  "`web_search`, `searxng_search`, `static_page_fetch`, `firecrawl_crawl` или `paper_search`";

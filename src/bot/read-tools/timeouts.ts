@@ -205,8 +205,8 @@ export async function callWebFetchProvider(params: {
       timedOut ? "timeout" : "aborted",
       timedOut,
       timedOut
-        ? "Web fetch timed out."
-        : "Web fetch was aborted.",
+        ? "Static page fetch timed out."
+        : "Static page fetch was aborted.",
     );
   }
 
@@ -230,7 +230,7 @@ export async function callWebFetchProvider(params: {
       new ReadToolExecutionError(
         "timeout",
         true,
-        `Web fetch exceeded ${params.timeoutMs} ms.`,
+        `Static page fetch exceeded ${params.timeoutMs} ms.`,
       ),
     );
   }, params.timeoutMs);
@@ -243,7 +243,7 @@ export async function callWebFetchProvider(params: {
             new ReadToolExecutionError(
               "aborted",
               false,
-              "Web fetch was aborted.",
+              "Static page fetch was aborted.",
             ),
         );
       },
@@ -267,7 +267,7 @@ export async function callWebFetchProvider(params: {
       throw new ReadToolExecutionError(
         "timeout",
         true,
-        `Web fetch exceeded ${params.timeoutMs} ms.`,
+        `Static page fetch exceeded ${params.timeoutMs} ms.`,
       );
     }
     if (params.externalSignal?.aborted) {
@@ -275,8 +275,8 @@ export async function callWebFetchProvider(params: {
         externalTimedOut ? "timeout" : "aborted",
         externalTimedOut,
         externalTimedOut
-          ? "Web fetch timed out."
-          : "Web fetch was aborted.",
+          ? "Static page fetch timed out."
+          : "Static page fetch was aborted.",
       );
     }
     if (error instanceof ReadToolExecutionError) {
@@ -285,7 +285,7 @@ export async function callWebFetchProvider(params: {
     throw new ReadToolExecutionError(
       "provider_error",
       true,
-      "Web fetch failed.",
+      "Static page fetch failed.",
     );
   } finally {
     clearTimeout(timeout);

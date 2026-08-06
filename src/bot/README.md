@@ -32,7 +32,7 @@ The public entry points remain thin compatibility files:
   Research requests still require a minimum of four real
   evidence calls and allow up to two bounded continuation rounds if the model
   tries to finalise too early. The prompt separates external
-  evidence (`web_search`/`web_fetch`/`paper_search`) from facts in this chat
+  evidence (`web_search`/`static_page_fetch`/`paper_search`) from facts in this chat
   (`rag_bm25_search`/digest/thread) and never treats chat search as an automatic
   supplement to an external lookup. `research_lookup` is private evidence and
   the sole tool-specific data-disclosure boundary: its model-facing description
@@ -137,7 +137,7 @@ Their implementation is split by ownership:
   (tool list, selection workflow, external-source and research names).
 - `read-tools/public-address.ts`: the single shared public-address policy
   (private/special DNS answers fail closed) and the DNS-pinned HTTPS transport
-  reused by `web_fetch` and `inspect_web_images` only. Firecrawl targets are
+  reused by `static_page_fetch` and `inspect_web_images` only. Firecrawl targets are
   pre-resolved and fail-closed by the bot, but the local crawler resolves
   independently — the Firecrawl adapter never uses the pinned transport.
 - `../bot-daemon/`: dependency composition, production adapters, trace wiring,

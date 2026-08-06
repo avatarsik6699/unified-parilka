@@ -7,7 +7,7 @@ export const BOT_READ_TOOL_NAMES = [
   "day_digest",
   "thread_context",
   "web_search",
-  "web_fetch",
+  "static_page_fetch",
   "paper_search",
   "research_lookup",
 ] as const;
@@ -232,9 +232,9 @@ export const BOT_READ_TOOL_DEFINITIONS: readonly BotReadToolDefinition[] = [
     ),
   },
   {
-    name: "web_fetch",
+    name: "static_page_fetch",
     description:
-      "Загружает одну публичную HTTPS-страницу без cookies, логина, JavaScript и переходов по redirect. Используй после web_search (или для известного публичного URL), когда нужен первичный текст страницы, а не только сниппет. Не используй для localhost, приватных ссылок или страниц, требующих авторизацию.",
+      "Загружает ровно одну статическую публичную HTTPS-страницу: статический HTML, текст, JSON/API-ответ или README/документацию. Без JavaScript, cookies, логина и автоматических redirect. Используй после web_search или searxng_search (или для известного публичного URL), когда нужен первичный текст страницы, а не только сниппет. Не используй для localhost, приватных ссылок, страниц с авторизацией и JS-рендеренных страниц; не используй его для x.com/twitter.com, Instagram, TikTok и других login-gated или динамических сайтов — для них используй firecrawl_crawl, а если прямой обход не даёт контента — searxng_search.",
     inputSchema: objectSchema(
       {
         url: {

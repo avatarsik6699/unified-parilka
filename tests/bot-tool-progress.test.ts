@@ -171,12 +171,12 @@ test("shows an allowlisted query and clamps it to three lines", async () => {
   assert.match(String(texts[1]), /^✓ web_search\n  запрос:/);
 });
 
-test("shows a web_fetch page selector without leaking its query string", async () => {
+test("shows a static_page_fetch page selector without leaking its query string", async () => {
   const port = fakePort();
   const { publisher } = makePublisher({ port });
 
   publisher.onToolStarted({
-    toolName: "web_fetch",
+    toolName: "static_page_fetch",
     callId: "c1",
     input: { url: "https://example.com/article?access_token=do-not-show" },
   });
@@ -186,7 +186,7 @@ test("shows a web_fetch page selector without leaking its query string", async (
   const sent = port.calls.find((call) => call.kind === "send");
   assert.equal(
     sent?.text,
-    "⏳ web_fetch\n  страница: https://example.com/article",
+    "⏳ static_page_fetch\n  страница: https://example.com/article",
   );
   assert.doesNotMatch(String(sent?.text), /access_token|do-not-show/u);
 });

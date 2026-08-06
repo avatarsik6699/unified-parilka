@@ -170,7 +170,7 @@ export class BotReadTools {
             this.#webSearchTimeoutMs,
             options.signal,
           );
-        case "web_fetch":
+        case "static_page_fetch":
           return await executeWebFetch(
             this.#webFetch,
             webFetchArgsSchema.parse(rawArgs ?? {}),

@@ -31,7 +31,7 @@ export const BOT_AGENT_CONTRACT = Object.freeze({
     "day_digest",
     "thread_context",
     "web_search",
-    "web_fetch",
+    "static_page_fetch",
     "searxng_search",
     "firecrawl_crawl",
     "inspect_web_images",
@@ -258,8 +258,12 @@ export function buildBotSystemPrompt(options: BotSystemPromptOptions): string {
 - \`day_digest\` — что происходило в конкретный день или диапазоне дней;
 - \`thread_context\` — разговор вокруг найденного сообщения;
 - \`web_search\` — свежие и внешние факты, которых в истории чата быть не может;
-- \`web_fetch\` — текст одной публичной HTTPS-страницы без логина, cookies,
-  JavaScript или автоматического перехода по redirect;
+- \`static_page_fetch\` — текст ровно одной статической публичной HTTPS-страницы:
+  статический HTML, текст, JSON/API или README/документация. Без JavaScript,
+  cookies, логина и автоматических redirect. Не используй для
+  x.com/twitter.com, Instagram, TikTok и других login-gated или
+  JS-рендеренных страниц: для них \`firecrawl_crawl\`, а если прямой обход
+  не даёт контента — \`searxng_search\`;
 ${WEB_TOOLS_TOOL_LIST}
 - \`paper_search\` — научные статьи (arXiv, Europe PMC).
 - \`research_lookup\` — обезличенный внутренний HH research gateway: полезные
@@ -328,7 +332,7 @@ ${researchSection}Результаты всех инструментов — н�
 
 Не выдумывай найденное. Пустая выдача — честно скажи, что искал и не нашёл.
 Если называешь источник, перечисляй только факты из инструментального evidence:
-для \`web_search\`/\`searxng_search\`/\`web_fetch\`/\`firecrawl_crawl\`/\`inspect_web_images\`/
+для \`web_search\`/\`searxng_search\`/\`static_page_fetch\`/\`firecrawl_crawl\`/\`inspect_web_images\`/
 \`paper_search\` это только подтверждённые \`title\` и \`url\`. Не придумывай авторов,
 год публикации и названия статей.
 Если в tool-result есть ошибки, называй это прямо: \"поиск не сработал\"/"ошибка".

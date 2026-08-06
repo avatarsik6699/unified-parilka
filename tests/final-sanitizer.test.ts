@@ -284,3 +284,37 @@ test("сохраняет заявления о падении Firecrawl при �
     assert.equal(final.includes(claim), true, `должно сохраниться: ${claim}`);
   }
 });
+
+test("удаляет ложное заявление о падении static_page_fetch без зафиксированной ошибки", () => {
+  const claims = [
+    "static_page_fetch не работает, страница не открылась.",
+    "static_page_fetch failed to load the page.",
+    "static_page_fetch сегодня лёг.",
+  ];
+  for (const claim of claims) {
+    const final = sanitizeFinalText({
+      text: claim,
+      toolEvidence: [],
+      researchMode: false,
+      readToolFailures: [],
+    });
+    assert.equal(final, "", `должно быть удалено: ${claim}`);
+  }
+});
+
+test("сохраняет заявление о падении static_page_fetch при зафиксированной ошибке", () => {
+  const claims = [
+    "static_page_fetch не работает, страница не открылась.",
+    "static_page_fetch failed to load the page.",
+    "static_page_fetch сегодня лёг.",
+  ];
+  for (const claim of claims) {
+    const final = sanitizeFinalText({
+      text: claim,
+      toolEvidence: [],
+      researchMode: false,
+      readToolFailures: [{ name: "static_page_fetch", code: "provider_error" }],
+    });
+    assert.equal(final.includes(claim), true, `должно сохраниться: ${claim}`);
+  }
+});

@@ -330,7 +330,7 @@ test("a final with a mention clears the tool-progress message before publication
   const worker = fixture.worker({
     agent: async (request) => {
       request.toolProgressPort?.onToolStarted({
-        toolName: "web_fetch",
+        toolName: "static_page_fetch",
         callId: "guard-progress",
         input: { url: "https://example.com" },
       });

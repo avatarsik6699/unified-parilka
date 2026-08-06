@@ -32,7 +32,7 @@ test("system prompt preserves the persona and executable agent contract", () => 
   assert.match(prompt, /2026-07-30 по Europe\/Moscow/);
   assert.match(prompt, /Фиксированного лимита на model\/tool ходы нет/);
   assert.match(prompt, /Скрытую цепочку рассуждений не показывай/);
-  assert.match(prompt, /`web_fetch`/);
+  assert.match(prompt, /`static_page_fetch`/);
   assert.match(prompt, /`research_lookup`/);
   assert.doesNotMatch(prompt, /ровно SKIP/);
   assert.match(prompt, /Поддерживаемая\s+разметка/);
@@ -103,7 +103,29 @@ test("explicit research requests receive a bounded evidence-first prompt", () =>
   assert.match(prompt, /Фиксированного лимита на model\/tool ходы нет/);
   assert.match(prompt, /минимум\s+4 реальных вызова/);
   assert.match(prompt, /проверь альтернативы, противоречия/);
-  assert.match(prompt, /Для внешнего исследования эти фазы[\s\S]+web_fetch/);
+  assert.match(prompt, /Для внешнего исследования эти фазы[\s\S]+static_page_fetch/);
+});
+
+test("prompt routes login-gated and JS-rendered pages away from static_page_fetch", () => {
+  const prompt = buildBotSystemPrompt({
+    botUsername: "testbot",
+    botName: "Test Bot",
+    modelLabel: "provider/model",
+  });
+
+  assert.match(prompt, /`static_page_fetch`/);
+  assert.match(
+    prompt,
+    /static_page_fetch[\s\S]+без JavaScript,\s*cookies,\s*логина и автоматических redirect/u,
+  );
+  assert.match(prompt, /x\.com\/twitter\.com/u);
+  assert.match(prompt, /Instagram/u);
+  assert.match(prompt, /TikTok/u);
+  assert.match(
+    prompt,
+    /для них[\s\S]+`firecrawl_crawl`[\s\S]+если прямой обход[\s\S]+не даёт контента[\s\S]+`searxng_search`/u,
+  );
+  assert.ok(!prompt.includes("`web_fetch`"));
 });
 
 test("explicit source requests are detected across Russian and English phrasings", () => {

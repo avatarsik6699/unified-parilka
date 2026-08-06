@@ -75,7 +75,7 @@ export class PublicWebFetchProvider implements WebFetchProvider {
   }): Promise<WebFetchResponse> {
     const url = validatePublicHttpsUrl(request.url);
     if (request.signal.aborted) {
-      throw request.signal.reason ?? new Error("Web fetch was aborted.");
+      throw request.signal.reason ?? new Error("Static page fetch was aborted.");
     }
 
     const addresses = await this.#lookup(url.hostname);
@@ -83,7 +83,7 @@ export class PublicWebFetchProvider implements WebFetchProvider {
       throw new ReadToolExecutionError(
         "unsafe_url",
         false,
-        "Web fetch URL resolves to a private or unsupported address.",
+        "Static page fetch URL resolves to a private or unsupported address.",
       );
     }
     const address = addresses.find((item) => item.family === 4) ?? addresses[0]!;
@@ -97,7 +97,7 @@ export class PublicWebFetchProvider implements WebFetchProvider {
       throw new ReadToolExecutionError(
         "provider_error",
         false,
-        "Web page response exceeded the 1 MiB limit.",
+        "Static page response exceeded the 1 MiB limit.",
       );
     }
 
@@ -120,14 +120,14 @@ export class PublicWebFetchProvider implements WebFetchProvider {
       throw new ReadToolExecutionError(
         "provider_error",
         status >= 500 || status === 408 || status === 429,
-        `Web page returned HTTP ${status}.`,
+        `Static page returned HTTP ${status}.`,
       );
     }
     if (!isSupportedTextContentType(contentType)) {
       throw new ReadToolExecutionError(
         "provider_error",
         false,
-        "Web fetch supports only public text, HTML, Markdown, XML, or JSON pages.",
+        "Static page fetch supports only public text, HTML, Markdown, XML, or JSON pages.",
       );
     }
 
@@ -166,7 +166,7 @@ export async function executeWebFetch(
     throw new ReadToolExecutionError(
       "provider_error",
       true,
-      "Web fetch provider returned an invalid response.",
+      "Static page fetch provider returned an invalid response.",
     );
   }
 
@@ -194,7 +194,7 @@ export async function executeWebFetch(
       : { redirectUrl: page.redirectUrl }),
   };
   return success(
-    "web_fetch",
+    "static_page_fetch",
     page.redirectUrl !== undefined || pageText.length === 0 ? "empty" : "done",
     result,
     evidence,
@@ -222,7 +222,7 @@ function validatePublicHttpsUrl(value: string): URL {
       throw new ReadToolExecutionError(
         "unsafe_url",
         false,
-        "Web fetch URL must use a public hostname and default HTTPS port without credentials.",
+        "Static page fetch URL must use a public hostname and default HTTPS port without credentials.",
       );
     }
     throw error;
@@ -234,7 +234,7 @@ function boundedStatus(value: number): number {
     throw new ReadToolExecutionError(
       "provider_error",
       true,
-      "Web fetch provider returned an invalid HTTP status.",
+      "Static page fetch provider returned an invalid HTTP status.",
     );
   }
   return value;

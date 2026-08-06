@@ -35,7 +35,7 @@ export function sanitizeFinalText(
   const externalSourcesRequested = options.externalSourcesRequested === true;
   const webSearchFailed = hasReadToolFailure(options.readToolFailures, [
     "web_search",
-    "web_fetch",
+    "static_page_fetch",
     "searxng_search",
     "firecrawl_crawl",
     "inspect_web_images",
@@ -165,6 +165,7 @@ function isFabricatedSearchFailureLine(
     normalized.includes("web search") ||
     normalized.includes("веб-поиск") ||
     normalized.includes("веб поиск") ||
+    normalized.includes("static_page_fetch") ||
     normalized.includes("searxng_search") ||
     normalized.includes("searxng") ||
     normalized.includes("firecrawl_crawl") ||
