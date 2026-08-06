@@ -5,6 +5,10 @@ import { userMessage } from "./context.js";
 const MAX_TOOL_CARRY_CHARS = 4_500;
 const MAX_FIND_CHAT_MESSAGES_CARRY_CHARS = 20_000;
 const MAX_READ_CHAT_SLICE_CARRY_CHARS = 192_000;
+/** SearXNG projections keep a bounded medium carry budget. */
+const MAX_SEARXNG_CARRY_CHARS = 16_000;
+/** Firecrawl page projections get a large but finite carry budget. */
+const MAX_FIRECRAWL_CARRY_CHARS = 48_000;
 
 /**
  * Ordinary tool results keep the short carry cap. Only the purpose-built
@@ -18,6 +22,12 @@ export function maxCarriedToolResultChars(name: string): number {
   }
   if (name === "keyword_search") {
     return MAX_FIND_CHAT_MESSAGES_CARRY_CHARS;
+  }
+  if (name === "searxng_search") {
+    return MAX_SEARXNG_CARRY_CHARS;
+  }
+  if (name === "firecrawl_crawl") {
+    return MAX_FIRECRAWL_CARRY_CHARS;
   }
   return MAX_TOOL_CARRY_CHARS;
 }

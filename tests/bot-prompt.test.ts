@@ -55,6 +55,31 @@ test("system prompt preserves the persona and executable agent contract", () => 
   assert.equal("skipSentinel" in BOT_AGENT_CONTRACT, false);
 });
 
+test("system prompt keeps GFM tables compact, header-first and bounded", () => {
+  const prompt = buildBotSystemPrompt({
+    botUsername: "testbot",
+    botName: "Test Bot",
+    modelLabel: "provider/model",
+  });
+
+  assert.ok(
+    prompt.includes("GFM-таблицы `| a | b |` — только компактные"),
+  );
+  assert.match(prompt, /строка заголовка строго перед\s+строкой-разделителем/);
+  assert.ok(prompt.includes("таблица никогда не начинается с `|---|`"));
+  assert.match(
+    prompt,
+    /одинаковое\s+число ячеек в заголовке, разделителе и строках\s+данных/,
+  );
+  assert.match(prompt, /максимум 4 короткие\s+колонки/);
+  assert.match(prompt, /Таблица — не универсальный формат/);
+  assert.match(
+    prompt,
+    /шире 4 колонок используй нумерованные секции или\s+списки/,
+  );
+  assert.ok(prompt.includes("| :--- | ---: |"));
+});
+
 test("explicit research requests receive a bounded evidence-first prompt", () => {
   const prompt = buildBotSystemPrompt({
     botUsername: "testbot",
@@ -157,7 +182,7 @@ test("prompt keeps external research out of chat history unless the user asks to
     modelLabel: "provider/model",
   });
 
-  assert.match(prompt, /информация за пределами[\s\S]+`web_search` первым/);
+  assert.match(prompt, /информация за пределами[\s\S]+`web_search` или `searxng_search` первым/);
   assert.match(prompt, /Не ходи в `rag_bm25_search` или `keyword_search` «на всякий[\s\S]+внешней справке/);
   assert.match(prompt, /данных за пределами этой переписки[\s\S]+внешний запрос/);
 });

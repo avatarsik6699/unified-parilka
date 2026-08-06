@@ -62,11 +62,18 @@ The public entry points remain thin compatibility files:
   comes from an operator-authorized numeric Telegram account. The private
   `PARILKA_BOT_MEMORY_WRITE_SENDER_IDS` allowlist is never exposed to the
   model; writes remain source-attributed to that trigger.
-- `telegram-publication.ts` — narrow transport contract for the final text:
-  normal model replies keep their original Markdown for native
-  `sendRichMessage` up to Telegram's 32,768-byte Rich Message limit; local
-  audio and replies beyond that limit use lossless classic plain-message
-  chunks. It applies no content policy and does not rewrite model text.
+- `telegram-publication.ts` — narrow transport contract for the final text.
+  Before mode selection it runs one deterministic Markdown table-block
+  normalizer: valid GFM tables with at most 4 columns stay byte-identical,
+  wider valid tables become labeled record lists, and invalid table-like
+  blocks (orphan separator rows, ragged column counts, malformed separators)
+  become mobile-friendly lists without raw pipes: short rows stay compact
+  bullets, wider rows become multiline ordinal record blocks; fenced code,
+  blockquotes, prose and inline code stay untouched. The normalized text is
+  the visible content of both rich and plain publications, and the
+  32,768-byte Rich Message limit applies to it. Normal model replies use
+  native `sendRichMessage`; local audio and replies beyond that limit use
+  lossless classic plain-message chunks. No other content policy is applied.
 - `telemetry.ts` — per-turn usage accumulation and footer rendering. The
   published footer reports the current context occupancy — the last completed
   step's provider-reported input tokens over the successful final candidate's
@@ -108,10 +115,31 @@ Their implementation is split by ownership:
   so the generic MTProto sync representation cannot erase its current file
   reference.
 - `telegram-publication.ts`: the transport contract described above. Telegram
-  renders the rich payload natively; the only local fallback is a lossless
-  4096 UTF-16-unit plain splitter.
+  renders the rich payload natively; the only local rewrites are the
+  deterministic table-block normalizer applied before mode selection and the
+  lossless 4096 UTF-16-unit plain splitter fallback.
 - `runtime-config/`: public contracts, environment rules, cross-field
   validation, optional web-search loading, and redacted inspection.
+- `web-tools/`: bounded loopback JSON transport, SearXNG client, Firecrawl v2
+  client with fail-closed target pre-resolution, poll/cancel and ~48k
+  projection, and a DNS-pinned image downloader with magic-byte validation
+  and per-turn cumulative reservation. Model-facing tool definitions for
+  `searxng_search`, `firecrawl_crawl`, and `inspect_web_images` (vision-only).
+  All three tools emit `ReadToolEvidence` (`source: "web"`) and carried
+  bounded text results. The bot pre-resolves and fail-closes Firecrawl targets
+  (public HTTPS only), but the local crawler resolves independently — this
+  adapter does not pin the crawler's own connections.
+- `agent/web-images.ts`: per-turn image tracker with atomic count and byte
+  reservation contracts (in-flight + committed ≤ 6; consumed + reserved
+  ≤ 40 MiB) and prepareStep injection of fresh in-memory image file parts
+  for the current vision candidate only.
+- `agent/web-tools-prompt.ts`: prompt sections owned by the web tools slice
+  (tool list, selection workflow, external-source and research names).
+- `read-tools/public-address.ts`: the single shared public-address policy
+  (private/special DNS answers fail closed) and the DNS-pinned HTTPS transport
+  reused by `web_fetch` and `inspect_web_images` only. Firecrawl targets are
+  pre-resolved and fail-closed by the bot, but the local crawler resolves
+  independently — the Firecrawl adapter never uses the pinned transport.
 - `../bot-daemon/`: dependency composition, production adapters, trace wiring,
   signal lifecycle, and the executable main routine.
 
@@ -129,6 +157,22 @@ read-only. The only stateful exception is the narrow `memory-tools.ts` contract:
 it requires an authoritative direct-write gate from the private operator
 authorizer allowlist, chat scope, bounded fields, source attribution and focused
 tests together.
+
+### Web tool endpoints
+
+Configure loopback endpoints via environment variables (defaults to localhost):
+
+- `PARILKA_BOT_SEARXNG_ENDPOINT` — credential-free HTTP origin, default
+  `http://127.0.0.1:8080`.
+- `PARILKA_BOT_FIRECRAWL_ENDPOINT` — credential-free HTTP origin, default
+  `http://127.0.0.1:3002`.
+
+Both are validated as loopback-only HTTP origins without path, query,
+fragment, or credentials; remote, non-loopback, and credential-bearing values
+are rejected fail-closed by `parseBotRuntimeConfig`. They are not secrets and
+are included verbatim in redacted config inspection. Every request to these
+origins uses `redirect: "error"`, a bounded body read, the caller's abort
+signal plus an own timeout, and never forwards cookies or browser state.
 
 Vision is a candidate capability, not a prompt guess: the resolved
 `provider:model` manifest is fail-closed and carries `vision: false` unless
@@ -162,6 +206,7 @@ ok и allowlisted status/errorCode. Rejected local audio completion может
   `tests/bot-read-cache.test.ts`
 - Worker/send fence: `tests/bot-worker.test.ts`,
   `tests/grammy-publisher.test.ts`
+- Publication/table transport: `tests/telegram-publication.test.ts`
 - Agent/prompt: `tests/ai-agent-core.test.ts`,
   `tests/ai-agent-fallback.test.ts`, `tests/ai-agent-context.test.ts`,
   `tests/ai-agent-media.test.ts`,
@@ -176,6 +221,6 @@ Run all bot tests with:
 
 ```sh
 node --test --import tsx tests/bot-*.test.ts tests/ai-agent-*.test.ts \
-  tests/grammy-publisher.test.ts \
+  tests/grammy-publisher.test.ts tests/telegram-publication.test.ts \
   tests/telegram-update.test.ts tests/turn-coordinator.test.ts
 ```

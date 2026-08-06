@@ -418,12 +418,13 @@ test("memory write tools require a direct request from an authorized sender", as
     });
     const directModel = mockModel([
       toolResponse([
-        toolCall("remember", "remember_fast", {
-          title: "release",
-          note: "run full gates before restart",
+        toolCall("skill", "save_chat_skill", {
+          name: "release",
+          description: "Безопасный релизный playbook",
+          instructions: "1. Прогони тесты.\n2. Проверь smoke.\n3. Деплой.",
         }),
       ]),
-      response([{ type: "text", text: "запомнил" }], "stop"),
+      response([{ type: "text", text: "сохранил навык release" }], "stop"),
     ]);
     const directFixture = makeAgent(
       [candidate("primary:test", directModel)],
@@ -434,13 +435,21 @@ test("memory write tools require a direct request from an authorized sender", as
       request({
         trigger: storedMessage(
           100,
-          "запомни это в память: перед рестартом прогони все гейты",
+          "@bichiycepenstotri_bot запиши",
           "42",
           "Коля",
         ),
       }),
     );
-    assert.equal(store.listFastChatMemory("-1004242")[0]?.title, "release");
+    const directOffered = (directModel.doGenerateCalls[0]?.tools ?? [])
+      .filter((t) => t.type === "function")
+      .map((t) => t.name);
+    assert.equal(directOffered.includes("save_chat_skill"), true);
+    assert.equal(directOffered.includes("remember_fast"), true);
+    assert.equal(directOffered.includes("remember_lesson"), true);
+    const skills = store.listChatSkills("-1004242");
+    assert.equal(skills.length, 1);
+    assert.equal(skills[0]?.name, "release");
     assert.equal(directModel.doGenerateCalls.length, 2);
 
     const untrustedModel = mockModel([
@@ -454,7 +463,7 @@ test("memory write tools require a direct request from an authorized sender", as
       request({
         trigger: storedMessage(
           101,
-          "запомни это в память: это не должно сохраниться",
+          "@bichiycepenstotri_bot запиши",
           "43",
           "Не владелец",
         ),
@@ -469,7 +478,7 @@ test("memory write tools require a direct request from an authorized sender", as
     assert.equal(offeredToolNames.includes("save_chat_skill"), false);
     assert.equal(offeredToolNames.includes("search_long_memory"), true);
     assert.equal(offeredToolNames.includes("load_chat_skill"), true);
-    assert.equal(store.listFastChatMemory("-1004242").length, 1);
+    assert.equal(store.listChatSkills("-1004242").length, 1);
   } finally {
     store.close();
   }

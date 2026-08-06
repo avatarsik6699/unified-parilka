@@ -108,6 +108,8 @@ export function composeBotDaemon(
       config.audioTranscribe.timeoutMs,
       config.modelStepTimeoutMs,
     ),
+    searxngEndpoint: config.searxngEndpoint,
+    firecrawlEndpoint: config.firecrawlEndpoint,
   });
   const publisher = createDurableGrammyBotTurnPublisher(options.api, {
     store: options.store,

@@ -188,7 +188,6 @@ export function withImageAttachment(
   ];
 }
 
-
 function messageKey(message: Readonly<StoredMessage>): string {
   return `${message.chatId}:${message.messageId}`;
 }

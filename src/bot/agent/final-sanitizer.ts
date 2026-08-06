@@ -36,6 +36,9 @@ export function sanitizeFinalText(
   const webSearchFailed = hasReadToolFailure(options.readToolFailures, [
     "web_search",
     "web_fetch",
+    "searxng_search",
+    "firecrawl_crawl",
+    "inspect_web_images",
   ]);
   const paperSearchFailed = hasReadToolFailure(options.readToolFailures, [
     "paper_search",
@@ -161,7 +164,12 @@ function isFabricatedSearchFailureLine(
     normalized.includes("web_search") ||
     normalized.includes("web search") ||
     normalized.includes("веб-поиск") ||
-    normalized.includes("веб поиск");
+    normalized.includes("веб поиск") ||
+    normalized.includes("searxng_search") ||
+    normalized.includes("searxng") ||
+    normalized.includes("firecrawl_crawl") ||
+    normalized.includes("firecrawl") ||
+    normalized.includes("inspect_web_images");
   const mentionsPaperSearch =
     normalized.includes("paper_search") ||
     normalized.includes("paper search") ||

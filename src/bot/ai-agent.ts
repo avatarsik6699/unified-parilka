@@ -65,6 +65,8 @@ import {
   throwIfTurnAborted,
 } from "./agent/runtime-helpers.js";
 import type { ReadToolEvidence } from "./read-tools/contracts.js";
+import { appendFreshWebImages, createTurnImageTracker } from "./agent/web-images.js";
+import { createWebToolPort, type WebToolPort } from "./web-tools/tool-definitions.js";
 const DEFAULT_CONTEXT_CHARS = 48_000;
 const DEFAULT_MAX_OUTPUT_TOKENS = 16_384;
 const DEFAULT_STEP_TIMEOUT_MS = 180_000;
@@ -94,6 +96,9 @@ export interface AiSdkBotTurnAgentOptions {
   maxOutputTokens?: number;
   stepTimeoutMs?: number;
   toolTimeoutMs?: number;
+  searxngEndpoint?: string;
+  firecrawlEndpoint?: string;
+  webToolPort?: WebToolPort;
 }
 
 export type BotAgentProtocolErrorCode =
@@ -131,6 +136,9 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
   readonly #maxOutputTokens: number;
   readonly #stepTimeoutMs: number;
   readonly #toolTimeoutMs: number;
+  readonly #searxngEndpoint: string | undefined;
+  readonly #firecrawlEndpoint: string | undefined;
+  readonly #webToolPort: WebToolPort | undefined;
 
   constructor(options: AiSdkBotTurnAgentOptions) {
     this.#router = options.router;
@@ -166,6 +174,9 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
       this.#stepTimeoutMs,
       "toolTimeoutMs",
     );
+    this.#searxngEndpoint = options.searxngEndpoint;
+    this.#firecrawlEndpoint = options.firecrawlEndpoint;
+    this.#webToolPort = options.webToolPort;
   }
 
   async run(request: BotAgentRequest): Promise<BotAgentFinalResult> {
@@ -209,6 +220,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
     let requestedExecutions = 0;
     let researchQualityRetries = 0;
     let contextCompactions = 0;
+    const imageTracker = this.#webToolPort?.imageTracker ?? createTurnImageTracker();
     const thinkingProgress = new ThinkingProgressTracker(
       request.toolProgressPort,
     );
@@ -351,7 +363,8 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
             toolProgressPort: request.toolProgressPort,
             onStarted: (execution) => {
               startedExecutions += 1;
-              if (execution.kind === "read") {
+              // Web tools count as read executions for research depth.
+              if (execution.kind === "read" || execution.kind === "web") {
                 startedReadExecutions += 1;
               }
             },
@@ -374,6 +387,11 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
             chatId: request.turn.chatId,
             sourceMessageId: request.trigger.messageId,
             senderId: request.trigger.senderId,
+            visionAvailable: candidate.capabilities.vision,
+            webToolPort: this.#webToolPort ?? createWebToolPort({
+              searxngEndpoint: this.#searxngEndpoint,
+              firecrawlEndpoint: this.#firecrawlEndpoint,
+              imageTracker, nonce, turnSignal }),
             onExecutionStarted: toolObserver.onExecutionStarted,
             onExecutionCompleted: toolObserver.onExecutionCompleted,
             ...(!audioExecution.available || audioExecution.hasModelTranscription
@@ -390,6 +408,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
           });
 
           try {
+            let injectedImageCount = 0;
             while (true) {
               throwIfTurnAborted(request.signal);
               let foldCursor = folds.length;
@@ -427,10 +446,14 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
                   rememberFold("model");
                   const newFolds = folds.slice(foldCursor);
                   foldCursor = folds.length;
-                  const nextMessages =
-                    newFolds.length === 0
-                      ? messages
-                      : [...messages, ...newFolds.map(userMessage)];
+                  // Inject fresh web images before the next model step.
+                  const withFolds = newFolds.length === 0
+                    ? messages
+                    : [...messages, ...newFolds.map(userMessage)];
+                  const injected = appendFreshWebImages(withFolds,
+                    imageTracker, injectedImageCount, candidate.capabilities.vision, nonce);
+                  injectedImageCount = injected.injectedCount;
+                  const nextMessages = injected.messages;
                   const compacted = await compactModelContextIfNeeded({
                     model: candidate.model, providerOptions: candidate.providerOptions,
                     messages: nextMessages, signal: turnSignal,

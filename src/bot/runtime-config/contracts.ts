@@ -50,6 +50,10 @@ export interface BotRuntimeConfig {
   webSearch?: BotWebSearchRuntimeConfig;
   researchGateway?: BotResearchGatewayRuntimeConfig;
   audioTranscribe: BotAudioTranscribeRuntimeConfig;
+  /** Loopback SearXNG JSON API origin. Default http://127.0.0.1:8080. */
+  searxngEndpoint: string;
+  /** Loopback Firecrawl v2 API origin. Default http://127.0.0.1:3002. */
+  firecrawlEndpoint: string;
   mode: BotRuntimeMode;
   workerConcurrency: number;
   triggerCooldownMs: number;

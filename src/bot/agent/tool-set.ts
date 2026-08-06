@@ -17,9 +17,14 @@ import {
 } from "../read-tools.js";
 import type { AudioTranscribeToolResult } from "../media-tools.js";
 import { boundedSerialize, maxCarriedToolResultChars } from "./evidence.js";
+import {
+  addWebTools,
+  type WebToolPort,
+  type WebToolResult,
+} from "../web-tools/tool-definitions.js";
 
 export interface BotToolSetExecutionStarted {
-  readonly kind: "read" | "memory";
+  readonly kind: "read" | "memory" | "web";
   readonly name: string;
   readonly callId: string;
   readonly input: Readonly<Record<string, unknown>>;
@@ -39,6 +44,13 @@ export type BotToolSetExecutionCompleted =
       readonly callId: string;
       readonly startedAt: number;
       readonly output: BotMemoryToolResult;
+    }
+  | {
+      readonly kind: "web";
+      readonly name: string;
+      readonly callId: string;
+      readonly startedAt: number;
+      readonly output: WebToolResult;
     };
 
 export interface CreateBotToolSetOptions {
@@ -57,6 +69,10 @@ export interface CreateBotToolSetOptions {
     callId: string;
     signal: AbortSignal;
   }) => Promise<AudioTranscribeToolResult>;
+  /** Web tool clients and per-turn image tracker. */
+  readonly webToolPort?: WebToolPort;
+  /** Whether the current candidate supports vision. */
+  readonly visionAvailable: boolean;
 }
 
 export interface BotToolSet {
@@ -228,6 +244,21 @@ export function createBotToolSet(options: CreateBotToolSetOptions): BotToolSet {
     tools.remember_lesson = makeMemoryTool("remember_lesson");
     tools.save_chat_skill = makeMemoryTool("save_chat_skill");
     toolOrder.push(...BOT_MEMORY_WRITE_TOOL_NAMES);
+  }
+
+  // Web tools (searxng_search, firecrawl_crawl, optionally inspect_web_images)
+  if (options.webToolPort !== undefined) {
+    const webResult = addWebTools(tools, {
+      port: options.webToolPort,
+      // Tool visibility is driven by the current candidate capability, not
+      // by stale injected-port state.
+      visionAvailable: options.visionAvailable,
+      onExecutionStarted: (input) =>
+        options.onExecutionStarted({ ...input, kind: "web" }),
+      onExecutionCompleted: (input) =>
+        options.onExecutionCompleted({ ...input, kind: "web" }),
+    });
+    toolOrder.push(...webResult.names);
   }
 
   return { tools, toolOrder };

@@ -17,6 +17,7 @@ import {
 } from "./env-rules.js";
 import { optionalResearchGatewayConfig } from "./research-gateway.js";
 import { audioTranscribeConfig } from "./audio-transcribe.js";
+import { requireLoopbackHttpOrigin } from "../web-tools/url-validation.js";
 import {
   assertBotTokenShape,
   assertExclusivePoller,
@@ -119,6 +120,12 @@ export function parseBotRuntimeConfig(
     ...optionalWebSearchConfig(env),
     ...optionalResearchGatewayConfig(env),
     audioTranscribe: audioTranscribeConfig(env),
+    searxngEndpoint: requireLoopbackHttpOrigin(
+      env.PARILKA_BOT_SEARXNG_ENDPOINT ?? "http://127.0.0.1:8080",
+    ),
+    firecrawlEndpoint: requireLoopbackHttpOrigin(
+      env.PARILKA_BOT_FIRECRAWL_ENDPOINT ?? "http://127.0.0.1:3002",
+    ),
     mode,
     workerConcurrency: integer(
       env.PARILKA_BOT_WORKERS,

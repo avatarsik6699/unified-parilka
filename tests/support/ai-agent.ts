@@ -14,6 +14,7 @@ import {
   type BotReadToolCache,
 } from "../../src/bot/read-tools.js";
 import { BotMemoryTools } from "../../src/bot/memory-tools.js";
+import type { WebToolPort } from "../../src/bot/web-tools/tool-definitions.js";
 import type { BotMediaToolsPort } from "../../src/bot/media-tools.js";
 import type { ToolProgressPort } from "../../src/bot/tool-progress.js";
 import type {
@@ -63,6 +64,9 @@ export function makeAgent(
       contextCharLimit?: number;
       stepTimeoutMs?: number;
       toolTimeoutMs?: number;
+      searxngEndpoint?: string;
+      firecrawlEndpoint?: string;
+      webToolPort?: WebToolPort;
     };
   } = {},
 ): {

@@ -314,10 +314,19 @@ function toolInputPreview(
     }
     return queryPreview(query);
   }
-  if (toolName === "web_fetch") {
+  if (toolName === "web_fetch" || toolName === "firecrawl_crawl") {
     const url = textField(input, "url");
     if (url) {
       return urlPreview(url);
+    }
+  }
+  if (toolName === "inspect_web_images") {
+    // Count only: image URLs never appear in visible progress.
+    const urls = Array.isArray(input.urls)
+      ? input.urls.filter((u): u is string => typeof u === "string")
+      : [];
+    if (urls.length > 0) {
+      return `картинки: ${Math.min(urls.length, 6)}`;
     }
   }
   if (

@@ -91,14 +91,23 @@ export function createBotToolExecutionObserver(
     onExecutionCompleted(execution): void {
       const sequence = sequenceFor(execution.callId);
       options.onCompleted(execution);
+      const ok = execution.output.ok;
       options.toolProgressPort?.onToolCompleted(
         { toolName: execution.name, callId: execution.callId },
-        execution.output.ok,
+        ok,
       );
-      if (execution.kind === "read" && execution.output.ok) {
+      // Read and web tools both contribute evidence, failures and carried
+      // bounded text results so fallback and research retries keep them.
+      if (
+        (execution.kind === "read" || execution.kind === "web") &&
+        execution.output.ok
+      ) {
         options.toolEvidence.push(...execution.output.evidence);
       }
-      if (execution.kind === "read" && !execution.output.ok) {
+      if (
+        (execution.kind === "read" || execution.kind === "web") &&
+        !execution.output.ok
+      ) {
         options.readToolFailures.push({
           name: execution.name,
           code: execution.output.error.code,
@@ -120,7 +129,7 @@ export function createBotToolExecutionObserver(
         kind: execution.kind,
         sequence,
         durationMs: Math.max(0, Date.now() - execution.startedAt),
-        ok: execution.output.ok,
+        ok,
         ...(execution.output.ok
           ? { status: execution.output.status }
           : { errorCode: execution.output.error.code }),
