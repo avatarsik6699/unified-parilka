@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { generateText } from "ai";
 import {
   ModelContentFilterError,
+  ModelRoutingError,
   type ModelExecutionResult,
   type ModelRole,
   type ResolvedModelCandidate,
@@ -73,6 +74,7 @@ const DEFAULT_STEP_TIMEOUT_MS = 180_000;
 const DEFAULT_TOOL_TIMEOUT_MS = 15_000;
 const MAX_CONTEXT_CHARS = 200_000;
 const MAX_LENGTH_FINALIZATION_RETRIES = 1;
+const MAX_EMPTY_FINAL_RETRIES = 1;
 export interface TurnModelRouter {
   executeWithFallback<T>(
     role: ModelRole,
@@ -376,6 +378,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
           });
           let finalizationRequested = false;
           let lengthFinalizationRetries = 0;
+          let emptyFinalRetries = 0;
           const { tools, toolOrder } = createBotToolSet({
             readTools: this.#readTools,
             memoryTools: this.#memoryTools,
@@ -590,6 +593,18 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
                 );
               }
               if (result.text.trim().length === 0) {
+                if (emptyFinalRetries < MAX_EMPTY_FINAL_RETRIES) {
+                  emptyFinalRetries += 1;
+                  finalizationRequested = true;
+                  this.#log("warn", "bot.agent.empty_final_retry", {
+                    ...traceContext,
+                    candidate: candidate.reference,
+                    attempt: attemptNumber,
+                    retry: emptyFinalRetries,
+                    finishReason: result.finishReason,
+                  });
+                  continue;
+                }
                 throw new BotAgentProtocolError("empty_final");
               }
               const sanitizedText = sanitizeFinalText({
@@ -600,6 +615,19 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
                 externalSourcesRequested,
               });
               if (sanitizedText.length === 0) {
+                if (emptyFinalRetries < MAX_EMPTY_FINAL_RETRIES) {
+                  emptyFinalRetries += 1;
+                  finalizationRequested = true;
+                  this.#log("warn", "bot.agent.empty_final_retry", {
+                    ...traceContext,
+                    candidate: candidate.reference,
+                    attempt: attemptNumber,
+                    retry: emptyFinalRetries,
+                    finishReason: result.finishReason,
+                    reason: "sanitized_empty",
+                  });
+                  continue;
+                }
                 throw new BotAgentProtocolError("empty_final");
               }
               if (
@@ -667,6 +695,18 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
       });
       return routed.value;
     } catch (error) {
+      const routingAttemptReasons =
+        error instanceof ModelRoutingError
+          ? error.attempts.map((a) => a.decision.reason)
+          : undefined;
+      const routingCode =
+        error instanceof ModelRoutingError
+          ? error.code
+          : undefined;
+      const leafCode =
+        error instanceof ModelRoutingError && error.cause != null
+          ? safeErrorCode(error.cause)
+          : undefined;
       this.#log("warn", "bot.agent.failed", {
         ...traceContext,
         requestedToolCalls: requestedExecutions,
@@ -676,6 +716,11 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
         completedToolCalls: completedExecutions,
         deniedToolCalls: deniedExecutions,
         code: safeErrorCode(error),
+        ...(routingCode === undefined ? {} : { routingCode }),
+        ...(routingAttemptReasons === undefined
+          ? {}
+          : { routingAttemptReasons }),
+        ...(leafCode === undefined ? {} : { leafCode }),
         researchMode,
         memoryWriteAllowed,
         researchMinimumToolCalls,

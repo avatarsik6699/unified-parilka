@@ -135,6 +135,9 @@ export class BotUpdateProcessor {
           ? {}
           : { senderName: normalized.message.senderName }),
         text: normalized.message.text,
+        ...(normalized.replyToBot === true
+          ? { replyToBot: true as const }
+          : {}),
       });
       routed = true;
     }

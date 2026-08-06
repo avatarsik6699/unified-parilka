@@ -11,6 +11,7 @@ import {
   toolCall,
   toolResponse,
 } from "./support/ai-agent.js";
+import { ModelRoutingError } from "../src/providers/model-router.js";
 
 test("content filtering is terminal and never tries the backup provider", async () => {
   const blocked = mockModel([response([], "content-filter")]);
@@ -26,28 +27,75 @@ test("content filtering is terminal and never tries the backup provider", async 
   ]);
 
   await assert.rejects(fixture.agent.run(request()), (error) => {
-    assert.equal((error as Error).name, "ModelContentFilterError");
+    assert.ok(error instanceof ModelRoutingError);
+    assert.equal(error.code, "terminal_error");
+    assert.equal(error.attempts[0]?.decision.reason, "content_filter");
     return true;
   });
   assert.equal(blocked.doGenerateCalls.length, 1);
   assert.equal(backup.doGenerateCalls.length, 0);
 });
 
-test("an empty successful provider response falls back as invalid candidate output", async () => {
-  const empty = mockModel([response([], "stop")]);
+test("empty stop with two candidates falls back to backup after local retry", async () => {
+  // Primary: empty stop → local no-tools retry → still empty
+  // → empty_final (fallbackEligible=true) → router falls back
+  const primary = mockModel([
+    response([], "stop"),
+    response([], "stop"),
+  ]);
   const backup = mockModel([
-    response([{ type: "text", text: "непустой ответ" }], "stop"),
+    response([{ type: "text", text: "ответ запасной модели" }], "stop"),
   ]);
   const fixture = makeAgent([
-    candidate("primary:empty", empty),
+    candidate("primary:empty", primary),
     candidate("backup:working", backup),
   ]);
 
   const result = await fixture.agent.run(request());
 
-  assert.equal(result.text, "непустой ответ");
-  assert.equal(empty.doGenerateCalls.length, 1);
+  assert.equal(result.text, "ответ запасной модели");
+  assert.equal(primary.doGenerateCalls.length, 2);
+  assert.deepEqual(primary.doGenerateCalls[1]?.toolChoice, { type: "none" });
   assert.equal(backup.doGenerateCalls.length, 1);
+  const retryLog = fixture.logs.find(
+    (record) => record.event === "bot.agent.empty_final_retry",
+  );
+  assert.ok(retryLog);
+  assert.equal(retryLog.candidate, "primary:empty");
+});
+
+test("single-candidate empty_final exhaustion gives safe diagnostics via ModelRoutingError", async () => {
+  // Single candidate: empty → retry → empty → empty_final (fallbackEligible=true)
+  // → router has only one candidate → ModelRoutingError("candidates_exhausted")
+  const model = mockModel([
+    response([], "stop"),
+    response([], "stop"),
+  ]);
+  const fixture = makeAgent([candidate("primary:only", model)]);
+
+  await assert.rejects(fixture.agent.run(request()), (error) => {
+    assert.ok(error instanceof ModelRoutingError);
+    assert.equal(error.code, "candidates_exhausted");
+    assert.equal(error.attempts.length, 1);
+    assert.equal(error.attempts[0]?.decision.reason, "invalid_output");
+    return true;
+  });
+
+  // bot.agent.failed diagnostics match Oracle requirements
+  const failedLog = fixture.logs.find(
+    (record) => record.event === "bot.agent.failed",
+  );
+  assert.ok(failedLog);
+  assert.equal(failedLog.routingCode, "candidates_exhausted");
+  assert.deepEqual(failedLog.routingAttemptReasons, ["invalid_output"]);
+  assert.equal(failedLog.leafCode, "empty_final");
+  // code is from ModelRoutingError itself (safeErrorCode prefers .code)
+  assert.equal(failedLog.code, "candidates_exhausted");
+  // Verify no prompt/body/content leaks
+  assert.equal("text" in failedLog, false);
+  assert.equal("prompt" in failedLog, false);
+  assert.equal("body" in failedLog, false);
+  assert.equal("content" in failedLog, false);
 });
 
 test("provider fallback keeps bounded carried tool data", async () => {

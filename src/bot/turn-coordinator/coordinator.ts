@@ -144,7 +144,8 @@ export class TurnCoordinator {
         continue;
       }
       const route: MessageRoute =
-        input.senderId === turn.ownerSenderId
+        input.senderId === turn.ownerSenderId &&
+        input.replyToBot === true
           ? "owner_follow_up"
           : "ambient";
       turn.queue.push({
@@ -206,7 +207,8 @@ export class TurnCoordinator {
         this.#seenMessageWatermarks.get(input.messageId) ??
         this.#rememberMessage(input.messageId);
       const route: MessageRoute =
-        input.senderId === turn.ownerSenderId
+        input.senderId === turn.ownerSenderId &&
+        input.replyToBot === true
           ? "owner_follow_up"
           : "ambient";
       turn.queue.push({

@@ -6,6 +6,7 @@ import type {
   TurnBoundary,
 } from "../src/bot/turn-coordinator.js";
 import { BotAgentProtocolError } from "../src/bot/ai-agent.js";
+import { ModelRoutingError } from "../src/providers/model-router.js";
 import {
   candidate,
   emptyFold,
@@ -96,8 +97,10 @@ test("incomplete output is rejected and logs never contain chat, tool, or final 
       }),
     ),
     (error) =>
-      error instanceof BotAgentProtocolError &&
-      error.code === "incomplete_finish",
+      error instanceof ModelRoutingError &&
+      error.code === "terminal_error" &&
+      error.cause instanceof BotAgentProtocolError &&
+      error.cause.code === "incomplete_finish",
   );
   const serializedLogs = JSON.stringify(fixture.logs);
   assert.doesNotMatch(

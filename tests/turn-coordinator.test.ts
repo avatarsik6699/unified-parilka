@@ -53,9 +53,9 @@ test("three overlapping turns receive only messages after their start watermark"
 test("two active turns from the same sender keep independent owner queues", () => {
   const coordinator = new TurnCoordinator({ maxActiveTurns: 3 });
   coordinator.startTurn({ turnId: "older", ownerSenderId: "alice" });
-  coordinator.routeMessage(message("before-newer", "alice"));
+  coordinator.routeMessage(message("before-newer", "alice", "before-newer", true));
   coordinator.startTurn({ turnId: "newer", ownerSenderId: "alice" });
-  coordinator.routeMessage(message("shared-follow-up", "alice"));
+  coordinator.routeMessage(message("shared-follow-up", "alice", "shared-follow-up", true));
 
   const older = drain(coordinator, "older");
   const newer = drain(coordinator, "newer");
@@ -77,7 +77,7 @@ test("owner follow-ups and ambient chat are separated without losing stable orde
   const coordinator = new TurnCoordinator({ maxActiveTurns: 1 });
   coordinator.startTurn({ turnId: "turn", ownerSenderId: "alice" });
   coordinator.routeMessage(message("ambient-1", "bob"));
-  coordinator.routeMessage(message("owner-1", "alice"));
+  coordinator.routeMessage(message("owner-1", "alice", "owner-1", true));
   coordinator.routeMessage(message("ambient-2", "carol"));
 
   const fold = drain(coordinator, "turn", "tool");
@@ -109,6 +109,7 @@ test("folds preserve sender names for reply context", () => {
     senderId: "alice-id",
     senderName: "alice_user",
     text: "и ещё вот это",
+    replyToBot: true,
   });
 
   assert.equal(drain(coordinator, "turn").ownerFollowUps[0]?.senderName, "alice_user");
@@ -187,12 +188,14 @@ test("durable replay reaches a later turn even when an older turn already saw it
         senderId: "bob",
         senderName: "bob_user",
         text: "сообщение уже прошло через live routing",
+        replyToBot: true,
       },
       {
         messageId: "durable-after-trigger",
         senderId: "bob",
         senderName: "bob_user",
         text: "duplicate in the same replay",
+        replyToBot: true,
       },
     ]),
     {
@@ -340,8 +343,14 @@ function message(
   messageId: string,
   senderId: string,
   text = messageId,
+  replyToBot?: boolean,
 ) {
-  return { messageId, senderId, text };
+  return {
+    messageId,
+    senderId,
+    text,
+    ...(replyToBot === undefined ? {} : { replyToBot }),
+  };
 }
 
 function drain(
@@ -357,3 +366,77 @@ function drain(
 function foldIds(coordinator: TurnCoordinator, turnId: string): string[] {
   return drain(coordinator, turnId).messages.map(({ messageId }) => messageId);
 }
+
+test("owner messages without reply-to-bot signal are classified as ambient", () => {
+  const coordinator = new TurnCoordinator({ maxActiveTurns: 1 });
+  coordinator.startTurn({ turnId: "turn", ownerSenderId: "alice" });
+
+  // Same sender, no replyToBot → ambient
+  coordinator.routeMessage(message("chatter-1", "alice"));
+  // Same sender, replay without proof → ambient
+  coordinator.routeMessage({
+    messageId: "chatter-2",
+    senderId: "alice",
+    text: "ещё сообщение",
+  });
+  // Different sender → ambient
+  coordinator.routeMessage(message("ambient-1", "bob"));
+
+  const fold = drain(coordinator, "turn");
+  assert.deepEqual(
+    fold.messages.map(({ messageId, route }) => [messageId, route]),
+    [
+      ["chatter-1", "ambient"],
+      ["chatter-2", "ambient"],
+      ["ambient-1", "ambient"],
+    ],
+  );
+  assert.equal(fold.ownerFollowUps.length, 0);
+  assert.equal(fold.ambient.length, 3);
+});
+
+test("owner messages with proven reply-to-bot remain owner_follow_up", () => {
+  const coordinator = new TurnCoordinator({ maxActiveTurns: 1 });
+  coordinator.startTurn({ turnId: "turn", ownerSenderId: "alice" });
+
+  coordinator.routeMessage(message("follow-1", "alice", "follow-1", true));
+  coordinator.routeMessage(message("ambient-1", "bob"));
+  coordinator.routeMessage(message("follow-2", "alice", "follow-2", true));
+
+  const fold = drain(coordinator, "turn");
+  assert.deepEqual(
+    fold.messages.map(({ messageId, route }) => [messageId, route]),
+    [
+      ["follow-1", "owner_follow_up"],
+      ["ambient-1", "ambient"],
+      ["follow-2", "owner_follow_up"],
+    ],
+  );
+  assert.deepEqual(
+    fold.ownerFollowUps.map(({ messageId }) => messageId),
+    ["follow-1", "follow-2"],
+  );
+  assert.deepEqual(
+    fold.ambient.map(({ messageId }) => messageId),
+    ["ambient-1"],
+  );
+});
+
+test("messages from owner replying to another participant are ambient", () => {
+  const coordinator = new TurnCoordinator({ maxActiveTurns: 1 });
+  coordinator.startTurn({ turnId: "turn", ownerSenderId: "alice" });
+
+  // Owner replying to bob (replyToBot not set → ambient)
+  coordinator.routeMessage({
+    messageId: "reply-to-bob",
+    senderId: "alice",
+    text: "отвечаю бобу, не боту",
+  });
+
+  const fold = drain(coordinator, "turn");
+  assert.deepEqual(
+    fold.messages.map(({ messageId, route }) => [messageId, route]),
+    [["reply-to-bob", "ambient"]],
+  );
+  assert.equal(fold.ownerFollowUps.length, 0);
+});

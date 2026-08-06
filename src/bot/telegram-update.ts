@@ -31,6 +31,8 @@ export interface NormalizedTelegramUpdate {
   ingest: boolean;
   addressed: boolean;
   reason: TelegramUpdateReason;
+  /** True when the update is a proven reply to a message from the bot. */
+  replyToBot?: boolean;
   updateId?: number;
   updateKind?: TelegramUpdateKind;
   chat?: ChatInfo;
@@ -136,6 +138,12 @@ export function normalizeTelegramUpdate(
     return compactResult({ ...base, reason: "bot_message" });
   }
 
+  // replyToBot is computed only for routable user messages.
+  const replyToBot = replyToBotFromReplyToMessage(
+    selected.message,
+    botId,
+  );
+
   const mention = explicitBotMention(
     selected.message,
     botUsername,
@@ -146,10 +154,15 @@ export function normalizeTelegramUpdate(
       ...base,
       addressed: true,
       reason: mention,
+      ...(replyToBot === undefined ? {} : { replyToBot }),
     });
   }
 
-  return compactResult({ ...base, reason: "not_addressed" });
+  return compactResult({
+    ...base,
+    reason: "not_addressed",
+    ...(replyToBot === undefined ? {} : { replyToBot }),
+  });
 }
 
 function toChatInfo(chat: JsonObject, chatId: string): ChatInfo {
@@ -231,6 +244,32 @@ function senderOf(message: JsonObject): Sender {
     isBot: from.is_bot === true,
     kind: "user",
   };
+}
+
+/**
+ * Type-safe extraction: returns true only when the message is a proven reply
+ * to a message authored by the bot. Malformed reply_to_message, missing from,
+ * sender_chat, and non-matching sender ids all produce undefined.
+ */
+function replyToBotFromReplyToMessage(
+  message: JsonObject,
+  botId: string,
+): boolean | undefined {
+  const replyToMessage = asObject(message.reply_to_message);
+  if (!replyToMessage) {
+    return undefined;
+  }
+  // Only user-level from is trusted; sender_chat in reply_to_message
+  // is deliberately ignored.
+  const from = asObject(replyToMessage.from);
+  if (!from) {
+    return undefined;
+  }
+  const senderId = telegramId(from.id);
+  if (senderId === undefined || senderId !== botId) {
+    return undefined;
+  }
+  return true;
 }
 
 function explicitBotMention(

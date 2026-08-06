@@ -27,11 +27,13 @@ import type {
 } from "../../src/bot/worker.js";
 import {
   classifyModelFallback,
+  ModelRoutingError,
   type ModelAttemptRecord,
   type ModelExecutionResult,
   type ModelRole,
   type ResolvedModelCandidate,
 } from "../../src/providers/model-router.js";
+import { abortErrorFrom } from "../../src/providers/model-router/fallback.js";
 import type {
   StoredBotTurn,
   StoredMessage,
@@ -159,12 +161,23 @@ class FakeRouter implements TurnModelRouter {
           attempt: index + 1,
           decision,
         });
-        if (
-          !decision.fallback ||
-          index === this.candidates.length - 1
-        ) {
-          throw error;
+        // Matching production ModelRouter.executeWithFallback:
+        // abort is control flow, not a candidate failure.
+        if (decision.reason === "abort") {
+          throw abortErrorFrom(error);
         }
+        if (
+          decision.fallback &&
+          index < this.candidates.length - 1
+        ) {
+          continue;
+        }
+        throw new ModelRoutingError(
+          decision.fallback ? "candidates_exhausted" : "terminal_error",
+          role,
+          failures,
+          error,
+        );
       }
     }
     throw new Error("No candidates");

@@ -21,6 +21,8 @@ export interface TurnMessageInput {
   senderId: string;
   senderName?: string;
   text: string;
+  /** True when the runtime proved this message is a reply to the bot. */
+  replyToBot?: boolean;
 }
 
 export interface TurnSnapshot {
