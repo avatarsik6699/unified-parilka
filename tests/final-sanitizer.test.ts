@@ -235,3 +235,52 @@ test("сохраняет сообщение о сломанном поиске, 
   assert.equal(final.includes("Веб-поиск сегодня лег"), true);
   assert.equal(final.includes("paper_search отработал с результатами"), true);
 });
+
+test("не удаляет содержательные строки про Firecrawl и Markdown", () => {
+  const draft = [
+    "Firecrawl crawled the page and converted it into clean Markdown.",
+    "Firecrawl конвертирует сайты в чистый Markdown — вот результат.",
+  ].join("\n");
+  const final = sanitizeFinalText({
+    text: draft,
+    toolEvidence: [],
+    researchMode: false,
+    readToolFailures: [],
+  });
+  assert.equal(final.includes("converted it into clean Markdown"), true);
+  assert.equal(final.includes("конвертирует сайты в чистый Markdown"), true);
+});
+
+test("удаляет заявления о падении Firecrawl без зафиксированной ошибки", () => {
+  const claims = [
+    "Firecrawl is down, so the page could not be crawled.",
+    "firecrawl failed to fetch the page.",
+    "Firecrawl is offline right now.",
+  ];
+  for (const claim of claims) {
+    const final = sanitizeFinalText({
+      text: claim,
+      toolEvidence: [],
+      researchMode: false,
+      readToolFailures: [],
+    });
+    assert.equal(final, "", `должно быть удалено: ${claim}`);
+  }
+});
+
+test("сохраняет заявления о падении Firecrawl при зафиксированной ошибке", () => {
+  const claims = [
+    "Firecrawl is down, so the page could not be crawled.",
+    "firecrawl failed to fetch the page.",
+    "Firecrawl is offline right now.",
+  ];
+  for (const claim of claims) {
+    const final = sanitizeFinalText({
+      text: claim,
+      toolEvidence: [],
+      researchMode: false,
+      readToolFailures: [{ name: "firecrawl_crawl", code: "provider_error" }],
+    });
+    assert.equal(final.includes(claim), true, `должно сохраниться: ${claim}`);
+  }
+});

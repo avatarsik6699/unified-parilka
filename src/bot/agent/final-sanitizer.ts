@@ -182,21 +182,21 @@ function isFabricatedSearchFailureLine(
     normalized.includes("research gateway");
 
   const mentionsFailure =
-    /(сегодня|\b)[\s-]*л[её]г/.test(normalized) ||
+    /(?:сегодня[\s-]*)?(?<![\p{L}\p{M}\d_])л[её]г(?![\p{L}\p{M}\d_])/u.test(normalized) ||
     /слом(?:ал|ался|ана|ано|ались|ан|аны)|не\s+работа/.test(normalized) ||
     /не\s+сработ/.test(normalized) ||
     /не\s+отвеча/.test(normalized) ||
     /недоступ/.test(normalized) ||
     /не\s+доступ/.test(normalized) ||
     /не\s+паш/.test(normalized) ||
-    /down/.test(normalized) ||
-    /offline/.test(normalized) ||
-    /failed/.test(normalized) ||
+    /\bdown\b/.test(normalized) ||
+    /\boffline\b/.test(normalized) ||
+    /\bfailed\b/.test(normalized) ||
     /ошиб/.test(normalized) ||
     /вылет/.test(normalized) ||
-    /пад/.test(normalized) ||
+    /(?<![\p{L}\p{M}\d_])пад/u.test(normalized) ||
     /не\s+подня/.test(normalized) ||
-    /today/.test(normalized);
+    /\btoday\b/.test(normalized);
 
   if (!mentionsFailure) {
     return false;
