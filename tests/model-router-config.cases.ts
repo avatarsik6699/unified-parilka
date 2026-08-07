@@ -149,22 +149,57 @@ test("contextWindowTokens is declared per exact model reference and validated", 
   }
 });
 
-test("production router config declares a 1,000,000-token window for qwen3.8-max", () => {
+test("production router config targets DeepSeek V4 Flash for both roles", () => {
   const path = fileURLToPath(
     new URL("../config/model-router.production.json", import.meta.url),
   );
   const parsed = loadModelRouterConfigFile(path, {
-    env: { PARILKA_QWEN_API_KEY: "test-placeholder" },
+    env: { PARILKA_DEEPSEEK_API_KEY: "test-placeholder" },
   });
 
-  assert.deepEqual(parsed.modelCapabilities["qwen:qwen3.8-max"], {
-    vision: true,
-    contextWindowTokens: 1_000_000,
+  assert.deepEqual(parsed.providers, [
+    {
+      id: "deepseek",
+      protocol: "deepseek",
+      baseUrl: "https://api.deepseek.com",
+      apiKeyEnv: "PARILKA_DEEPSEEK_API_KEY",
+      thinkingMode: "enabled",
+    },
+  ]);
+  assert.deepEqual(parsed.roles, {
+    turn: ["deepseek:deepseek-v4-flash"],
+    summary: ["deepseek:deepseek-v4-flash"],
   });
-  assert.deepEqual(parsed.modelCapabilities["qwen_summary:qwen3.8-max"], {
-    vision: true,
-    contextWindowTokens: 1_000_000,
+  assert.deepEqual(parsed.modelCapabilities, {
+    "deepseek:deepseek-v4-flash": {
+      vision: false,
+      contextWindowTokens: 1_000_000,
+    },
   });
+  assert.doesNotMatch(JSON.stringify(parsed), /qwen/i);
+
+  const router = new ModelRouter(parsed, {
+    env: { PARILKA_DEEPSEEK_API_KEY: "test-placeholder" },
+  });
+  assert.equal(router.inspectConfig().providers[0]?.thinkingMode, "enabled");
+  assert.deepEqual(
+    router.resolveCandidate("deepseek:deepseek-v4-flash").providerOptions,
+    {
+      deepseek: {
+        thinking: {
+          type: "enabled",
+        },
+      },
+    },
+  );
+  assert.deepEqual(
+    router.resolveRole("turn").map(({ reference }) => reference),
+    ["deepseek:deepseek-v4-flash"],
+  );
+  assert.deepEqual(
+    router.resolveRole("summary").map(({ reference }) => reference),
+    ["deepseek:deepseek-v4-flash"],
+  );
 });
 
 test("JSON files use the same schema and do not perform provider requests", () => {

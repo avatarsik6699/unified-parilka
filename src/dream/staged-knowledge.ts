@@ -30,15 +30,8 @@ import type {
 } from "../store.js";
 import type { DreamKnowledgeStore } from "./skill-manager.js";
 
-/**
- * Shared across a day overlay and every fork (including discarded attempts).
- * Guarantees strictly increasing logical timestamps even when wall-clock is
- * fixed, so capacity pruning follows tool-call order rather than key order.
- */
 export type LogicalClock = {
-  /** Allocate the next strictly increasing timestamp. */
   next: () => number;
-  /** Advance the clock to at least `value` and return the effective stamp. */
   observe: (value: number) => number;
 };
 
@@ -53,7 +46,6 @@ export function createLogicalClock(now: () => number = () => Date.now()): Logica
     observe(value: number): number {
       assertTimestamp(value, "updatedAtMs");
       last = Math.max(last, value);
-      // Effective stamp is the advanced clock, never a stale older raw value.
       return last;
     },
   };
@@ -62,11 +54,10 @@ export function createLogicalClock(now: () => number = () => Date.now()): Logica
 /**
  * In-memory Dream knowledge overlay.
  *
- * Read tools see committed base rows plus staged rows; staged keys shadow
- * committed. Successful earlier batches remain visible to later batches via
- * the day-level overlay. Generation attempts fork a child overlay so timed-out
- * or invalid candidates discard their writes without leaking into the day
- * stage or SQLite.
+ * Tomstones track explicitly-deleted keys. Upsert of a tombstoned key cancels
+ * the tombstone (revive). mergeFrom ordering: delete→upsert = revived/update,
+ * upsert→delete = delete. Parent tombstone→child upsert revives too. Forked
+ * children inherit parent tombstones; discarded children never leak.
  */
 export class StagedKnowledgeOverlay implements DreamKnowledgeStore {
   readonly #base: DreamKnowledgeStore;
@@ -74,6 +65,9 @@ export class StagedKnowledgeOverlay implements DreamKnowledgeStore {
   readonly #fast = new Map<string, StoredFastChatMemory>();
   readonly #lessons = new Map<string, StoredChatLesson>();
   readonly #skills = new Map<string, StoredChatSkill>();
+  readonly #fastTombstones = new Set<string>();
+  readonly #lessonTombstones = new Set<string>();
+  readonly #skillTombstones = new Set<string>();
   #memoryOverride: StoredChatMemory | undefined;
 
   constructor(
@@ -85,29 +79,46 @@ export class StagedKnowledgeOverlay implements DreamKnowledgeStore {
       options.clock ?? createLogicalClock(options.now ?? (() => Date.now()));
   }
 
-  /** Child overlay whose base is this stage (for attempt isolation). */
   fork(): StagedKnowledgeOverlay {
-    // Share the same logical clock so discarded attempts still advance it.
-    return new StagedKnowledgeOverlay(this, { clock: this.#clock });
+    const child = new StagedKnowledgeOverlay(this, { clock: this.#clock });
+    for (const key of this.#fastTombstones) child.#fastTombstones.add(key);
+    for (const key of this.#lessonTombstones) child.#lessonTombstones.add(key);
+    for (const key of this.#skillTombstones) child.#skillTombstones.add(key);
+    return child;
   }
 
-  /** Absorb a successful attempt's staged writes into this day stage. */
   mergeFrom(child: StagedKnowledgeOverlay): void {
+    // Process child upserts first: they may cancel parent tombstones.
     for (const [key, value] of child.#fast) {
       this.#fast.set(key, value);
+      this.#fastTombstones.delete(key);
     }
     for (const [key, value] of child.#lessons) {
       this.#lessons.set(key, value);
+      this.#lessonTombstones.delete(key);
     }
     for (const [key, value] of child.#skills) {
       this.#skills.set(key, value);
+      this.#skillTombstones.delete(key);
+    }
+    // Then apply child tombstones: they delete parent staged entries.
+    for (const key of child.#fastTombstones) {
+      this.#fastTombstones.add(key);
+      this.#fast.delete(key);
+    }
+    for (const key of child.#lessonTombstones) {
+      this.#lessonTombstones.add(key);
+      this.#lessons.delete(key);
+    }
+    for (const key of child.#skillTombstones) {
+      this.#skillTombstones.add(key);
+      this.#skills.delete(key);
     }
     if (child.#memoryOverride !== undefined) {
       this.#memoryOverride = child.#memoryOverride;
     }
   }
 
-  /** Replace the staged semantic memory block after a successful batch final. */
   setStagedSemanticMemory(input: {
     chatId: string;
     memoryText: string;
@@ -131,9 +142,7 @@ export class StagedKnowledgeOverlay implements DreamKnowledgeStore {
   }
 
   getChatMemory(chatId: string): StoredChatMemory | undefined {
-    if (this.#memoryOverride?.chatId === chatId) {
-      return this.#memoryOverride;
-    }
+    if (this.#memoryOverride?.chatId === chatId) return this.#memoryOverride;
     return this.#base.getChatMemory(chatId);
   }
 
@@ -144,12 +153,12 @@ export class StagedKnowledgeOverlay implements DreamKnowledgeStore {
     const bounded = boundedLimit(limit, MAX_FAST_CHAT_MEMORY_ITEMS, "fast memory limit");
     const merged = new Map<string, StoredFastChatMemory>();
     for (const item of this.#base.listFastChatMemory(chatId, MAX_FAST_CHAT_MEMORY_ITEMS)) {
-      if (item.chatId === chatId) {
+      if (item.chatId === chatId && !this.#fastTombstones.has(item.key)) {
         merged.set(item.key, item);
       }
     }
     for (const item of this.#fast.values()) {
-      if (item.chatId === chatId) {
+      if (item.chatId === chatId && !this.#fastTombstones.has(item.key)) {
         merged.set(item.key, item);
       }
     }
@@ -164,6 +173,8 @@ export class StagedKnowledgeOverlay implements DreamKnowledgeStore {
     assertSafeKnowledgeText(input.note, MAX_FAST_NOTE_CHARS, "note");
     assertSourceMessageId(input.sourceMessageId);
     const key = normalizedKnowledgeKey(input.title, MAX_FAST_TITLE_CHARS);
+    // Upsert cancels tombstone (revive).
+    this.#fastTombstones.delete(key);
     const previous =
       this.#fast.get(key) ??
       this.#base
@@ -196,12 +207,12 @@ export class StagedKnowledgeOverlay implements DreamKnowledgeStore {
     const bounded = boundedLimit(limit, MAX_CHAT_LESSONS, "lesson limit");
     const merged = new Map<string, StoredChatLesson>();
     for (const item of this.#base.listChatLessons(chatId, MAX_CHAT_LESSONS)) {
-      if (item.chatId === chatId) {
+      if (item.chatId === chatId && !this.#lessonTombstones.has(item.key)) {
         merged.set(item.key, item);
       }
     }
     for (const item of this.#lessons.values()) {
-      if (item.chatId === chatId) {
+      if (item.chatId === chatId && !this.#lessonTombstones.has(item.key)) {
         merged.set(item.key, item);
       }
     }
@@ -238,6 +249,7 @@ export class StagedKnowledgeOverlay implements DreamKnowledgeStore {
     );
     assertSourceMessageId(input.sourceMessageId);
     const key = normalizedKnowledgeKey(input.title, MAX_LESSON_TITLE_CHARS);
+    this.#lessonTombstones.delete(key);
     const previous =
       this.#lessons.get(key) ??
       this.#base
@@ -272,12 +284,12 @@ export class StagedKnowledgeOverlay implements DreamKnowledgeStore {
     const bounded = boundedLimit(limit, MAX_CHAT_SKILLS, "skill limit");
     const merged = new Map<string, StoredChatSkill>();
     for (const item of this.#base.listChatSkills(chatId, MAX_CHAT_SKILLS)) {
-      if (item.chatId === chatId) {
+      if (item.chatId === chatId && !this.#skillTombstones.has(item.key)) {
         merged.set(item.key, item);
       }
     }
     for (const item of this.#skills.values()) {
-      if (item.chatId === chatId) {
+      if (item.chatId === chatId && !this.#skillTombstones.has(item.key)) {
         merged.set(item.key, item);
       }
     }
@@ -291,10 +303,9 @@ export class StagedKnowledgeOverlay implements DreamKnowledgeStore {
     assertChatId(input.chatId);
     assertNonEmptyBounded(input.name, MAX_SKILL_NAME_CHARS, "skill name");
     const key = normalizedKnowledgeKey(input.name, MAX_SKILL_NAME_CHARS);
+    if (this.#skillTombstones.has(key)) return undefined;
     const staged = this.#skills.get(key);
-    if (staged !== undefined && staged.chatId === input.chatId) {
-      return staged;
-    }
+    if (staged !== undefined && staged.chatId === input.chatId) return staged;
     return this.#base.getChatSkill(input);
   }
 
@@ -313,6 +324,7 @@ export class StagedKnowledgeOverlay implements DreamKnowledgeStore {
     );
     assertSourceMessageId(input.sourceMessageId);
     const key = normalizedKnowledgeKey(input.name, MAX_SKILL_NAME_CHARS);
+    this.#skillTombstones.delete(key);
     const previous =
       this.#skills.get(key) ?? this.#base.getChatSkill({
         chatId: input.chatId,
@@ -339,61 +351,75 @@ export class StagedKnowledgeOverlay implements DreamKnowledgeStore {
     return stored;
   }
 
-  /**
-   * Export only rows staged on this overlay (not parent/base), ready for the
-   * atomic Dream day commit.
-   */
+  deleteFastChatMemory(chatId: string, key: string): void {
+    assertChatId(chatId);
+    assertNonEmptyBounded(key, MAX_FAST_TITLE_CHARS, "key");
+    this.#clock.next();
+    const nk = normalizedKnowledgeKey(key, MAX_FAST_TITLE_CHARS);
+    this.#fastTombstones.add(nk);
+    this.#fast.delete(nk);
+  }
+
+  deleteChatLesson(chatId: string, key: string): void {
+    assertChatId(chatId);
+    assertNonEmptyBounded(key, MAX_LESSON_TITLE_CHARS, "key");
+    this.#clock.next();
+    const nk = normalizedKnowledgeKey(key, MAX_LESSON_TITLE_CHARS);
+    this.#lessonTombstones.add(nk);
+    this.#lessons.delete(nk);
+  }
+
+  deleteChatSkill(chatId: string, key: string): void {
+    assertChatId(chatId);
+    assertNonEmptyBounded(key, MAX_SKILL_NAME_CHARS, "key");
+    this.#clock.next();
+    const nk = normalizedKnowledgeKey(key, MAX_SKILL_NAME_CHARS);
+    this.#skillTombstones.add(nk);
+    this.#skills.delete(nk);
+  }
+
   exportStagedWrites(chatId: string): {
     fast: UpsertFastChatMemoryInput[];
     lessons: UpsertChatLessonInput[];
     skills: UpsertChatSkillInput[];
     memory?: UpsertChatMemoryInput;
+    deletedFastKeys: string[];
+    deletedLessonKeys: string[];
+    deletedSkillKeys: string[];
   } {
     const fast: UpsertFastChatMemoryInput[] = [];
     for (const item of this.#fast.values()) {
-      if (item.chatId !== chatId) {
-        continue;
-      }
+      if (item.chatId !== chatId || this.#fastTombstones.has(item.key)) continue;
       fast.push({
         chatId: item.chatId,
         title: item.title,
         note: item.note,
-        ...(item.sourceMessageId == null
-          ? {}
-          : { sourceMessageId: item.sourceMessageId }),
+        ...(item.sourceMessageId == null ? {} : { sourceMessageId: item.sourceMessageId }),
         updatedAtMs: item.updatedAtMs,
       });
     }
     const lessons: UpsertChatLessonInput[] = [];
     for (const item of this.#lessons.values()) {
-      if (item.chatId !== chatId) {
-        continue;
-      }
+      if (item.chatId !== chatId || this.#lessonTombstones.has(item.key)) continue;
       lessons.push({
         chatId: item.chatId,
         title: item.title,
         problem: item.problem,
         solution: item.solution,
         whenToApply: item.whenToApply,
-        ...(item.sourceMessageId == null
-          ? {}
-          : { sourceMessageId: item.sourceMessageId }),
+        ...(item.sourceMessageId == null ? {} : { sourceMessageId: item.sourceMessageId }),
         updatedAtMs: item.updatedAtMs,
       });
     }
     const skills: UpsertChatSkillInput[] = [];
     for (const item of this.#skills.values()) {
-      if (item.chatId !== chatId) {
-        continue;
-      }
+      if (item.chatId !== chatId || this.#skillTombstones.has(item.key)) continue;
       skills.push({
         chatId: item.chatId,
         name: item.name,
         description: item.description,
         instructions: item.instructions,
-        ...(item.sourceMessageId == null
-          ? {}
-          : { sourceMessageId: item.sourceMessageId }),
+        ...(item.sourceMessageId == null ? {} : { sourceMessageId: item.sourceMessageId }),
         updatedAtMs: item.updatedAtMs,
       });
     }
@@ -402,28 +428,22 @@ export class StagedKnowledgeOverlay implements DreamKnowledgeStore {
         ? {
             chatId,
             memoryText: this.#memoryOverride.memoryText,
-            lastConsolidatedMessageId:
-              this.#memoryOverride.lastConsolidatedMessageId,
+            lastConsolidatedMessageId: this.#memoryOverride.lastConsolidatedMessageId,
             updatedAtMs: this.#memoryOverride.updatedAtMs,
           }
         : undefined;
-    return { fast, lessons, skills, memory };
+    const deletedFastKeys = [...this.#fastTombstones];
+    const deletedLessonKeys = [...this.#lessonTombstones];
+    const deletedSkillKeys = [...this.#skillTombstones];
+    return { fast, lessons, skills, memory, deletedFastKeys, deletedLessonKeys, deletedSkillKeys };
   }
 
   #allocateUpdatedAtMs(
     requested: number | undefined,
     previousUpdatedAtMs: number | undefined,
   ): number {
-    if (requested !== undefined) {
-      assertTimestamp(requested, "updatedAtMs");
-    }
-    // Floor covers explicit request and per-key previous+1. Always take a
-    // unique next() step first so a stale explicit updatedAtMs cannot collide
-    // with an earlier write; raise to floor only when floor is still ahead.
-    const floor = Math.max(
-      requested ?? 0,
-      (previousUpdatedAtMs ?? -1) + 1,
-    );
+    if (requested !== undefined) assertTimestamp(requested, "updatedAtMs");
+    const floor = Math.max(requested ?? 0, (previousUpdatedAtMs ?? -1) + 1);
     const stamp = this.#clock.next();
     return stamp >= floor ? stamp : this.#clock.observe(floor);
   }
@@ -434,23 +454,15 @@ export class StagedKnowledgeOverlay implements DreamKnowledgeStore {
     chatId: string,
     keep: number,
   ): void {
-    // Capacity is enforced on the merged view (base + stage). Local map only
-    // holds this stage's keys; drop the oldest staged entries that would fall
-    // outside the merged keep-window so reads stay bounded.
     const merged =
       kind === "fast"
-        ? this.listFastChatMemory(
-            chatId,
-            Math.min(keep, MAX_FAST_CHAT_MEMORY_ITEMS),
-          )
+        ? this.listFastChatMemory(chatId, Math.min(keep, MAX_FAST_CHAT_MEMORY_ITEMS))
         : kind === "lessons"
           ? this.listChatLessons(chatId, Math.min(keep, MAX_CHAT_LESSONS))
           : this.listChatSkills(chatId, Math.min(keep, MAX_CHAT_SKILLS));
     const keepKeys = new Set(merged.map((item) => item.key));
     for (const [key, item] of map) {
-      if (item.chatId === chatId && !keepKeys.has(key)) {
-        map.delete(key);
-      }
+      if (item.chatId === chatId && !keepKeys.has(key)) map.delete(key);
     }
   }
 }
@@ -460,9 +472,7 @@ function assertChatId(chatId: string): void {
 }
 
 function assertSourceMessageId(value: number | undefined): void {
-  if (value !== undefined) {
-    assertPositiveSafeInteger(value, "sourceMessageId");
-  }
+  if (value !== undefined) assertPositiveSafeInteger(value, "sourceMessageId");
 }
 
 function boundedLimit(value: number, maximum: number, name: string): number {
@@ -484,10 +494,7 @@ function sortByRecency<T extends { updatedAtMs: number; key: string }>(
   items: T[],
 ): T[] {
   return items.sort((left, right) => {
-    if (right.updatedAtMs !== left.updatedAtMs) {
-      return right.updatedAtMs - left.updatedAtMs;
-    }
-    // Stable fallback only; monotonic clock makes this rare for new writes.
+    if (right.updatedAtMs !== left.updatedAtMs) return right.updatedAtMs - left.updatedAtMs;
     return right.key.localeCompare(left.key, "ru-RU");
   });
 }

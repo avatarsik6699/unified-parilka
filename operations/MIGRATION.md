@@ -10,14 +10,14 @@ rollback не выполнялся; сохранённый rollback bundle и т
 
 ## Текущее production disposition
 
-Ниже — зафиксированное состояние cutover v16 от 2026-07-30, а не утверждение
-о schema текущего checkout: исходники теперь поддерживают v19. Новая migration
-или deploy этим runbook не авторизуются и требуют отдельного operator decision.
+Ниже — состояние после rollout 2026-08-07. Production DB мигрирована с v21
+на v22 с audit-таблицей `bot_chat_dream_audits`. Новая migration или deploy
+этим runbook не авторизуются и требуют отдельного operator decision.
 В v19 удалён retired `bot_callback_intents`: это isolated state бывших inline
 кнопок, не часть истории сообщений, памяти или outbox.
 
 - canonical state:
-  `/home/billy/.telegram-parilka-mcp/messages-v13.sqlite`, schema v16,
+  `/home/billy/.telegram-parilka-mcp/messages-v13.sqlite`, schema v22,
   mode `0600`;
 - auth state:
   `/home/billy/.telegram-parilka-mcp/mtcute-auth.sqlite`, mode `0600`;
@@ -32,11 +32,33 @@ rollback не выполнялся; сохранённый rollback bundle и т
 Имя canonical файла осталось историческим; additive v16 migration с
 chat-scoped fast/long memory и skills применена на startup 2026-07-31.
 
+### Rollout v22 и DeepSeek — 2026-08-07
+
+- bot и sync были graceful-stopped; активных `bot_turns` не было;
+- private backup до миграции:
+  `/home/billy/.local/state/parilka-backups/2026-08-07-v21-pre-v22/messages-v13.sqlite`
+  (`0700` directory, `0600` file, v21, `quick_check=ok`, 237757 messages,
+  SHA-256 `68113d52a5a92b036f4474750411d26a7e3ada8cd18032821ffb9005a587d7e9`);
+  отдельный restore из backup также дал v21, `quick_check=ok`, 237757
+  messages, 8 Dream days, 12 fast notes, 9 lessons и 1 skill;
+- rehearsal и production migration дали v21 → v22, `quick_check=ok`,
+  237757 → 237757 messages, 8 → 8 Dream days и одинаковый SHA-256 полного
+  data-only dump до/после (`095f010f86da3a205095f46982726d912bb23d32b1c145b589c39bba16efe0bb`);
+- второй writable open и read-only open v22 прошли; новая audit-таблица
+  стартовала с нулём строк и заполняется только будущими completed Dream days;
+- 12 fast notes, уже перенесённых в semantic memory, удалены; revision semantic
+  memory стала 12 при прежнем watermark 243445. Устаревший lesson про Qwen
+  заменён правилом брать identity из текущего runtime;
+- production `turn` и `summary` используют единственный candidate
+  `deepseek:deepseek-v4-flash` (DeepSeek V4 Flash 0731), без Qwen/fallback;
+- штатные `parilka-sync.service` и `parilka-bot.service` стартовали с
+  build preflight, `NRestarts=0`; временных systemd overrides нет.
+
 > Historical note: rehearsal goal 001 выполнялся на диапазоне v10 → v13.
-> Текущий поддерживаемый диапазон: v11–19 (см. src/maintenance/contracts.ts).
+> Текущий поддерживаемый диапазон: v11–22 (см. src/maintenance/contracts.ts).
 
 Исходная import rehearsal ниже по-прежнему документирует её зафиксированный
-v10 → v13 baseline; актуальный поддерживаемый диапазон — v11–19.
+v10 → v13 baseline; актуальный поддерживаемый диапазон — v11–22.
 
 Следующие разделы остаются канонической процедурой для новой migration или
 rollback. Они не означают, что текущий production снова находится в shadow.
@@ -52,8 +74,8 @@ rollback. Они не означают, что текущий production сно�
   0 conflicts; второй apply: 0 inserts/fills/conflicts и 0
   message/day/rollup writes;
 - schema: v10 → v13 (historical rehearsal goal 001 baseline);
-- текущий поддерживаемый migration path: v11 → v19;
-- production disposition: v16 snapshot был развёрнут, текущая схема v19;
+- текущий поддерживаемый migration path: v11 → v22;
+- production disposition: v22 развёрнута 2026-08-07;
 - после apply: `quick_check=ok`, 266 day digests и 40 rollups;
 - legacy outbox report: `drafted=12`, `failed=4`, `sent=158`, `skipped=2`;
   эти rows только подсчитаны и не импортированы.
@@ -174,7 +196,7 @@ Dry-run:
 
 - существующий совместимый target schema 1–13 проверяется через
   `quick_check`;
-- `MessageStore` мигрирует target до текущей schema v19;
+- `MessageStore` мигрирует target до текущей schema v22;
 - `live_msg` проходит полный overlap preflight: Python заполняет только
   отсутствующие canonical поля; различающиеся непустые поля fail closed до
   message writes, а `rawJson`/topic/tombstone target сохраняются;
@@ -211,9 +233,9 @@ ambiguous/sent rows.
 
 > Конкретные версии в этом разделе описывают исторический cutover.
 > Актуальный поддерживаемый диапазон: `MIN_SUPPORTED_SCHEMA_VERSION` (11) —
-> `MAX_SUPPORTED_SCHEMA_VERSION` (19); см. `src/maintenance/contracts.ts`.
+> `MAX_SUPPORTED_SCHEMA_VERSION` (22); см. `src/maintenance/contracts.ts`.
 
-Maintenance dry-run поддерживает schema v11–19 и ничего не меняет без
+Maintenance dry-run поддерживает schema v11–22 и ничего не меняет без
 `--apply`:
 
 ```bash
@@ -224,7 +246,7 @@ Maintenance dry-run поддерживает schema v11–19 и ничего н�
 
 - `integrity` равно `["ok"]`;
 - `candidates.terminalSendOutbox` ожидаем и не включает `queued/sending`;
-- target `PRAGMA user_version` равен `19`;
+- target `PRAGMA user_version` равен `22`;
 - message count и диапазон ID ожидаемы;
 - выборочные сообщения, edits, tombstones, reply/topic metadata;
 - FTS search и cache-only MCP tool shapes;
@@ -343,7 +365,7 @@ Cutover разрешён только после rehearsal и full gate.
 4. Создать **новый final target как SQLite backup самого свежего snapshot
    прежнего MCP corpus**. Не продвигать rehearsal DB. Применить built Python
    importer поверх final target, повторить apply для доказательства
-   идемпотентности, затем проверить v19, quick_check и count/range. Inserts,
+   идемпотентности, затем проверить v22, quick_check и count/range. Inserts,
    fills и все непустые authoritative source sender/text/reply fields должны
    совпасть точно; более полное canonical target enrichment сохраняется.
    Единственное допустимое date-различие — documented
@@ -394,7 +416,7 @@ Cutover разрешён только после rehearsal и full gate.
 ## Maintenance после gate
 
 Сначала сохраните dry-run maintenance report и отдельный digest plan. Digest
-dry-run требует уже мигрированную schema v19, но не вызывает модель. Если shell
+dry-run требует уже мигрированную schema v22, но не вызывает модель. Если shell
 содержит production DB/allowlist env, снимите их для snapshot-команды:
 
 ```bash
@@ -480,7 +502,7 @@ generation и backup в service не реализованы. Unit разреша
    direct recovery process завершены.
 2. После graceful stop дождаться `sync.shutdown_completed`, затем проверить
    inactive state и `MainPID=0`; сам по себе `TimeoutStopSec` не доказывает,
-   что SQLite owner завершён. Только после этого сохранить private v19
+   что SQLite owner завершён. Только после этого сохранить private v22
    snapshot и journald interval.
    Проверить **все** `bot_turns`/`bot_updates` statuses:
    `queued`, `running`, `drafted`, `sending`, `sent`, `lost_ack`, `failed`,

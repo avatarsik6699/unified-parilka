@@ -85,12 +85,15 @@ MTProto/MCP-конфиг загружается в таком порядке:
 - переменные с ключами провайдеров, на которые ссылается model-router JSON.
 
 Поставляемые `parilka-bot` и `parilka-digests` wrappers также принимают
-`PARILKA_BOT_TOKEN_FILE`, `PARILKA_QWEN_API_KEY_FILE` и
-`PARILKA_DEEPSEEK_API_KEY_FILE`. Они читают только принадлежащий текущему
-пользователю однострочный regular file с mode `0400`/`0600`, экспортируют
-значение лишь в дочерний Node process и никогда не печатают credential/path.
-Это позволяет переиспользовать существующий private state без копирования
-секретов в новый dotenv.
+`PARILKA_BOT_TOKEN_FILE` и `PARILKA_DEEPSEEK_API_KEY_FILE`. Штатный
+production router ссылается только на `PARILKA_DEEPSEEK_API_KEY`, поэтому
+ему достаточно одного `PARILKA_DEEPSEEK_API_KEY_FILE`;
+`PARILKA_QWEN_API_KEY_FILE` нужен лишь для кастомного non-production router
+с Qwen-провайдером (поддержка Qwen в wrappers сохранена). Они читают только
+принадлежащий текущему пользователю однострочный regular file с mode
+`0400`/`0600`, экспортируют значение лишь в дочерний Node process и никогда
+не печатают credential/path. Это позволяет переиспользовать существующий
+private state без копирования секретов в новый dotenv.
 
 Digest job по умолчанию переиспользует bot chat, общий DB и
 `PARILKA_BOT_MODEL_CONFIG_PATH`. Dedicated значения можно выбрать через
@@ -201,17 +204,17 @@ Provider POST не следует HTTP redirects, а тело ответа ог�
 выдавил процесс из памяти.
 
 DeepSeek adapter принимает `thinkingMode=enabled|disabled`; default —
-`disabled`, чтобы reasoning не съедал bounded output/tool budget. Поставляемый
-[production router](config/model-router.production.json) использует только
-Qwen `qwen3.8-max` через international Token Plan endpoint, без
-fallback-провайдера. Роль `summary` использует второй логический профиль того
-же Qwen endpoint/key с `reasoningEffort=low`: это не другой провайдер, а
-отдельный budget для day/week и dream-консолидации.
+`disabled`. Поставляемый
+[production router](config/model-router.production.json) использует
+официальный DeepSeek endpoint `https://api.deepseek.com` с
+`thinkingMode=enabled` и единственным candidate `deepseek-v4-flash`
+(DeepSeek V4 Flash 0731, text-only, окно 1M токенов) для обеих ролей: без
+Qwen и без fallback-провайдера.
 
 Bot turn использует роль `turn`; `parilka-digests` использует роль `summary`.
-В production обе роли содержат ровно один Qwen candidate: это покрывает ответы
-агента, day/ISO-weekly summaries и dream-консолидацию памяти; `turn` использует
-максимальный reasoning-профиль, `summary` использует low-effort профиль. Month rows можно
+В production обе роли содержат ровно один DeepSeek candidate
+`deepseek:deepseek-v4-flash`: это покрывает ответы агента, day/ISO-weekly
+summaries и dream-консолидацию памяти. Month rows можно
 импортировать и хранить через низкоуровневый store, но текущий bot read tool
 их не читает и автоматически не генерирует.
 

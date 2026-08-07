@@ -8,6 +8,7 @@ import { StoreCore } from "./storage/core.js";
 import { DigestMethods, type DigestApi } from "./storage/digests.js";
 import { DreamCommitMethods, type DreamCommitApi } from "./storage/dream-commit.js";
 import { DreamDaysMethods, type DreamDaysApi } from "./storage/dream-days.js";
+import { DreamAuditMethods, type DreamAuditApi } from "./storage/dream-audit.js";
 import { MemoryMethods, type MemoryApi } from "./storage/memory.js";
 import { EmbeddingMethods, type EmbeddingApi } from "./storage/embeddings.js";
 import { installStoreDomain } from "./storage/install-domain.js";
@@ -62,6 +63,11 @@ export {
   MAX_SPARSE_WEIGHT,
   normalizeSparseTerms,
 } from "./storage/validation.js";
+export {
+  MAX_AUDIT_JSON_BYTES,
+  type DreamAudit,
+  type StoredDreamAudit,
+} from "./storage/dream-audit-types.js";
 export type { SparseChunkHit } from "./storage/sparse-postings.js";
 
 export interface MessageStore
@@ -71,6 +77,7 @@ export interface MessageStore
     DigestApi,
     DreamDaysApi,
     DreamCommitApi,
+    DreamAuditApi,
     EmbeddingApi,
     SparsePostingsApi,
     ChatKnowledgeApi,
@@ -112,6 +119,7 @@ const domains = [
   DigestMethods,
   DreamDaysMethods,
   DreamCommitMethods,
+  DreamAuditMethods,
   EmbeddingMethods,
   SparsePostingsMethods,
   ChatKnowledgeMethods,

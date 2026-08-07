@@ -240,6 +240,13 @@ test("dream completes empty day without model call", async () => {
       assert.equal(result.totalInteractions, 0);
       assert.equal(modelCalls, 0);
     }
+    // DreamConsolidator early path must create audit for the empty day.
+    const audit = store.getDreamAudit({ chatId: CHAT_ID, day: yesterday });
+    assert.ok(audit, "empty day must have audit");
+    assert.equal(audit.audit.semanticMemory.changed, false);
+    assert.equal(audit.audit.fastMemory.changed, false);
+    assert.equal(audit.audit.lessons.changed, false);
+    assert.equal(audit.audit.skills.changed, false);
   } finally {
     cleanup();
   }

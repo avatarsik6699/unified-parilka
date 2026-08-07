@@ -219,6 +219,18 @@ projection, context-compaction and publication bounds remain unchanged. The
 production `turn` and `summary` roles now use the official `qwen3.8-max` model
 instead of the retired `qwen3.8-max-preview` candidate.
 
+### Addendum 2026-08-07: DeepSeek V4 Flash 0731 as the production model target
+
+The Qwen addendums above describe the previous production configuration and
+remain as the historical record. The production `turn` and `summary` roles
+now use a single DeepSeek candidate `deepseek-v4-flash` (DeepSeek V4 Flash
+0731) through the official `https://api.deepseek.com` endpoint with
+`thinkingMode=enabled`. The model is text-only with a 1,000,000-token context
+window; the Qwen `reasoningEffort` profiles and the Qwen fallback are gone.
+Both roles contain exactly this one candidate and no Qwen reference, so
+agent answers, day/ISO-weekly digests and Dream consolidation all share the
+same DeepSeek profile.
+
 Память и единственный разрешённый stateful model-tool contract определены в
 [ADR 0003](0003-layered-chat-memory.md). Они не дают модели доступа к operator
 MCP write/sync tools и не меняют durable send semantics.

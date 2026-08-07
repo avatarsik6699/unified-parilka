@@ -2,36 +2,25 @@
   "allowInsecureLocal": false,
   "providers": [
     {
-      "id": "qwen",
-      "protocol": "openai",
-      "baseUrl": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
-      "apiKeyEnv": "PARILKA_QWEN_API_KEY",
-      "reasoningEffort": "max"
-    },
-    {
-      "id": "qwen_summary",
-      "protocol": "openai",
-      "baseUrl": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
-      "apiKeyEnv": "PARILKA_QWEN_API_KEY",
-      "reasoningEffort": "low"
+      "id": "deepseek",
+      "protocol": "deepseek",
+      "baseUrl": "https://api.deepseek.com",
+      "apiKeyEnv": "PARILKA_DEEPSEEK_API_KEY",
+      "thinkingMode": "enabled"
     }
   ],
   "modelCapabilities": {
-    "qwen:qwen3.8-max": {
-      "vision": true,
-      "contextWindowTokens": 1000000
-    },
-    "qwen_summary:qwen3.8-max": {
-      "vision": true,
+    "deepseek:deepseek-v4-flash": {
+      "vision": false,
       "contextWindowTokens": 1000000
     }
   },
   "roles": {
     "turn": [
-      "qwen:qwen3.8-max"
+      "deepseek:deepseek-v4-flash"
     ],
     "summary": [
-      "qwen_summary:qwen3.8-max"
+      "deepseek:deepseek-v4-flash"
     ]
   }
 }

@@ -34,11 +34,18 @@ export type RememberLessonInput = Omit<
 
 export type SaveSkillInput = Omit<UpsertChatSkillInput, "updatedAtMs">;
 
+export interface DreamDeletionStore {
+  deleteFastChatMemory(chatId: string, key: string): void;
+  deleteChatLesson(chatId: string, key: string): void;
+  deleteChatSkill(chatId: string, key: string): void;
+}
+
 export interface ReviewToolContext {
   chatId: string;
   sourceMessageId: number;
   nowMs: number;
   store: DreamKnowledgeStore;
+  deletionStore?: DreamDeletionStore;
 }
 
 const searchLongMemorySchema = {
@@ -270,6 +277,78 @@ export function buildReviewToolSet(context: ReviewToolContext): ToolSet {
           });
         }
         return JSON.stringify({ ok: true, name: args.name, patched: similar != null });
+      },
+    }),
+    review_delete_fast: tool({
+      description:
+        "Delete a stale fast-memory note by its title. Use only for facts that are no longer true, outdated, or were stored by mistake.",
+      inputSchema: jsonSchema<Record<string, unknown>>({
+        type: "object",
+        properties: {
+          title: {
+            type: "string",
+            maxLength: 160,
+            description: "Exact title of the fast-memory note to delete.",
+          },
+        },
+        required: ["title"],
+        additionalProperties: false,
+      }),
+      execute: async (input) => {
+        const args = input as { title: string };
+        if (!context.deletionStore) {
+          return JSON.stringify({ ok: false, error: "Deletion not available in this context." });
+        }
+        context.deletionStore.deleteFastChatMemory(context.chatId, args.title);
+        return JSON.stringify({ ok: true, deleted: args.title });
+      },
+    }),
+    review_delete_lesson: tool({
+      description:
+        "Delete a stale lesson by its title. Use only for lessons that are no longer relevant, were learned from a one-time event, or have been superseded.",
+      inputSchema: jsonSchema<Record<string, unknown>>({
+        type: "object",
+        properties: {
+          title: {
+            type: "string",
+            maxLength: 160,
+            description: "Exact title of the lesson to delete.",
+          },
+        },
+        required: ["title"],
+        additionalProperties: false,
+      }),
+      execute: async (input) => {
+        const args = input as { title: string };
+        if (!context.deletionStore) {
+          return JSON.stringify({ ok: false, error: "Deletion not available in this context." });
+        }
+        context.deletionStore.deleteChatLesson(context.chatId, args.title);
+        return JSON.stringify({ ok: true, deleted: args.title });
+      },
+    }),
+    review_delete_skill: tool({
+      description:
+        "Delete a stale skill by its name. Use only for skills that are obsolete, have been replaced, or were created in error.",
+      inputSchema: jsonSchema<Record<string, unknown>>({
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            maxLength: 120,
+            description: "Exact name of the skill to delete.",
+          },
+        },
+        required: ["name"],
+        additionalProperties: false,
+      }),
+      execute: async (input) => {
+        const args = input as { name: string };
+        if (!context.deletionStore) {
+          return JSON.stringify({ ok: false, error: "Deletion not available in this context." });
+        }
+        context.deletionStore.deleteChatSkill(context.chatId, args.name);
+        return JSON.stringify({ ok: true, deleted: args.name });
       },
     }),
   };

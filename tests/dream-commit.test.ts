@@ -150,7 +150,7 @@ test("commitDreamDay rejects cross-chat knowledge bundles before writing", async
           lessons: [],
           skills: [],
         }),
-      /chatId must match day\.chatId/,
+      /chatId mismatch/,
     );
 
     assert.equal(store.listFastChatMemory(DREAM_CHAT_ID).length, 0);
@@ -187,11 +187,13 @@ test("dream commitDreamDay failure marks day failed and does not leak stage", as
 
     const originalCommit = store.commitDreamDay.bind(store);
     store.commitDreamDay = ((input) => {
-      // Ensure the real atomic path would have been used, then fail closed.
-      void input;
-      throw Object.assign(new Error("injected commit failure"), {
-        code: "commit_injected_failure",
-      });
+      // Only inject failure for the specific day being tested.
+      if (input.day.day === DREAM_YESTERDAY) {
+        throw Object.assign(new Error("injected commit failure"), {
+          code: "commit_injected_failure",
+        });
+      }
+      return originalCommit(input);
     }) as typeof store.commitDreamDay;
 
     const result = await makeDreamConsolidator(

@@ -23,8 +23,10 @@ fast/lessons/skills) на основе реальных bot-reply interactions.
   hash; batching по целым merged windows (поле `batched`, не truncation);
   `interactionCount` — фактическое число interactions до merge.
 - `runDreamReview` (`review.ts`) + `buildReviewToolSet` (`review-tools.ts`) —
-  пять review tools: search long memory (включая текущий/переданный `bot_chat_memory`),
-  load skill, remember fast, remember lesson, save skill.
+  восемь review tools: search long memory, load skill, remember fast,
+  remember lesson, save skill, delete fast, delete lesson, delete skill.
+  Только Dream имеет доступ к destructive tools (delete_*); live bot tools
+  ограничены create/update/search.
 - `shortenDreamMemoryBlock` (`shorten-memory.ts`) — tool-free shortening
   oversized final с bounded retries внутри каждого router candidate
   (`stopWhen: () => false`, no tools, SDK `maxRetries=0`).
@@ -57,9 +59,23 @@ fast/lessons/skills) на основе реальных bot-reply interactions.
   - Любой batch/shortening failure discard'ит весь day stage; в SQLite уходит
     только `status=failed` dream-day row. Semantic memory, fast, lessons и
     skills остаются byte-for-byte как до дня.
+  - Tombstone support: overlay отслеживает явно удалённые ключи.
+    Upsert того же ключа отменяет tombstone (revive). mergeFrom ordering:
+    child upserts → parent tombstones отменяются; child tombstones →
+    parent staged записи удаляются. Discarded child tombstones не текут.
   - Успех дня: один `commitDreamDay` (без nested BEGIN, Locked helpers) —
-    fast/lessons/skills + memory/watermark + completed day. Никогда не держим
-    DB transaction across model call.
+    fast/lessons/skills + memory/watermark + explicit deletions + completed
+    day + per-day exact audit snapshot. Статус кроме `"completed"` отвергается
+    до любых writes. Ключи upsert и delete не должны пересекаться.
+    Никогда не держим DB transaction across model call.
+  - Audit: канонический детерминированный JSON до 5 MiB с полными
+    before/after записями (semantic memory, fast, lessons, skills:
+    created с полным after, updated с парой {before, after}, deleted/evicted
+    с полным before). Без raw prompts, секретов и tool payloads.
+    Idempotent retry дня возвращает существующий StoredDreamDay без мутаций;
+    если audit существует без completed day — corruption diagnostic.
+    Audit создаётся для каждого completed дня, включая no-op и
+    zero-interaction.
 - Semantic memory заменяется, а не дополняется: review получает текущий/staged
   memory, возвращает final — весь новый блок; для нескольких batches каждый
   следующий видит staged final предыдущего и staged knowledge предыдущих
@@ -97,5 +113,5 @@ fast/lessons/skills) на основе реальных bot-reply interactions.
 ## Focused gate
 
 ```bash
-npx tsx --test tests/dream.test.ts tests/dream-memory.test.ts tests/dream-staging.test.ts tests/dream-commit.test.ts tests/dream-review-isolation.test.ts tests/dream-selector.test.ts tests/dream-selector-edge.test.ts tests/dream-diagnostics.test.ts tests/dream-timeout.test.ts tests/dream-shorten.test.ts tests/digest-cli-dream.test.ts
+npx tsx --test tests/dream.test.ts tests/dream-memory.test.ts tests/dream-staging.test.ts tests/dream-commit.test.ts tests/dream-review-isolation.test.ts tests/dream-selector.test.ts tests/dream-selector-edge.test.ts tests/dream-diagnostics.test.ts tests/dream-timeout.test.ts tests/dream-shorten.test.ts tests/digest-cli-dream.test.ts tests/dream-audit.test.ts tests/dream-audit-storage.test.ts
 ```

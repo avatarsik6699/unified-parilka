@@ -419,6 +419,51 @@ export abstract class ChatKnowledgeMethods extends StoreCore {
       )
       .run(chatId, chatId, keep);
   }
+
+  /**
+   * Assumes the caller already owns a `BEGIN IMMEDIATE` boundary.
+   * Dream-only managed deletion — live bot tools never invoke this path.
+   */
+  protected deleteFastChatMemoryLocked(chatId: string, key: string): void {
+    assertChatId(chatId);
+    assertNonEmptyBounded(key, MAX_FAST_TITLE_CHARS, "memory key");
+    this.db
+      .prepare(
+        `DELETE FROM bot_chat_fast_memory
+         WHERE chat_id = ? AND memory_key = ?`,
+      )
+      .run(chatId, key);
+  }
+
+  /**
+   * Assumes the caller already owns a `BEGIN IMMEDIATE` boundary.
+   * Dream-only managed deletion — live bot tools never invoke this path.
+   */
+  protected deleteChatLessonLocked(chatId: string, key: string): void {
+    assertChatId(chatId);
+    assertNonEmptyBounded(key, MAX_LESSON_TITLE_CHARS, "lesson key");
+    this.db
+      .prepare(
+        `DELETE FROM bot_chat_lessons
+         WHERE chat_id = ? AND lesson_key = ?`,
+      )
+      .run(chatId, key);
+  }
+
+  /**
+   * Assumes the caller already owns a `BEGIN IMMEDIATE` boundary.
+   * Dream-only managed deletion — live bot tools never invoke this path.
+   */
+  protected deleteChatSkillLocked(chatId: string, key: string): void {
+    assertChatId(chatId);
+    assertNonEmptyBounded(key, MAX_SKILL_NAME_CHARS, "skill key");
+    this.db
+      .prepare(
+        `DELETE FROM bot_chat_skills
+         WHERE chat_id = ? AND skill_key = ?`,
+      )
+      .run(chatId, key);
+  }
 }
 
 export type ChatKnowledgeApi = Pick<

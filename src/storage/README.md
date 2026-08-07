@@ -55,8 +55,14 @@ modules under this directory.
 - `dream-days.ts`: per-chat dream job rows (`pending`/`running`/`completed`/
   `failed`) with idempotent upsert.
 - `dream-commit.ts`: purpose-built `commitDreamDay` — one short
-  `BEGIN IMMEDIATE` applying staged fast/lessons/skills, semantic memory and
-  the completed dream-day row after model work (no nested BEGIN).
+  `BEGIN IMMEDIATE` applying staged fast/lessons/skills, semantic memory,
+  explicit deletions, the completed dream-day row, and a per-day exact audit
+  snapshot after model work (no nested BEGIN). Only `status="completed"`
+  accepted; idempotent retry returns existing day with zero mutations.
+- `dream-audit.ts`: per-day deterministic audit JSON (versioned, ≤5 MiB).
+  Stores full before/after records for every mutable layer. Deep structural
+  validation on deserialization. Operator read API: `getDreamAudit`,
+  `listDreamAudits`.
 - `digests.ts`: day and rollup cache persistence.
 - `embeddings.ts`: embedding chunks, membership, and coverage.
 - `send-outbox.ts`: durable sends, throttle state, and startup reconciliation.

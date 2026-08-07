@@ -42,6 +42,7 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
   declare protected applyDaemonStatusMigration: () => void;
   declare protected applyDigestCacheMigration: () => void;
   declare protected applyDigestQueryIndex: () => void;
+  declare protected applyDreamAuditMigration: () => void;
   declare protected applyEmbeddingChunkMembershipMigration: () => void;
   declare protected applyEmbeddingNamespaceMigration: () => void;
   declare protected applyLearnedSparsePostingsMigration: () => void;
@@ -139,6 +140,10 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
         this.applyLearnedSparsePostingsMigration();
         this.db.exec("PRAGMA user_version = 21");
       }
+      if (currentVersion < 22) {
+        this.applyDreamAuditMigration();
+        this.db.exec("PRAGMA user_version = 22");
+      }
       // This is a backwards-compatible performance index, not a data-model
       // change. Reconcile it for every writable compatible open so databases
       // created by an earlier build do not make one full corpus scan per day.
@@ -164,6 +169,7 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
       "bot_chat_lessons",
       "bot_chat_skills",
       "bot_chat_dream_days",
+      "bot_chat_dream_audits",
       "chat_day_digests",
       "chat_digest_rollups",
       "schema_object_versions",
@@ -313,6 +319,12 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
       "created_at_ms",
       "updated_at_ms",
       "completed_at_ms",
+    ]);
+    this.assertColumns("bot_chat_dream_audits", [
+      "chat_id",
+      "day",
+      "audit_json",
+      "created_at_ms",
     ]);
     this.assertColumns("chat_day_digests", [
       "chat_id",

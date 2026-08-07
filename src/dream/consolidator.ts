@@ -264,15 +264,21 @@ export class DreamConsolidator {
         batchCount: 0,
         incompleteCount: incomplete.length,
       });
-      store.upsertDreamDay({
-        chatId,
-        day,
-        status: "completed",
-        interactionCount: 0,
-        attempts: running.attempts,
-        sourceHash: "",
-        updatedAtMs: nowMs,
-        completedAtMs: nowMs,
+      // Always use commitDreamDay for completed days so audit is produced.
+      store.commitDreamDay({
+        day: {
+          chatId,
+          day,
+          status: "completed",
+          interactionCount: 0,
+          attempts: running.attempts,
+          sourceHash: "",
+          updatedAtMs: nowMs,
+          completedAtMs: nowMs,
+        },
+        fast: [],
+        lessons: [],
+        skills: [],
       });
       if (incomplete.length > 0) {
         this.#log("info", "bot.dream.day_incomplete_interactions", {
@@ -472,11 +478,25 @@ export class DreamConsolidator {
       (projection.lastMessageId != null &&
         projection.lastMessageId !==
           (originalMemory?.lastConsolidatedMessageId ?? undefined));
+    // Always commit through commitDreamDay so audit is produced for every
+    // completed day, including no-op and zero-interaction.
     const commitInput: CommitDreamDayInput = {
       day: dayInput,
       fast: staged.fast,
       lessons: staged.lessons,
       skills: staged.skills,
+      deletedFastKeys:
+        staged.deletedFastKeys.length > 0
+          ? staged.deletedFastKeys
+          : undefined,
+      deletedLessonKeys:
+        staged.deletedLessonKeys.length > 0
+          ? staged.deletedLessonKeys
+          : undefined,
+      deletedSkillKeys:
+        staged.deletedSkillKeys.length > 0
+          ? staged.deletedSkillKeys
+          : undefined,
       ...(memoryChanged || staged.memory !== undefined
         ? {
             memory: {
@@ -494,29 +514,8 @@ export class DreamConsolidator {
           }
         : {}),
     };
-    // Avoid creating a redundant memory revision when nothing changed and no
-    // knowledge tools wrote — still commit the completed day row alone.
-    // Commit failures must not leave the day stuck as running: mark failed
-    // with a machine diagnostic. Stage was never committed, so knowledge and
-    // semantic memory stay unchanged (commit rolls back if it partially ran).
     try {
-      if (
-        !memoryChanged &&
-        staged.fast.length === 0 &&
-        staged.lessons.length === 0 &&
-        staged.skills.length === 0
-      ) {
-        store.upsertDreamDay(dayInput);
-      } else if (!memoryChanged) {
-        store.commitDreamDay({
-          day: dayInput,
-          fast: staged.fast,
-          lessons: staged.lessons,
-          skills: staged.skills,
-        });
-      } else {
-        store.commitDreamDay(commitInput);
-      }
+      store.commitDreamDay(commitInput);
     } catch (error) {
       const lastError = safeDreamErrorCode(error);
       this.#log("warn", "bot.dream.commit_failed", {

@@ -1,6 +1,7 @@
 import type { ChatInfo } from "../../telegram/types.js";
 import { StoreCore } from "../core.js";
 import { rowToChatInfo } from "../mappers.js";
+import { MAX_AUDIT_JSON_BYTES } from "../dream-audit-types.js";
 import {
   DEFAULT_BOT_MAX_ATTEMPTS,
   EMBEDDING_MEMBERSHIP_INLINE_CHUNK_LIMIT,
@@ -534,5 +535,26 @@ declare protected applyMaintenanceSchema: () => void;
     for (const definition of MANAGED_TRIGGER_DEFINITIONS) {
       this.ensureManagedTriggerDefinition(definition);
     }
+  }
+
+  /**
+   * Per-day exact audit for Dream memory consolidation. Each completed day
+   * records a deterministic canonical delta of every mutable layer before and
+   * after the atomic commit. The audit column is bounded JSON without raw
+   * prompts, secrets, or tool payloads. Failed/rejected days leave no audit
+   * row; idempotent reruns do not duplicate or overwrite the original.
+   */
+  protected applyDreamAuditMigration(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS bot_chat_dream_audits (
+        chat_id TEXT NOT NULL,
+        day TEXT NOT NULL,
+        audit_json TEXT NOT NULL,
+        created_at_ms INTEGER NOT NULL,
+        PRIMARY KEY(chat_id, day),
+        CHECK(length(trim(audit_json)) > 0),
+        CHECK(length(CAST(audit_json AS BLOB)) <= ${MAX_AUDIT_JSON_BYTES})
+      );
+    `);
   }
 }
