@@ -13,7 +13,7 @@ const repositoryRoot = path.resolve(
   "..",
 );
 
-test("MCP facade and explicit registry expose exactly the fixed 13 tools", () => {
+test("MCP facade and explicit registry expose exactly the fixed 18 tools", () => {
   const expected = [
     "get_config",
     "get_status",
@@ -28,13 +28,18 @@ test("MCP facade and explicit registry expose exactly the fixed 13 tools", () =>
     "preview_message",
     "send_message",
     "reply_to_message",
+    "rag_bm25_search",
+    "keyword_search",
+    "read_chat_slice",
+    "day_digest",
+    "thread_context",
   ];
   assert.deepEqual([...TOOL_NAMES], expected);
   assert.deepEqual(
     listToolDefinitions().map(({ name }) => name),
     expected,
   );
-  assert.equal(new Set(TOOL_NAMES).size, 13);
+  assert.equal(new Set(TOOL_NAMES).size, 18);
 
   const registry = readFileSync(
     path.join(

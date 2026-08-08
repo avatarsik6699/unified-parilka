@@ -33,6 +33,7 @@ export interface CacheExecutorContext {
 export async function executeRagBm25Search(
   context: CacheExecutorContext,
   args: RagBm25SearchArgs,
+  sourceMessageId: number | undefined,
   externalSignal: AbortSignal | undefined,
 ): Promise<BotReadToolSuccess> {
   const cached = await callCacheSearch({
@@ -42,6 +43,9 @@ export async function executeRagBm25Search(
         query: args.query,
         limit: args.limit,
         signal,
+        ...(sourceMessageId === undefined
+          ? {}
+          : { beforeId: sourceMessageId }),
       }),
     timeoutMs: context.chatSearchTimeoutMs,
     externalSignal,
@@ -265,9 +269,16 @@ export function executeReadChatSlice(
   );
 }
 
+/**
+ * Thread window around a cached message. The exclusive application-owned
+ * `beforeId` is part of the owning query itself, so rows at or above the
+ * trigger are never fetched; a future center simply reports centerFound
+ * false.
+ */
 export function executeThreadContext(
   context: CacheExecutorContext,
   args: ThreadContextArgs,
+  sourceMessageId: number | undefined,
 ): BotReadToolSuccess {
   const messages = fromCache(() =>
     context.cache.getThreadContext({
@@ -275,6 +286,9 @@ export function executeThreadContext(
       messageId: args.message_id,
       before: args.before,
       after: args.after,
+      ...(sourceMessageId === undefined
+        ? {}
+        : { beforeId: sourceMessageId }),
     }),
   );
   const evidence = chatEvidence(messages, context.chatId, context.botSenderId);
@@ -294,9 +308,16 @@ export function executeThreadContext(
   );
 }
 
+/**
+ * A missing digest is ambiguous: the day may have no messages at all, or the
+ * digest may simply not be built yet. When no digest is cached, a cache-only
+ * period probe of the same causal range distinguishes the two so the model
+ * can decide to read the raw slice instead of reporting an empty day.
+ */
 export function executeDayDigest(
   context: CacheExecutorContext,
   args: DayDigestArgs,
+  sourceMessageId: number | undefined,
 ): BotReadToolSuccess {
   const range = calendarDayRange(
     args.day_from,
@@ -308,6 +329,9 @@ export function executeDayDigest(
       chatId: context.chatId,
       ...range,
       preferWeekly: range.dayCount > 5,
+      ...(sourceMessageId === undefined
+        ? {}
+        : { sourceMessageId }),
     }),
   );
   if (!cached || !Array.isArray(cached.digests)) {
@@ -318,28 +342,80 @@ export function executeDayDigest(
     );
   }
 
-  const projected = cached.digests.map((digest) =>
-    projectDigest(digest, context.chatId),
+  if (cached.digests.length > 0) {
+    const projected = cached.digests.map((digest) =>
+      projectDigest(digest, context.chatId),
+    );
+    const sourceEvidence = chatEvidence(
+      cached.sourceMessages ?? [],
+      context.chatId,
+      context.botSenderId,
+    );
+    const evidence = deduplicateEvidence([
+      ...projected.map(({ evidence: item }) => item),
+      ...sourceEvidence,
+    ]);
+    return success(
+      "day_digest",
+      "done",
+      {
+        range,
+        preferWeekly: range.dayCount > 5,
+        digestState: "available",
+        returnedCount: projected.length,
+        digests: projected.map(({ result }) => result),
+      },
+      evidence,
+    );
+  }
+
+  // The probe is causal: the same sourceMessageId - 1 snapshot bound as
+  // read_chat_slice, so it never sees the trigger or anything above it.
+  const upperMessageId =
+    sourceMessageId === undefined ? undefined : sourceMessageId - 1;
+  const probe = fromCache(() =>
+    context.cache.readSlice({
+      chatId: context.chatId,
+      form: "period",
+      startInclusive: range.startInclusive,
+      endExclusive: range.endExclusive,
+      ...(upperMessageId === undefined ? {} : { upperMessageId }),
+    }),
   );
-  const sourceEvidence = chatEvidence(
-    cached.sourceMessages ?? [],
-    context.chatId,
-    context.botSenderId,
-  );
-  const evidence = deduplicateEvidence([
-    ...projected.map(({ evidence: item }) => item),
-    ...sourceEvidence,
-  ]);
+  const sourceMessageCount = probe.coverage.totalAvailable;
+  if (sourceMessageCount > 0) {
+    return success(
+      "day_digest",
+      "done",
+      {
+        range,
+        preferWeekly: range.dayCount > 5,
+        digestState: "not_ready",
+        sourceMessageCount,
+        returnedCount: 0,
+        digests: [],
+        suggestedRead: {
+          tool: "read_chat_slice",
+          mode: "period",
+          day_from: range.dayFrom,
+          day_to: range.dayTo,
+        },
+      },
+      [],
+    );
+  }
   return success(
     "day_digest",
-    projected.length === 0 ? "empty" : "done",
+    "empty",
     {
       range,
       preferWeekly: range.dayCount > 5,
-      returnedCount: projected.length,
-      digests: projected.map(({ result }) => result),
+      digestState: "no_messages",
+      sourceMessageCount: 0,
+      returnedCount: 0,
+      digests: [],
     },
-    evidence,
+    [],
   );
 }
 

@@ -6,6 +6,8 @@ Operator documentation находится вне архитектурного `d
 
 - [Migration and rollback](MIGRATION.md): consistent snapshots, shadow target,
   final target, cutover gates и rollback.
+- [Hermes Agent Profile](HERMES.md): профиль и trusted plugin bridge для
+  Парилка228, установка, cutover, rollback и контракт безопасности.
 - [../README.md](../README.md): local build, config keys, CLI и systemd install.
 
 ## Safety summary
@@ -127,6 +129,20 @@ protection, Origin/Host allowlist), но не изолирует процесс�
 trust boundary, loopback имеет defensive admission limits: до 32 sessions,
 128 active HTTP requests глобально и 8 active requests на session; превышение
 возвращает 503/429 и не запускает tool handler.
+
+Cache-only read tools (`rag_bm25_search`, `keyword_search`,
+`read_chat_slice`, `day_digest`, `thread_context`) принимают raw MCP
+`source_message_id` как служебное поле исключительно от trusted bridge —
+это не model-facing аргумент. Hermes model-facing plugin скрывает
+его от модели и подставляет свой `HERMES_SESSION_MESSAGE_ID`. Не выводите
+bound клампом к `MAX(message_id)`: в оживлённом чате максимальный id может
+быть новее trigger, и такой кламп утечёт trigger и более новые сообщения.
+Операционные typed-отказы этих пяти инструментов (`cache_error`,
+`provider_unavailable`, `provider_error`, `timeout`, `aborted`, `unsafe_url`)
+возвращаются обычным MCP-ответом с JSON-конвертом `{ok:false, tool,
+error:{code…}, evidence:[]}` без protocol `isError`; `isError` остаётся
+только для boundary-ошибок (missing/invalid `source_message_id`, invalid
+tool arguments).
 
 ## Логи
 

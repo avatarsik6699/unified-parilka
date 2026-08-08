@@ -54,6 +54,28 @@ chat-scoped fast/long memory и skills применена на startup 2026-07-3
 - штатные `parilka-sync.service` и `parilka-bot.service` стартовали с
   build preflight, `NRestarts=0`; временных systemd overrides нет.
 
+### MCP cache-only read tools — 2026-08-07
+
+- MCP surface расширен с 13 до 18 инструментов: пять cache-only bot-read
+  инструментов (`rag_bm25_search`, `keyword_search`, `read_chat_slice`,
+  `day_digest`, `thread_context`) добавлены в фиксированный registry.
+  Они используют `TELEGRAM_DEFAULT_CHAT_ID`, не принимают model-controlled
+  `chat`, требуют обязательный служебный `source_message_id` и никогда не
+  вызывают Telegram.
+- `PARILKA_BOT_ID` теперь опционально читается в `AppConfig.telegram.botSenderId`
+  (positive Telegram ID, JS safe range; empty/unset → undefined) и передаётся
+  в `CanonicalBotReadCache` + `BotReadTools`. Сообщения бота маркируются
+  `authorRole=assistant` / `isOwnTurn=true`.
+- Trust boundary: raw MCP `source_message_id` — служебное поле только для
+  trusted bridge; текущий Hermes model-facing plugin скрывает его и
+  подставляет `HERMES_SESSION_MESSAGE_ID`. Кламп к `MAX(message_id)` запрещён
+  (в оживлённом чате максимум может быть новее trigger). Операционные
+  typed-отказы пяти cache tools возвращаются обычным MCP-ответом с
+  `{ok:false, tool, error:{code…}, evidence:[]}` без `isError`; `isError`
+  остаётся только для boundary-ошибок (missing/invalid `source_message_id`,
+  invalid tool arguments).
+- Без изменений схемы БД, миграций, systemd units или прав доступа.
+
 > Historical note: rehearsal goal 001 выполнялся на диапазоне v10 → v13.
 > Текущий поддерживаемый диапазон: v11–22 (см. src/maintenance/contracts.ts).
 

@@ -6,6 +6,7 @@ import type { SendThrottler } from "../throttler.js";
 import type { HistorySyncPort } from "../sync-engine.js";
 import type { VectorRag } from "../vector-rag.js";
 import type { SendApprovalRegistry } from "./send-approval.js";
+import type { BotReadTools } from "../bot/read-tools.js";
 
 export type ToolDef = {
   name: string;
@@ -30,6 +31,7 @@ export interface TelegramToolContext {
   readonly syncer: HistorySyncPort;
   readonly vectorRag: VectorRag;
   readonly approvals: SendApprovalRegistry;
+  readonly botReadTools: BotReadTools;
   cacheChat(chat?: string): import("../telegram/types.js").ChatInfo;
 }
 

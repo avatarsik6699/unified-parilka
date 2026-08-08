@@ -158,13 +158,16 @@ test("keyword_search projection stays inside its moderate cap", async (t) => {
   assert.ok(MAX_FIND_CHAT_MESSAGES_OUTPUT_CHARS > MAX_BOT_READ_TOOL_OUTPUT_CHARS);
 });
 
-test("read_chat_slice recent 800 delivers the whole transcript in one call", async (t) => {
+test("read_chat_slice recent 800 paginates in 300-row pages inside the slice cap", async (t) => {
   const store = new MessageStore(":memory:");
   t.after(() => store.close());
   seed(
     store,
     Array.from({ length: 800 }, (_, index) =>
-      row(index + 1, `m ${index + 1}`),
+      row(
+        index + 1,
+        `Обсуждали планы на неделю: пункт ${index + 1} — проверить сроки и согласовать детали с командой до пятницы.`,
+      ),
     ),
   );
   const tools = new BotReadTools({
@@ -172,46 +175,81 @@ test("read_chat_slice recent 800 delivers the whole transcript in one call", asy
     cache: storeCache(store),
   });
 
-  const result = await tools.callTool(
+  const first = await tools.callTool(
     "read_chat_slice",
     { mode: "recent", count: 800 },
     { sourceMessageId: 900 },
   );
 
-  assert.equal(result.ok, true);
-  if (!result.ok) {
+  assert.equal(first.ok, true);
+  if (!first.ok) {
     return;
   }
-  assert.equal(result.status, "done");
-  const messages = result.result.messages as Array<Record<string, unknown>>;
-  assert.equal(messages.length, 800);
-  assert.deepEqual(messages[0]?.sourceId, "chat:1");
-  assert.deepEqual(messages.at(-1)?.sourceId, "chat:800");
+  assert.equal(first.status, "done");
+  const firstMessages = first.result.messages as Array<Record<string, unknown>>;
+  assert.equal(firstMessages.length, 300);
+  assert.deepEqual(firstMessages[0]?.sourceId, "chat:501");
+  assert.deepEqual(firstMessages.at(-1)?.sourceId, "chat:800");
   assert.ok(
-    messages.every(
+    firstMessages.every(
       (item, index) =>
         index === 0 ||
-        (messages[index - 1]?.messageId as number) <
+        (firstMessages[index - 1]?.messageId as number) <
           (item.messageId as number),
     ),
   );
-  assert.ok(messages.every((item) => !("rawJson" in item)));
+  assert.ok(firstMessages.every((item) => !("rawJson" in item)));
 
-  const coverage = result.result.coverage as Record<string, unknown>;
+  const firstCoverage = first.result.coverage as Record<string, unknown>;
   // The authoritative upper is min(trigger - 1, chat max id); here the store
-  // ends at 700, so the snapshot freezes 700, never the trigger itself.
-  assert.equal(coverage.upperMessageId, 800);
-  assert.equal(coverage.returnedCount, 800);
-  assert.equal(coverage.coveredCount, 800);
-  assert.equal(coverage.truncated, false);
-  assert.equal(coverage.hasMore, false);
+  // ends at 800, so the snapshot freezes 800, never the trigger itself.
+  assert.equal(firstCoverage.upperMessageId, 800);
+  assert.equal(firstCoverage.returnedCount, 300);
+  assert.equal(firstCoverage.coveredCount, 300);
+  assert.equal(firstCoverage.truncated, true);
+  assert.equal(firstCoverage.hasMore, true);
+  assert.notEqual(firstCoverage.nextCursor, undefined);
 
-  const serialized = JSON.stringify(result);
-  // The real transcript must blow through the legacy 4k/4.5k caps and still
-  // stay inside the slice hard cap without any projection truncation.
-  assert.ok(serialized.length > MAX_BOT_READ_TOOL_OUTPUT_CHARS);
-  assert.ok(serialized.length <= MAX_READ_CHAT_SLICE_OUTPUT_CHARS);
-  assert.equal(result.result.projection, undefined);
+  // A large realistic page keeps messages + coverage + nextCursor and stays
+  // inside the slice hard cap without any projection truncation.
+  const firstSerialized = JSON.stringify(first);
+  assert.ok(firstSerialized.length > MAX_BOT_READ_TOOL_OUTPUT_CHARS);
+  assert.ok(firstSerialized.length <= MAX_READ_CHAT_SLICE_OUTPUT_CHARS);
+  assert.equal(first.result.projection, undefined);
+
+  // Follow the frozen snapshot to the end: 800 unique rows in 300/300/200.
+  const seen = new Set<number>();
+  for (const item of firstMessages) {
+    seen.add(item.messageId as number);
+  }
+  let coverage = firstCoverage;
+  while (coverage.nextCursor !== undefined) {
+    const page = await tools.callTool("read_chat_slice", {
+      mode: "recent",
+      cursor: String(coverage.nextCursor),
+    });
+    assert.equal(page.ok, true);
+    if (!page.ok) {
+      return;
+    }
+    const pageMessages = page.result.messages as Array<Record<string, unknown>>;
+    assert.ok(pageMessages.length > 0);
+    assert.ok(pageMessages.length <= 300);
+    const pageCoverage = page.result.coverage as Record<string, unknown>;
+    assert.equal(pageCoverage.upperMessageId, 800);
+    assert.equal(pageCoverage.hasMore, pageMessages.length === 300);
+    assert.equal(page.result.projection, undefined);
+    const serialized = JSON.stringify(page);
+    assert.ok(serialized.length <= MAX_READ_CHAT_SLICE_OUTPUT_CHARS);
+    for (const item of pageMessages) {
+      assert.ok(!seen.has(item.messageId as number));
+      seen.add(item.messageId as number);
+    }
+    coverage = pageCoverage;
+  }
+  assert.equal(seen.size, 800);
+  assert.equal(Math.min(...seen), 1);
+  assert.equal(Math.max(...seen), 800);
 });
 
 test("read_chat_slice never reaches the trigger or messages above it", async (t) => {

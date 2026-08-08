@@ -13,9 +13,10 @@ export {
   computeDaemonDelayMs,
   destroyTelegramBestEffort,
   disconnectTelegramBestEffort,
+  findPermanentDaemonError,
   recordDaemonOutcome,
-  shouldStopDaemonForErrors,
   syncErrors,
+  waitForDaemonShutdown,
 } from "./sync/daemon-policy.js";
 export {
   EmbeddingCadenceRunner,

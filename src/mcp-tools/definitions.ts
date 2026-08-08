@@ -1,4 +1,6 @@
 import type { ToolDef } from "./contracts.js";
+import { BOT_READ_TOOL_DEFINITIONS } from "../bot/read-tools.js";
+import type { BotReadToolDefinition } from "../bot/read-tools.js";
 
 export const TOOL_NAMES = [
   "get_config",
@@ -14,6 +16,11 @@ export const TOOL_NAMES = [
   "preview_message",
   "send_message",
   "reply_to_message",
+  "rag_bm25_search",
+  "keyword_search",
+  "read_chat_slice",
+  "day_digest",
+  "thread_context",
 ] as const;
 
 export type TelegramToolName = (typeof TOOL_NAMES)[number];
@@ -327,7 +334,50 @@ export function listToolDefinitions(): ToolDef[] {
         ["message_id", "text"],
       ),
     },
+    ...cacheOnlyToolDefs(),
   ];
+}
+
+/**
+ * Clone the model-facing BOT_READ_TOOL_DEFINITIONS for the five cache-only
+ * tools and add `source_message_id` as a required positive safe integer.
+ * The chat is not model-controlled: it always uses TELEGRAM_DEFAULT_CHAT_ID.
+ */
+function cacheOnlyToolDefs(): ToolDef[] {
+  const names = new Set([
+    "rag_bm25_search",
+    "keyword_search",
+    "read_chat_slice",
+    "day_digest",
+    "thread_context",
+  ]);
+  return BOT_READ_TOOL_DEFINITIONS.filter((def) =>
+    names.has(def.name),
+  ).map((def) => cacheToolDef(def));
+}
+
+function cacheToolDef(source: BotReadToolDefinition): ToolDef {
+  const schema = structuredClone(
+    source.inputSchema,
+  ) as Record<string, unknown>;
+  const properties = schema.properties as Record<string, unknown>;
+  properties.source_message_id = {
+    type: "integer",
+    minimum: 1,
+    maximum: Number.MAX_SAFE_INTEGER,
+    description:
+      "Обязательный служебный ID сообщения-триггера текущего хода, который подставляет trusted bridge (текущий Hermes model-facing plugin скрывает его и подставляет HERMES_SESSION_MESSAGE_ID). Инструмент никогда не возвращает это сообщение или более новые.",
+  };
+  const required = [
+    ...((schema.required as string[] | undefined) ?? []),
+    "source_message_id",
+  ];
+  schema.required = required;
+  return {
+    name: source.name,
+    description: source.description,
+    inputSchema: schema,
+  };
 }
 
 function objectSchema(

@@ -13,12 +13,21 @@ The public entry points remain thin compatibility files:
   vector/embedding provider or Telegram, always exclude soft-deleted rows,
   and clamp their authoritative upper bound to the application-owned
   `sourceMessageId - 1` from the per-call options, never to a model-provided
-  id. The slice freezes that upper bound inside a versioned, strictly
-  validated keyset cursor, so continuations stay stable against newer
-  inserts. Projections remain bounded: ordinary tools keep the ~4 000-char
-  cap, `keyword_search` uses a moderate 20 000-char cap, and
-  `read_chat_slice` a 192 000-char cap so ~800 short messages arrive in one
-  call; metadata reports truncation and omission honestly.
+  id. The same application-owned bound protects the other three chat-local
+  reads: `rag_bm25_search` applies an exclusive `beforeId = sourceMessageId`
+  to every retrieval channel (BM25, dense, learned sparse), `thread_context`
+  never fetches rows at or above the trigger (a future center simply reports
+  `centerFound: false`), and `day_digest` drops any day digest whose source
+  ends at or above the trigger; under a weekly-preferring read it keeps the
+  weekly rollups provably below the bound plus the safe day digests outside
+  those proven weeks, so days of unsafe or still-partial weeks never
+  disappear. The slice freezes that upper bound inside a
+  versioned, strictly validated keyset cursor, so continuations stay stable
+  against newer inserts. Projections remain bounded: ordinary tools keep the
+  ~4 000-char cap, `keyword_search` uses a moderate 20 000-char cap, and
+  `read_chat_slice` a 192 000-char cap for pages of at most 300 messages,
+  with continuations following `coverage.nextCursor` while `hasMore` is
+  true; metadata reports truncation and omission honestly.
 - `worker.ts` — one durable turn from claim through the send fence.
 - `grammy-publisher.ts` — the narrow Bot API port and publisher: primary native
   `sendRichMessage({ markdown, skip_entity_detection: true })`; classic

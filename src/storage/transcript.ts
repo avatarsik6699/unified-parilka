@@ -14,7 +14,13 @@ import type {
   TranscriptForm,
 } from "./types.js";
 
-export const MAX_TRANSCRIPT_PAGE_ROWS = 1_000;
+/**
+ * The snapshot budget may ask for up to MAX_TRANSCRIPT_RECENT_COUNT rows, but
+ * every delivered page is capped at MAX_TRANSCRIPT_PAGE_ROWS; continuations
+ * walk the frozen keyset through nextCursor. The model-facing count budget
+ * stays 1_000 while a single call carries at most one page.
+ */
+export const MAX_TRANSCRIPT_PAGE_ROWS = 300;
 export const MAX_TRANSCRIPT_RECENT_COUNT = 1_000;
 const MAX_TRANSCRIPT_CURSOR_CHARS = 512;
 const TRANSCRIPT_CURSOR_VERSION = 1;

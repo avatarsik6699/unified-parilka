@@ -15,7 +15,7 @@ export const MAX_BOT_READ_TOOL_OUTPUT_CHARS = 4_000;
 /** Moderate cap for the purpose-built lexical search tool. */
 export const MAX_FIND_CHAT_MESSAGES_OUTPUT_CHARS = 20_000;
 /**
- * read_chat_slice may carry a real transcript (for example ~800 short
+ * read_chat_slice may carry a real transcript page (for example ~300 short
  * messages in one call), so its bounded cap is far above the generic one.
  * It is still a hard finite budget, never unbounded output.
  */
@@ -131,7 +131,7 @@ export const BOT_READ_TOOL_DEFINITIONS: readonly BotReadToolDefinition[] = [
   {
     name: "read_chat_slice",
     description:
-      "Непрерывный срез только локально закэшированной истории этого чата: последние count сообщений (mode=recent) или календарный период Europe/Moscow (mode=period). Срез автоматически заканчивается перед текущим обращением и устойчив к сообщениям, появившимся после старта среза. Используй, когда нужен связный ход переписки, последние сообщения или весь день, а не отдельные совпадения. Если есть hasMore, передай тот же mode и полученный nextCursor.",
+      "Непрерывный срез только локально закэшированной истории этого чата: последние count сообщений (mode=recent) или календарный период Europe/Moscow (mode=period). Срез автоматически заканчивается перед текущим обращением и устойчив к сообщениям, появившимся после старта среза. Одна страница возвращает максимум 300 сообщений: если coverage.hasMore=true, продолжай тем же mode, передавая coverage.nextCursor, пока hasMore не станет false — так страница за страницей добирается весь запрошенный объём без пропусков и дубликатов. Используй, когда нужен связный ход переписки, последние сообщения или весь день, а не отдельные совпадения.",
     inputSchema: objectSchema(
       {
         mode: {
@@ -171,7 +171,7 @@ export const BOT_READ_TOOL_DEFINITIONS: readonly BotReadToolDefinition[] = [
   {
     name: "day_digest",
     description:
-      "Сводка только из локального кэша этого чата за календарный день или диапазон дней в часовом поясе Europe/Moscow. Не заменяет внешний поиск.",
+      "Сводка только из локального кэша этого чата за календарный день или диапазон дней в часовом поясе Europe/Moscow. Если готовой сводки ещё нет (digestState=not_ready), ответ содержит suggestedRead — прочитай указанный период через read_chat_slice; digestState=no_messages значит, что сообщений за эти дни в кэше нет. Не заменяет внешний поиск.",
     inputSchema: objectSchema(
       {
         day_from: {
@@ -443,6 +443,15 @@ export interface CachedDigestResult {
 export interface DigestCacheQuery extends LocalDayRange {
   chatId: string;
   preferWeekly: boolean;
+  /**
+   * Application-owned exclusive upper bound: a day digest whose source ends
+   * at or above this id is never returned. Under a weekly-preferring read,
+   * rollups provable below the bound win, and safe day digests outside their
+   * periods are kept; the result is still bounded by the digest row limit,
+   * so ranges wider than that limit are covered best-effort, not
+   * completely.
+   */
+  sourceMessageId?: number;
 }
 
 /**
@@ -480,7 +489,10 @@ export type BotReadSliceRequest =
  * additionally use the configured embedding query provider, but it must never
  * call Telegram and must honor the supplied AbortSignal. keyword_search
  * and read_chat_slice are strictly cache-only: no embedding provider, no
- * vector port, no Telegram.
+ * vector port, no Telegram. Every chat-local read honors the
+ * application-owned sourceMessageId cutoff: `beforeId` is the exclusive
+ * upper bound (trigger id itself is hidden), and digest reads drop any
+ * summary whose source reaches that bound.
  */
 export interface BotReadToolCache {
   search(params: {
@@ -488,6 +500,8 @@ export interface BotReadToolCache {
     query: string;
     limit: number;
     signal: AbortSignal;
+    /** Exclusive upper bound applied to every retrieval channel. */
+    beforeId?: number;
   }):
     | readonly StoredMessage[]
     | CachedChatSearchResult
@@ -499,6 +513,8 @@ export interface BotReadToolCache {
     messageId: number;
     before: number;
     after: number;
+    /** Exclusive upper bound: rows at or above it are never returned. */
+    beforeId?: number;
   }): readonly StoredMessage[];
   getDigests(params: DigestCacheQuery): CachedDigestResult;
 }
@@ -595,10 +611,12 @@ export interface BotReadToolsOptions {
 export interface BotReadToolCallOptions {
   signal?: AbortSignal;
   /**
-   * Application-owned trigger message id of the current turn. Cache-only
-   * slice/find tools clamp their authoritative upper bound to
-   * `sourceMessageId - 1`, so they never rely on model-provided ids and can
-   * never return the trigger or messages above it.
+   * Application-owned trigger message id of the current turn. Every chat-local
+   * read tool clamps its authoritative upper bound to this id (exclusive
+   * `beforeId = sourceMessageId` for search/thread/BM25/dense/sparse, the
+   * `sourceMessageId - 1` snapshot bound for slice/find, and digest
+   * filtering), so they never rely on model-provided ids and can never
+   * return the trigger or messages above it.
    */
   sourceMessageId?: number;
 }

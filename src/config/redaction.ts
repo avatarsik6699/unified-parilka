@@ -49,6 +49,9 @@ export function redactedConfig(
         config.telegram.connectionRetries,
       transport: config.telegram.transport,
       mtcute: config.telegram.mtcute,
+      botSenderId: config.telegram.botSenderId
+        ? "<set>"
+        : "<unset>",
     },
     storage: config.storage,
     safety: config.safety,
@@ -110,6 +113,9 @@ export function redactedConfig(
     },
     throttle: config.throttle,
     memory: config.memory,
+    hermesProjection: config.hermesProjection ?? {
+      enabled: false,
+    },
   };
 }
 

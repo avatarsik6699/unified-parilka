@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { ok, ToolError } from "../errors.js";
 import {
   emptySchema,
@@ -13,6 +14,7 @@ import {
   semanticSearchMessages,
 } from "./read-handlers.js";
 import {
+  jsonCacheReadResult,
   jsonTool,
   throwIfToolAborted,
   toolFailure,
@@ -31,7 +33,7 @@ import {
 } from "./sync-health-handlers.js";
 
 /**
- * Explicit dispatch for the fixed 13-tool MCP surface.
+ * Explicit dispatch for the fixed 18-tool MCP surface.
  *
  * This is deliberately a switch rather than a generic plugin registry:
  * adding a tool requires an intentional definition and handler branch.
@@ -110,6 +112,17 @@ export async function callTelegramTool(
         return jsonTool(
           await replyToMessage(context, rawArgs, options.signal),
         );
+      case "rag_bm25_search":
+      case "keyword_search":
+      case "read_chat_slice":
+      case "day_digest":
+      case "thread_context":
+        return await cacheReadTool(
+          context,
+          name as typeof CACHE_READ_TOOLS[number],
+          rawArgs,
+          options.signal,
+        );
       default:
         throw new ToolError({
           category: "internal",
@@ -120,4 +133,50 @@ export async function callTelegramTool(
   } catch (error) {
     return toolFailure(error);
   }
+}
+
+const CACHE_READ_TOOLS = [
+  "rag_bm25_search",
+  "keyword_search",
+  "read_chat_slice",
+  "day_digest",
+  "thread_context",
+] as const;
+
+const sourceMessageIdSchema = z
+  .object({
+    source_message_id: z.number().int().positive().safe(),
+  })
+  .passthrough();
+
+/**
+ * Extract and remove the application-owned source_message_id from raw
+ * arguments, then delegate to BotReadTools. The sourceMessageId is the
+ * exclusive upper bound for every cache-local read: the tool can never
+ * return the trigger message or anything above it.
+ *
+ * Error contract: a missing/invalid source_message_id fails here and
+ * surfaces as an MCP protocol error, and invalid tool arguments keep MCP
+ * isError. Typed operational BotRead failures pass through jsonCacheReadResult
+ * as a normal MCP response with the structured {ok:false, error:{code…}}
+ * envelope so Hermes can act on the code instead of an opaque error.
+ */
+async function cacheReadTool(
+  context: TelegramToolContext,
+  name: string,
+  rawArgs: unknown,
+  signal: AbortSignal | undefined,
+): Promise<ToolContent> {
+  const args = rawArgs != null && typeof rawArgs === "object"
+    ? { ...(rawArgs as Record<string, unknown>) }
+    : {};
+  const parsed = sourceMessageIdSchema.parse(args);
+  const sourceMessageId = parsed.source_message_id;
+  delete args.source_message_id;
+  const result = await context.botReadTools.callTool(
+    name,
+    args,
+    { sourceMessageId, signal },
+  );
+  return jsonCacheReadResult(result);
 }

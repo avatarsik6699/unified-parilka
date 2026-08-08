@@ -23,14 +23,6 @@ export function syncErrors(
   );
 }
 
-export function shouldStopDaemonForErrors(
-  errors: NormalizedError[],
-): boolean {
-  return errors.some(
-    (error) => error.category === "auth" && !error.retryable,
-  );
-}
-
 export function classifyDaemonErrors(
   coreErrors: NormalizedError[],
   embeddingFailure?: NormalizedError,
@@ -50,15 +42,38 @@ export function classifyDaemonErrors(
   };
 }
 
-export function stopOnPermanentDaemonErrors(
+/**
+ * Detects the transition into cache-only degraded mode: a non-retryable core
+ * Telegram auth failure (e.g. AUTH_KEY_UNREGISTERED) means the session is
+ * gone, so automatic daemon sync attempts must stop. The process survives
+ * because cached SQLite read tools do not need Telegram; explicit
+ * MCP-triggered sync calls may still fail independently until the session is
+ * repaired.
+ */
+export function findPermanentDaemonError(
   errors: NormalizedError[],
-): void {
-  const permanent = errors.find(
+): NormalizedError | undefined {
+  return errors.find(
     (error) => error.category === "auth" && !error.retryable,
   );
-  if (permanent) {
-    throw new ToolError(permanent);
+}
+
+/**
+ * Blocks without timers or polling until the shutdown signal aborts. Cache-only
+ * mode uses this to keep the loopback MCP and store alive for cache reads
+ * while automatic sync attempts have stopped.
+ */
+export function waitForDaemonShutdown(
+  signal: AbortSignal,
+): Promise<void> {
+  if (signal.aborted) {
+    return Promise.resolve();
   }
+  return new Promise<void>((resolve) => {
+    signal.addEventListener("abort", () => resolve(), {
+      once: true,
+    });
+  });
 }
 
 export function recordDaemonStarted(store: MessageStore): void {

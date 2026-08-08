@@ -364,11 +364,17 @@ declare protected assertMaintenanceJobReady: (
     messageId: number;
     before: number;
     after: number;
+    beforeId?: number;
     includeDeleted?: boolean;
   }): StoredMessage[] {
     const min = params.messageId - params.before;
     const max = params.messageId + params.after;
     const clauses = ["chat_id = ?", "message_id BETWEEN ? AND ?"];
+    const values: unknown[] = [params.chatId, min, max];
+    if (params.beforeId != null) {
+      clauses.push("message_id < ?");
+      values.push(params.beforeId);
+    }
     if (params.includeDeleted !== true) {
       clauses.push("deleted_at IS NULL");
     }
@@ -378,7 +384,7 @@ declare protected assertMaintenanceJobReady: (
          WHERE ${clauses.join(" AND ")}
          ORDER BY message_id ASC`,
       )
-      .all(params.chatId, min, max) as Record<string, unknown>[];
+      .all(...toSqlValues(values)) as Record<string, unknown>[];
     return rows.map(rowToStoredMessage);
   }
 

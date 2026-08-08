@@ -14,10 +14,12 @@ import {
   destroyTelegramBestEffort,
   disconnectTelegramBestEffort,
   EmbeddingCadenceRunner,
+  findPermanentDaemonError,
   indexEmbeddings,
   recordDaemonOutcome,
-  shouldStopDaemonForErrors,
+  waitForDaemonShutdown,
 } from "../src/sync-daemon.js";
+import { runSyncDaemonLoop } from "../src/sync/daemon-runner.js";
 import { SendThrottler } from "../src/throttler.js";
 import { TelegramService, telegramClientOptions } from "../src/telegram-client.js";
 import type { VectorRag } from "../src/vector-rag.js";
@@ -194,7 +196,7 @@ test("embedding failures degrade daemon health without driving core backoff", as
   assert.equal(delay.delayMs, 5_000);
 });
 
-test("embedding auth failures remain health-only and cannot stop the core owner", () => {
+test("embedding auth failures remain health-only and never transition the core owner to cache-only", () => {
   const embeddingFailure = new ToolError({
     category: "auth",
     retryable: false,
@@ -206,8 +208,8 @@ test("embedding auth failures remain health-only and cannot stop the core owner"
   assert.deepEqual(policy.stopErrors, []);
   assert.deepEqual(policy.delayErrors, []);
   assert.equal(
-    shouldStopDaemonForErrors(policy.stopErrors),
-    false,
+    findPermanentDaemonError(policy.stopErrors),
+    undefined,
   );
 });
 
@@ -264,12 +266,117 @@ test("embedding cadence is non-blocking, budgeted, and skips premature offers", 
   await cadence.settle();
 });
 
-test("permanent auth errors stop the daemon", () => {
-  const error = normalizeError(new Error("AUTH_KEY_UNREGISTERED"));
+test("non-retryable core auth errors transition the daemon to cache-only", () => {
+  const permanent = normalizeError(
+    new Error("AUTH_KEY_UNREGISTERED"),
+  );
+  const transient = normalizeError(
+    new Error("FLOOD_WAIT_5"),
+  );
+  const network = normalizeError(
+    new Error("ECONNRESET socket hang up"),
+  );
 
-  assert.equal(error.category, "auth");
-  assert.equal(error.retryable, false);
-  assert.equal(shouldStopDaemonForErrors([error]), true);
+  assert.deepEqual(findPermanentDaemonError([permanent]), permanent);
+  assert.deepEqual(
+    findPermanentDaemonError([transient, permanent, network]),
+    permanent,
+  );
+  assert.equal(findPermanentDaemonError([transient]), undefined);
+  assert.equal(findPermanentDaemonError([network]), undefined);
+  assert.equal(findPermanentDaemonError([]), undefined);
+});
+
+test("cache-only wait resolves only when the shutdown signal aborts", async () => {
+  const shutdown = new AbortController();
+  let resolved = false;
+  const waiting = waitForDaemonShutdown(shutdown.signal).then(() => {
+    resolved = true;
+  });
+
+  await sleep(50);
+  assert.equal(resolved, false);
+  shutdown.abort();
+  await waiting;
+  assert.equal(resolved, true);
+});
+
+test("cache-only wait resolves immediately for an already-aborted signal", async () => {
+  const shutdown = new AbortController();
+  shutdown.abort();
+  await waitForDaemonShutdown(shutdown.signal);
+});
+
+test("daemon loop enters cache-only after a permanent auth error and waits for shutdown", async () => {
+  const shutdown = new AbortController();
+  const store = new MessageStore(":memory:");
+  let ticks = 0;
+  const exitPromise = runSyncDaemonLoop({
+    signal: shutdown.signal,
+    store,
+    intervalMs: 20,
+    backoffInitialMs: 5_000,
+    backoffMaxMs: 60_000,
+    retryAfterMaxMs: 60_000,
+    tick: async () => {
+      ticks += 1;
+      throw new Error("AUTH_KEY_UNREGISTERED");
+    },
+    embeddings: idleEmbeddings,
+  });
+
+  // Longer than the minimum 1s inter-tick delay: a loop that kept ticking
+  // instead of entering cache-only would have retried by now.
+  await sleep(1_200);
+  assert.equal(ticks, 1);
+  const status = store.getDaemonStatus();
+  assert.equal(status?.consecutiveFailures, 1);
+  assert.match(status?.lastError ?? "", /auth/u);
+
+  // The loop stays pending on the shutdown signal, not on a retry timer.
+  let exited = false;
+  void exitPromise.then(
+    () => {
+      exited = true;
+    },
+    () => {
+      exited = true;
+    },
+  );
+  await sleep(50);
+  assert.equal(exited, false);
+
+  shutdown.abort();
+  const exit = await exitPromise;
+  assert.equal(exit.reason, "cache_only");
+  assert.deepEqual(
+    exit.failure,
+    normalizeError(new Error("AUTH_KEY_UNREGISTERED")),
+  );
+});
+
+test("daemon loop exits with shutdown reason when aborted during a normal backoff wait", async () => {
+  const shutdown = new AbortController();
+  const store = new MessageStore(":memory:");
+  let ticks = 0;
+  const exitPromise = runSyncDaemonLoop({
+    signal: shutdown.signal,
+    store,
+    intervalMs: 60_000,
+    backoffInitialMs: 5_000,
+    backoffMaxMs: 60_000,
+    retryAfterMaxMs: 60_000,
+    tick: async () => {
+      ticks += 1;
+      return { chat: "-1001" };
+    },
+    embeddings: idleEmbeddings,
+  });
+
+  await sleep(50);
+  assert.equal(ticks, 1);
+  shutdown.abort();
+  assert.deepEqual(await exitPromise, { reason: "shutdown" });
 });
 
 test("sync daemon requires an explicit exclusive MTProto ownership assertion", () => {
@@ -343,6 +450,12 @@ test("successful Telegram destroy clears its shutdown timeout", async () => {
 
   assert.equal(error, undefined);
 });
+
+const idleEmbeddings = {
+  snapshot: () => ({ active: false, nextRunAtMs: 0, report: null }),
+  offer: () => ({ active: false, nextRunAtMs: 0, report: null }),
+  healthFailure: () => undefined,
+};
 
 function config(sync?: Partial<AppConfig["sync"]>): AppConfig {
   const cfg = appConfigWithSync(sync);

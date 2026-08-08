@@ -32,7 +32,7 @@ function fixtureStore(t: TestContext, total = 1_500): MessageStore {
   return store;
 }
 
-test("recent slice returns the exact requested count in chronological order", (t) => {
+test("recent slice paginates newest-first in 300-row pages without gaps", (t) => {
   const store = fixtureStore(t);
   store.markMessagesDeleted(CHAT.chatId, [1_450]);
 
@@ -43,19 +43,18 @@ test("recent slice returns the exact requested count in chronological order", (t
   });
 
   assert.equal(result.form, "recent");
-  assert.equal(result.messages.length, 800);
-  assert.equal(result.coverage.returnedCount, 800);
-  assert.equal(result.coverage.coveredCount, 800);
+  // The newest 300 of the window: ids 1200..1500 minus the deleted id 1450.
+  assert.equal(result.messages.length, 300);
+  assert.equal(result.coverage.returnedCount, 300);
+  assert.equal(result.coverage.coveredCount, 300);
   assert.equal(result.coverage.totalAvailable, 1_499);
   assert.equal(result.coverage.upperMessageId, 1_500);
-  assert.equal(result.coverage.truncated, false);
-  assert.equal(result.coverage.hasMore, false);
-  assert.equal(result.coverage.nextCursor, undefined);
+  assert.equal(result.coverage.truncated, true);
+  assert.equal(result.coverage.hasMore, true);
+  assert.notEqual(result.coverage.nextCursor, undefined);
   assert.equal(result.coverage.omittedCount, 699);
-  // The deleted id 1450 pushes the window one live row deeper than 1500-799.
-  assert.equal(result.coverage.firstMessageId, 700);
+  assert.equal(result.coverage.firstMessageId, 1_200);
   assert.equal(result.coverage.lastMessageId, 1_500);
-  assert.equal(result.messages[0]?.messageId, 700);
   assert.ok(
     result.messages.every(
       (row, index, rows) =>
@@ -63,8 +62,82 @@ test("recent slice returns the exact requested count in chronological order", (t
     ),
   );
   assert.ok(!result.messages.some((row) => row.messageId === 1_450));
+
+  // Walk the frozen snapshot to the end: 800 aggregated rows, no dupes,
+  // the deleted id never appears, the window bottom is 700.
+  const seen: number[] = [...result.messages.map((row) => row.messageId)];
+  let emptyTextCount = result.coverage.emptyTextCount;
+  let page = result;
+  while (page.coverage.nextCursor !== undefined) {
+    page = store.getLiveTranscript({
+      chatId: CHAT.chatId,
+      form: "recent",
+      cursor: page.coverage.nextCursor,
+    });
+    assert.equal(page.coverage.upperMessageId, 1_500);
+    seen.push(...page.messages.map((row) => row.messageId));
+    emptyTextCount += page.coverage.emptyTextCount;
+  }
+  assert.equal(page.coverage.hasMore, false);
+  assert.equal(page.coverage.nextCursor, undefined);
+  assert.equal(page.coverage.coveredCount, 800);
+  assert.equal(page.coverage.truncated, false);
+  assert.equal(new Set(seen).size, seen.length);
+  assert.equal(seen.length, 800);
+  assert.equal(Math.min(...seen), 700);
+  assert.equal(Math.max(...seen), 1_500);
+  assert.ok(!seen.includes(1_450));
   // Multiples of 13 carry empty text: 702, 715, ..., 1495.
-  assert.equal(result.coverage.emptyTextCount, 62);
+  assert.equal(emptyTextCount, 62);
+});
+
+test("recent 800 aggregates without duplicates through 300/300/200 pages", (t) => {
+  const store = fixtureStore(t, 800);
+  const first = store.getLiveTranscript({
+    chatId: CHAT.chatId,
+    form: "recent",
+    count: 800,
+  });
+  assert.equal(first.messages.length, 300);
+  assert.equal(first.coverage.firstMessageId, 501);
+  assert.equal(first.coverage.lastMessageId, 800);
+  assert.equal(first.coverage.hasMore, true);
+
+  const second = store.getLiveTranscript({
+    chatId: CHAT.chatId,
+    form: "recent",
+    cursor: first.coverage.nextCursor ?? "",
+  });
+  assert.equal(second.messages.length, 300);
+  assert.equal(second.coverage.firstMessageId, 201);
+  assert.equal(second.coverage.lastMessageId, 500);
+  assert.equal(second.coverage.hasMore, true);
+
+  const third = store.getLiveTranscript({
+    chatId: CHAT.chatId,
+    form: "recent",
+    cursor: second.coverage.nextCursor ?? "",
+  });
+  assert.equal(third.messages.length, 200);
+  assert.equal(third.coverage.firstMessageId, 1);
+  assert.equal(third.coverage.lastMessageId, 200);
+  assert.equal(third.coverage.hasMore, false);
+  assert.equal(third.coverage.nextCursor, undefined);
+  assert.equal(third.coverage.coveredCount, 800);
+  assert.equal(third.coverage.truncated, false);
+
+  const aggregated = [
+    ...first.messages.map((row) => row.messageId),
+    ...second.messages.map((row) => row.messageId),
+    ...third.messages.map((row) => row.messageId),
+  ];
+  assert.equal(aggregated.length, 800);
+  assert.equal(new Set(aggregated).size, 800);
+  // Recent pages walk newest-first, so the union must be sorted to compare.
+  assert.deepEqual(
+    [...aggregated].sort((left, right) => left - right),
+    Array.from({ length: 800 }, (_, i) => i + 1),
+  );
 });
 
 test("recent slice upper bound clamps to the caller authoritative id", (t) => {
@@ -88,13 +161,14 @@ test("period slice paginates by keyset and freezes its upper bound", (t) => {
     startInclusive: "2026-07-10T00:00:00.000Z",
     endExclusive: "2026-07-20T00:00:00.000Z",
   });
-  assert.equal(first.coverage.returnedCount, 1_000);
+  assert.equal(first.coverage.returnedCount, 300);
+  assert.equal(first.coverage.coveredCount, 300);
   assert.equal(first.coverage.truncated, true);
   assert.equal(first.coverage.hasMore, true);
   assert.notEqual(first.coverage.nextCursor, undefined);
 
   // A late insert inside the period dates but above the frozen upper bound
-  // must never enter the continuation page.
+  // must never enter any continuation page.
   store.upsertMessages(CHAT, [
     {
       chatId: CHAT.chatId,
@@ -106,20 +180,35 @@ test("period slice paginates by keyset and freezes its upper bound", (t) => {
     },
   ]);
 
-  const second = store.getLiveTranscript({
-    chatId: CHAT.chatId,
-    form: "period",
-    cursor: first.coverage.nextCursor ?? "",
-  });
-  assert.equal(second.coverage.returnedCount, 500);
-  assert.equal(second.coverage.coveredCount, 1_500);
-  assert.equal(second.coverage.upperMessageId, 1_500);
-  assert.equal(second.coverage.hasMore, false);
-  assert.ok(!second.messages.some((row) => row.messageId === 1_501));
-  assert.ok(
-    (second.messages[0]?.messageId ?? 0) >
-      (first.messages.at(-1)?.messageId ?? 0),
+  const aggregated = [...first.messages.map((row) => row.messageId)];
+  let page = first;
+  while (page.coverage.nextCursor !== undefined) {
+    page = store.getLiveTranscript({
+      chatId: CHAT.chatId,
+      form: "period",
+      cursor: page.coverage.nextCursor,
+    });
+    assert.equal(page.coverage.upperMessageId, 1_500);
+    assert.ok(
+      page.messages.every(
+        (row, index, rows) =>
+          index === 0 || rows[index - 1].messageId < row.messageId,
+      ),
+    );
+    aggregated.push(...page.messages.map((row) => row.messageId));
+  }
+
+  assert.equal(aggregated.length, 1_500);
+  assert.equal(new Set(aggregated).size, 1_500);
+  assert.deepEqual(
+    aggregated,
+    Array.from({ length: 1_500 }, (_, i) => i + 1),
   );
+  assert.ok(!aggregated.includes(1_501));
+  assert.equal(page.coverage.hasMore, false);
+  assert.equal(page.coverage.nextCursor, undefined);
+  assert.equal(page.coverage.coveredCount, 1_500);
+  assert.equal(page.coverage.truncated, false);
 });
 
 test("period slice does not attribute undated rows outside dated span to the period", (t) => {

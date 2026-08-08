@@ -12,6 +12,11 @@ import type {
   VectorSearchHit,
 } from "../vector-rag.js";
 import type { JsonEventLogger } from "./worker.js";
+import { selectCausalDigests } from "./read-tools/week-causal-proof.js";
+import {
+  causalSafeHits,
+  causalSafeMessages,
+} from "./read-tools/vector-causal-filter.js";
 import type {
   BotFindMessagesQuery,
   BotReadSliceRequest,
@@ -48,6 +53,12 @@ export interface BotVectorSearchPort {
     query: string;
     limit?: number;
     includeMessages?: boolean;
+    /**
+     * Exclusive upper bound requested for dense and sparse retrieval. The
+     * cache re-enforces it locally: rows at or above it are dropped before
+     * fusion/rerank and output even if the port ignores the bound.
+     */
+    beforeId?: number;
     signal?: AbortSignal;
   }): Promise<BotVectorSearchResult>;
   /**
@@ -128,6 +139,7 @@ export class CanonicalBotReadCache implements BotReadToolCache {
     query: string;
     limit: number;
     signal: AbortSignal;
+    beforeId?: number;
   }): Promise<CachedChatSearchResult> {
     throwIfAborted(params.signal);
     const candidateLimit = Math.min(
@@ -150,6 +162,7 @@ export class CanonicalBotReadCache implements BotReadToolCache {
         chatId: params.chatId,
         query: params.query,
         limit: candidateLimit,
+        ...(params.beforeId === undefined ? {} : { beforeId: params.beforeId }),
       });
     } catch (error) {
       keywordAvailable = false;
@@ -190,10 +203,15 @@ export class CanonicalBotReadCache implements BotReadToolCache {
         limit: candidateLimit,
         includeMessages: true,
         signal: params.signal,
+        ...(params.beforeId === undefined
+          ? {}
+          : { beforeId: params.beforeId }),
       });
       throwIfAborted(params.signal);
       denseAvailable = vector.available === true;
-      vectorHits = denseAvailable ? vector.hits : [];
+      vectorHits = denseAvailable
+        ? causalSafeHits(vector.hits, params.beforeId)
+        : [];
       if (!denseAvailable) {
         channels.dense = "unavailable";
         degradedChannels.push("dense_unavailable");
@@ -203,7 +221,9 @@ export class CanonicalBotReadCache implements BotReadToolCache {
       // Sparse is never gated on dense availability: the search result
       // reports it independently.
       sparseAvailable = vector.sparseAvailable === true;
-      sparseHits = sparseAvailable ? (vector.sparseHits ?? []) : [];
+      sparseHits = sparseAvailable
+        ? causalSafeHits(vector.sparseHits ?? [], params.beforeId)
+        : [];
       channels.sparse = this.#sparseChannelState(
         vector.sparseHits !== undefined,
         sparseAvailable,
@@ -255,23 +275,26 @@ export class CanonicalBotReadCache implements BotReadToolCache {
     if (!keywordAvailable) {
       // BM25 is down, but dense and sparse are still fused through RRF
       // instead of a dense-first concatenation.
-      const messages = this.#vector.fuseChannels
-        ? hydrateFusedMessages({
-            ranked: this.#vector.fuseChannels(
-              [
-                { channel: "dense", hits: vectorHits },
-                { channel: "sparse", hits: sparseHits },
-              ],
-              candidateLimit,
+      const messages = causalSafeMessages(
+        this.#vector.fuseChannels
+          ? hydrateFusedMessages({
+              ranked: this.#vector.fuseChannels(
+                [
+                  { channel: "dense", hits: vectorHits },
+                  { channel: "sparse", hits: sparseHits },
+                ],
+                candidateLimit,
+              ),
+              keywordHits: [],
+              chunkHits: [...vectorHits, ...sparseHits],
+              limit: poolLimit,
+            })
+          : uniqueVectorMessages(
+              [...vectorHits, ...sparseHits],
+              poolLimit,
             ),
-            keywordHits: [],
-            chunkHits: [...vectorHits, ...sparseHits],
-            limit: poolLimit,
-          })
-        : uniqueVectorMessages(
-            [...vectorHits, ...sparseHits],
-            poolLimit,
-          );
+        params.beforeId,
+      );
       channels.rerank = await this.#maybeRerank(
         params,
         messages,
@@ -321,6 +344,10 @@ export class CanonicalBotReadCache implements BotReadToolCache {
         limit: poolLimit,
       });
     }
+
+    // Output-boundary cutoff: an injected port may ignore `beforeId`; rows at
+    // or above it never reach rerank or the result.
+    pool = causalSafeMessages(pool, params.beforeId);
 
     channels.rerank = await this.#maybeRerank(
       params,
@@ -478,6 +505,7 @@ export class CanonicalBotReadCache implements BotReadToolCache {
     messageId: number;
     before: number;
     after: number;
+    beforeId?: number;
   }): readonly StoredMessage[] {
     return this.#store.getThreadContext(params);
   }
@@ -492,35 +520,54 @@ export class CanonicalBotReadCache implements BotReadToolCache {
         limit: MAX_DIGEST_ROWS,
       });
       if (weeks.length > 0) {
-        return {
-          digests: weeks.map((digest) => ({
-            kind: "week",
-            period: digest.period,
-            dayFrom: digest.dayFrom,
-            dayTo: digest.dayTo,
-            text: digest.text,
-          })),
-        };
+        if (params.sourceMessageId === undefined) {
+          return {
+            digests: weeks.map((digest) => ({
+              kind: "week",
+              period: digest.period,
+              dayFrom: digest.dayFrom,
+              dayTo: digest.dayTo,
+              text: digest.text,
+            })),
+          };
+        }
+        // Under the trigger bound, proven weeks win and safe day digests
+        // outside them are kept, up to the digest row limit; see
+        // selectCausalDigests.
+        const selected = selectCausalDigests(
+          weeks,
+          params,
+          this.#store,
+        );
+        if (selected !== undefined) {
+          return { digests: selected };
+        }
       }
     }
 
+    const dayDigests = this.#store.getDayDigests({
+      chatId: params.chatId,
+      dayFrom: params.dayFrom,
+      dayTo: params.dayTo,
+      limit: MAX_DIGEST_ROWS,
+    });
+    const sourceMessageId = params.sourceMessageId;
+    const safeDayDigests =
+      sourceMessageId === undefined
+        ? dayDigests
+        : dayDigests.filter(
+            (digest) => digest.endMessageId < sourceMessageId,
+          );
     return {
-      digests: this.#store
-        .getDayDigests({
-          chatId: params.chatId,
-          dayFrom: params.dayFrom,
-          dayTo: params.dayTo,
-          limit: MAX_DIGEST_ROWS,
-        })
-        .map((digest) => ({
-          kind: "day",
-          period: digest.day,
-          dayFrom: digest.day,
-          dayTo: digest.day,
-          text: digest.text,
-          startMessageId: digest.startMessageId,
-          endMessageId: digest.endMessageId,
-        })),
+      digests: safeDayDigests.map((digest) => ({
+        kind: "day",
+        period: digest.day,
+        dayFrom: digest.day,
+        dayTo: digest.day,
+        text: digest.text,
+        startMessageId: digest.startMessageId,
+        endMessageId: digest.endMessageId,
+      })),
     };
   }
 

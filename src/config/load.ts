@@ -82,6 +82,7 @@ export function loadConfig(): AppConfig {
           "TELEGRAM_MTCUTE_FLOOD_WAIT_MAX_MS",
         ),
       },
+      botSenderId: parseOptionalBotSenderId(),
     },
     storage: {
       dbPath,
@@ -234,6 +235,11 @@ export function loadConfig(): AppConfig {
         "PARILKA_MEMORY_MAX_CHARS",
       ),
     },
+    hermesProjection: {
+      enabled: boolFromEnv(
+        "PARILKA_HERMES_PROJECTION_ENABLED",
+      ),
+    },
   };
 
   validateConfig(config);
@@ -298,4 +304,30 @@ export function loadTelegramAuthConfig(
       "TELEGRAM_CONNECTION_RETRIES",
     ),
   };
+}
+
+/**
+ * Optional bot Telegram user id. The value must be a positive decimal string
+ * without a leading zero that stays within the JavaScript safe integer range
+ * (up to 16 digits, i.e. MAX_SAFE_INTEGER); empty/unset yields undefined.
+ * This is deliberately not imported from bot runtime config to keep MCP
+ * config self-contained.
+ */
+function parseOptionalBotSenderId(): string | undefined {
+  const raw = process.env.PARILKA_BOT_ID?.trim();
+  if (raw == null || raw === "") {
+    return undefined;
+  }
+  if (!/^[1-9]\d*$/.test(raw)) {
+    throw new Error(
+      "PARILKA_BOT_ID must be a positive decimal integer without a leading zero.",
+    );
+  }
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error(
+      "PARILKA_BOT_ID must not exceed the JavaScript safe integer range.",
+    );
+  }
+  return raw;
 }

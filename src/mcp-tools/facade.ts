@@ -11,6 +11,8 @@ import type {
 } from "../telegram/types.js";
 import { SendThrottler } from "../throttler.js";
 import { VectorRag } from "../vector-rag.js";
+import { CanonicalBotReadCache } from "../bot/read-cache.js";
+import { BotReadTools } from "../bot/read-tools.js";
 import type {
   TelegramToolContext,
   ToolCallOptions,
@@ -61,6 +63,7 @@ class TelegramToolRuntime implements TelegramToolContext {
   readonly syncer: HistorySyncPort;
   readonly vectorRag: VectorRag;
   readonly approvals: SendApprovalRegistry;
+  readonly botReadTools: BotReadTools;
 
   constructor(
     readonly config: AppConfig,
@@ -75,6 +78,18 @@ class TelegramToolRuntime implements TelegramToolContext {
     this.approvals = new SendApprovalRegistry(
       config.safety.liveSendApprovalTtlMs,
     );
+    const chatCache = new CanonicalBotReadCache({
+      store,
+      vector: this.vectorRag,
+      botSenderId: config.telegram.botSenderId,
+      rerankMaxCandidates: config.embeddings.rerankMaxCandidates,
+    });
+    this.botReadTools = new BotReadTools({
+      chatId: config.telegram.defaultChatId,
+      cache: chatCache,
+      timeZone: "Europe/Moscow",
+      botSenderId: config.telegram.botSenderId,
+    });
   }
 
   cacheChat(chat?: string): ChatInfo {

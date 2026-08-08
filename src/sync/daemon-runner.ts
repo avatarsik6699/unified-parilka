@@ -15,11 +15,12 @@ import {
   classifyDaemonErrors,
   computeDaemonDelayMs,
   destroyTelegramBestEffort,
+  findPermanentDaemonError,
   recordDaemonOutcome,
   recordDaemonStarted,
-  stopOnPermanentDaemonErrors,
   summarizeSyncResult,
   syncErrors,
+  waitForDaemonShutdown,
 } from "./daemon-policy.js";
 import {
   EmbeddingCadenceRunner,
@@ -109,7 +110,6 @@ export async function runSyncDaemon(): Promise<void> {
   };
   process.once("SIGINT", requestShutdown);
   process.once("SIGTERM", requestShutdown);
-  let backoffMs = 0;
 
   try {
     const mcpUrl = await mcp.start();
@@ -121,68 +121,16 @@ export async function runSyncDaemon(): Promise<void> {
       embeddingIntervalMs: config.embeddings.tickIntervalMs,
       embeddingBudgetMs: config.embeddings.tickBudgetMs,
     });
-    while (!shutdown.signal.aborted) {
-      const started = Date.now();
-      let coreErrors: NormalizedError[] = [];
-      let result: SyncOnceResult | undefined;
-      let tickError: NormalizedError | undefined;
-      let embeddings: EmbeddingCadenceSnapshot =
-        embeddingCadence.snapshot();
-      recordDaemonStarted(store);
-
-      try {
-        result = await syncer.syncOnce();
-        throwIfDaemonAborted(shutdown.signal);
-        coreErrors = syncErrors(result);
-        embeddings = embeddingCadence.offer(result.chat);
-      } catch (error) {
-        if (shutdown.signal.aborted) {
-          break;
-        }
-        tickError = normalizeError(error);
-        coreErrors = [tickError];
-      }
-
-      const embeddingFailure =
-        embeddingCadence.healthFailure();
-      const errorPolicy = classifyDaemonErrors(
-        coreErrors,
-        embeddingFailure,
-      );
-      recordDaemonOutcome(store, errorPolicy.healthErrors);
-      logTick({
-        started,
-        tickError,
-        coreErrors,
-        healthErrors: errorPolicy.healthErrors,
-        result,
-        embeddings,
-        store,
-      });
-
-      // Only core Telegram failures can stop or back off the history owner.
-      // Optional embedding health is still reflected in daemon status.
-      stopOnPermanentDaemonErrors(errorPolicy.stopErrors);
-      if (shutdown.signal.aborted) {
-        break;
-      }
-      const delay = computeDaemonDelayMs({
-        intervalMs,
-        elapsedMs: Date.now() - started,
-        errors: errorPolicy.delayErrors,
-        previousBackoffMs: backoffMs,
-        backoffInitialMs:
-          config.sync.transientBackoffInitialMs,
-        backoffMaxMs: config.sync.transientBackoffMaxMs,
-        retryAfterMaxMs:
-          config.sync.transientBackoffMaxMs,
-      });
-      backoffMs = delay.nextBackoffMs;
-      if (delay.reason !== "interval") {
-        logger.warn({ event: "sync.backoff", ...delay });
-      }
-      await abortableSleep(delay.delayMs, shutdown.signal);
-    }
+    await runSyncDaemonLoop({
+      signal: shutdown.signal,
+      store,
+      intervalMs,
+      backoffInitialMs: config.sync.transientBackoffInitialMs,
+      backoffMaxMs: config.sync.transientBackoffMaxMs,
+      retryAfterMaxMs: config.sync.transientBackoffMaxMs,
+      tick: () => syncer.syncOnce(),
+      embeddings: embeddingCadence,
+    });
   } finally {
     const shutdownStartedAtMs = Date.now();
     let shutdownDegraded = false;
@@ -235,6 +183,121 @@ export async function runSyncDaemon(): Promise<void> {
       durationMs: Math.max(0, Date.now() - shutdownStartedAtMs),
     });
   }
+}
+
+/**
+ * The three embedding interactions the daemon loop needs. `EmbeddingCadenceRunner`
+ * satisfies this structurally, and tests may substitute an inert port.
+ */
+export interface DaemonEmbeddingPort {
+  snapshot(): EmbeddingCadenceSnapshot;
+  offer(chatId: string | undefined): EmbeddingCadenceSnapshot;
+  healthFailure(): NormalizedError | undefined;
+}
+
+export type SyncDaemonLoopExit =
+  | { reason: "shutdown" }
+  | { reason: "cache_only"; failure: NormalizedError };
+
+export interface SyncDaemonLoopOptions {
+  signal: AbortSignal;
+  store: MessageStore;
+  intervalMs: number;
+  backoffInitialMs: number;
+  backoffMaxMs: number;
+  retryAfterMaxMs: number;
+  tick: () => Promise<SyncOnceResult>;
+  embeddings: DaemonEmbeddingPort;
+}
+
+/**
+ * One automatic sync-tick state machine: record started, tick, record outcome,
+ * then either back off for the next tick, exit on shutdown, or transition to
+ * cache-only degraded mode after a non-retryable core Telegram auth failure.
+ */
+export async function runSyncDaemonLoop(
+  options: SyncDaemonLoopOptions,
+): Promise<SyncDaemonLoopExit> {
+  let backoffMs = 0;
+  while (!options.signal.aborted) {
+    const started = Date.now();
+    let coreErrors: NormalizedError[] = [];
+    let result: SyncOnceResult | undefined;
+    let tickError: NormalizedError | undefined;
+    let embeddings = options.embeddings.snapshot();
+    recordDaemonStarted(options.store);
+
+    try {
+      result = await options.tick();
+      throwIfDaemonAborted(options.signal);
+      coreErrors = syncErrors(result);
+      embeddings = options.embeddings.offer(result.chat);
+    } catch (error) {
+      if (options.signal.aborted) {
+        return { reason: "shutdown" };
+      }
+      tickError = normalizeError(error);
+      coreErrors = [tickError];
+    }
+
+    const embeddingFailure =
+      options.embeddings.healthFailure();
+    const errorPolicy = classifyDaemonErrors(
+      coreErrors,
+      embeddingFailure,
+    );
+    recordDaemonOutcome(options.store, errorPolicy.healthErrors);
+    logTick({
+      started,
+      tickError,
+      coreErrors,
+      healthErrors: errorPolicy.healthErrors,
+      result,
+      embeddings,
+      store: options.store,
+    });
+
+    // Only core Telegram failures can stop automatic sync attempts or back
+    // the loop off; optional embedding health stays visible in daemon status.
+    // A non-retryable auth failure (e.g. AUTH_KEY_UNREGISTERED) ends automatic
+    // sync attempts, but the process must survive in cache-only mode: cached
+    // SQLite reads remain available, while explicit MCP-triggered sync calls
+    // may still fail independently until the session is repaired.
+    const permanentError = findPermanentDaemonError(
+      errorPolicy.stopErrors,
+    );
+    if (permanentError) {
+      logger.error({
+        event: "sync.cache_only_started",
+        failure: permanentError,
+        daemonStatus: options.store.getDaemonStatus(),
+        message:
+          "Automatic daemon sync attempts stopped; cache-only SQLite reads " +
+          "remain available. Explicit MCP-triggered syncs may still fail " +
+          "until the session is repaired.",
+      });
+      await waitForDaemonShutdown(options.signal);
+      return { reason: "cache_only", failure: permanentError };
+    }
+    if (options.signal.aborted) {
+      return { reason: "shutdown" };
+    }
+    const delay = computeDaemonDelayMs({
+      intervalMs: options.intervalMs,
+      elapsedMs: Date.now() - started,
+      errors: errorPolicy.delayErrors,
+      previousBackoffMs: backoffMs,
+      backoffInitialMs: options.backoffInitialMs,
+      backoffMaxMs: options.backoffMaxMs,
+      retryAfterMaxMs: options.retryAfterMaxMs,
+    });
+    backoffMs = delay.nextBackoffMs;
+    if (delay.reason !== "interval") {
+      logger.warn({ event: "sync.backoff", ...delay });
+    }
+    await abortableSleep(delay.delayMs, options.signal);
+  }
+  return { reason: "shutdown" };
 }
 
 function logShutdownStage(

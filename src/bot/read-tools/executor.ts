@@ -139,6 +139,7 @@ export class BotReadTools {
           return await executeRagBm25Search(
             this.#cacheContext,
             ragBm25SearchArgsSchema.parse(rawArgs ?? {}),
+            options.sourceMessageId,
             options.signal,
           );
         case "keyword_search":
@@ -157,11 +158,13 @@ export class BotReadTools {
           return executeDayDigest(
             this.#cacheContext,
             dayDigestArgsSchema.parse(rawArgs ?? {}),
+            options.sourceMessageId,
           );
         case "thread_context":
           return executeThreadContext(
             this.#cacheContext,
             threadContextArgsSchema.parse(rawArgs ?? {}),
+            options.sourceMessageId,
           );
         case "web_search":
           return await executeWebSearch(

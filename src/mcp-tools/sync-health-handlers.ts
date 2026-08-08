@@ -37,6 +37,9 @@ export function safeConfig(
     liveSendApprovalBypass:
       config.safety.liveSendApprovalBypass,
     dbPath: config.storage.dbPath,
+    botSenderId: config.telegram.botSenderId
+      ? "<set>"
+      : "<unset>",
     isTelegramConfigured: telegram.isConfigured,
     sync: config.sync,
     embeddings: {
