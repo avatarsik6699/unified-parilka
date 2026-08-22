@@ -6,7 +6,8 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 project_dir="${TELEGRAM_PROJECT_DIR:-$(cd -- "$script_dir/.." && pwd)}"
 cd "$project_dir"
 
-entrypoint="$project_dir/dist/generate-session.js"
-"$project_dir/bin/telegram-parilka-mcp-check-build" "$project_dir" "$entrypoint"
+entrypoint="$project_dir/dist/sync-daemon.js"
+"$project_dir/bin/telegram-bot-agi-mcp-check-build" "$project_dir" "$entrypoint"
 
-exec node "$entrypoint" "$@"
+node_bin="${TELEGRAM_NODE:-node}"
+exec "$node_bin" "$entrypoint" "$@"

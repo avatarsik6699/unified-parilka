@@ -13,13 +13,13 @@ test("memory config loads bounded defaults", () => {
 });
 
 test("memory config ignores removed legacy dream count keys", () => {
-  // PARILKA_DREAM_EVERY_N_MESSAGES / PARILKA_DREAM_MAX_MESSAGES no longer
+  // BOT_DREAM_EVERY_N_MESSAGES / BOT_DREAM_MAX_MESSAGES no longer
   // belong to the day-job Dream config; leftover values in older env files
   // must not break startup.
   withEnv(
     {
-      PARILKA_DREAM_EVERY_N_MESSAGES: "100",
-      PARILKA_DREAM_MAX_MESSAGES: "50",
+      BOT_DREAM_EVERY_N_MESSAGES: "100",
+      BOT_DREAM_MAX_MESSAGES: "50",
     },
     () => {
       const config = loadConfig();

@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
 
-const checkBuild = resolve("bin", "telegram-parilka-mcp-check-build");
+const checkBuild = resolve("bin", "telegram-bot-agi-mcp-check-build");
 
 test("build guard reports missing deployed entrypoint clearly", () => {
   const projectDir = makeTempProject();
@@ -78,16 +78,16 @@ test("build guard ignores documentation-only changes", () => {
 
 test("every production state wrapper rejects a stale build", () => {
   const wrappers = new Map([
-    ["bin/parilka-digests", "dist/digest-cli.js"],
-    ["bin/parilka-import-python-state", "dist/python-import-cli.js"],
-    ["bin/parilka-maintain", "dist/maintenance-cli.js"],
+    ["bin/bot-agi-digests", "dist/digest-cli.js"],
+    ["bin/bot-agi-import-python-state", "dist/python-import-cli.js"],
+    ["bin/bot-agi-maintain", "dist/maintenance-cli.js"],
   ]);
 
   for (const [wrapper, entrypoint] of wrappers) {
     const source = readFileSync(resolve(wrapper), "utf8");
     assert.match(
       source,
-      /telegram-parilka-mcp-check-build/u,
+      /telegram-bot-agi-mcp-check-build/u,
       `${wrapper} must call the build guard`,
     );
     assert.ok(
@@ -99,7 +99,7 @@ test("every production state wrapper rejects a stale build", () => {
 
 test("the normal stdio proxy scrubs inherited Telegram and provider secrets", () => {
   const source = readFileSync(
-    resolve("bin/telegram-parilka-mcp"),
+    resolve("bin/telegram-bot-agi-mcp"),
     "utf8",
   );
 
@@ -107,8 +107,8 @@ test("the normal stdio proxy scrubs inherited Telegram and provider secrets", ()
   for (const name of [
     "TELEGRAM_API_HASH",
     "TELEGRAM_SESSION",
-    "PARILKA_BOT_TOKEN",
-    "PARILKA_DEEPSEEK_API_KEY",
+    "BOT_TOKEN",
+    "BOT_DEEPSEEK_API_KEY",
   ]) {
     assert.match(source, new RegExp(`\\b${name}\\b`, "u"));
   }
@@ -116,7 +116,7 @@ test("the normal stdio proxy scrubs inherited Telegram and provider secrets", ()
 
 test("maintenance unit uses the canonical state lock and compact digest report", () => {
   const source = readFileSync(
-    resolve("systemd/parilka-maintain.service"),
+    resolve("systemd/bot-agi-maintain.service"),
     "utf8",
   );
 
@@ -128,12 +128,12 @@ test("maintenance unit uses the canonical state lock and compact digest report",
   );
   assert.match(
     source,
-    /^ExecStart=.*parilka-digests --apply --summary-only$/mu,
+    /^ExecStart=.*bot-agi-digests --apply --summary-only$/mu,
   );
 });
 
 function makeTempProject(): string {
-  const projectDir = mkdtempSync(join(tmpdir(), "telegram-parilka-mcp-entrypoint-"));
+  const projectDir = mkdtempSync(join(tmpdir(), "telegram-bot-agi-mcp-entrypoint-"));
   mkdirSync(join(projectDir, "src"), { recursive: true });
   writeFileSync(join(projectDir, "src", "index.ts"), "export {};\n");
   writeFileSync(join(projectDir, "package.json"), "{}\n");

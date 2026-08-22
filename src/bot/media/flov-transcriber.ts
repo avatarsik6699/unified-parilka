@@ -279,7 +279,7 @@ async function createSeekableInput(
 ): Promise<{ directory: string; path: string }> {
   let directory: string | undefined;
   try {
-    directory = await mkdtemp(join(tmpdir(), "parilka-flov-"));
+    directory = await mkdtemp(join(tmpdir(), "bot-agi-flov-"));
     await chmod(directory, 0o700);
     if (signal.aborted) {
       throw abortedError();

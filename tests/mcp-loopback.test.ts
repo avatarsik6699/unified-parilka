@@ -15,7 +15,7 @@ import {
   LoopbackMcpServer,
   parseLoopbackMcpEndpoint,
 } from "../src/mcp-loopback.js";
-import type { ParilkaToolRegistry } from "../src/mcp-protocol.js";
+import type { BotToolRegistry } from "../src/mcp-protocol.js";
 
 test("loopback endpoint parser rejects remote, credentialed, and ambiguous URLs", () => {
   assert.equal(
@@ -36,7 +36,7 @@ test("loopback endpoint parser rejects remote, credentialed, and ambiguous URLs"
   ]) {
     assert.throws(
       () => parseLoopbackMcpEndpoint(value),
-      /PARILKA_MCP_HTTP_URL/u,
+      /BOT_MCP_HTTP_URL/u,
       value,
     );
   }
@@ -263,7 +263,7 @@ test("stdio entrypoint proxies tools without constructing a Telegram owner", asy
     cwd: process.cwd(),
     env: {
       ...environment,
-      PARILKA_MCP_HTTP_URL: url.href,
+      BOT_MCP_HTTP_URL: url.href,
     },
     stderr: "pipe",
   });
@@ -313,7 +313,7 @@ test(
       cwd: process.cwd(),
       env: {
         ...environment,
-        PARILKA_MCP_HTTP_URL: url.href,
+        BOT_MCP_HTTP_URL: url.href,
       },
       stderr: "pipe",
     });
@@ -350,7 +350,7 @@ test(
   },
 );
 
-function echoRegistry(): ParilkaToolRegistry {
+function echoRegistry(): BotToolRegistry {
   return {
     listTools() {
       return [
@@ -409,7 +409,7 @@ function cancellationLifecycle(): CancellationLifecycle {
 
 function cancellableRegistry(
   lifecycle: CancellationLifecycle,
-): ParilkaToolRegistry {
+): BotToolRegistry {
   return {
     listTools() {
       return [

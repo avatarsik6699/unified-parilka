@@ -10,7 +10,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { LoopbackMcpEndpoint } from "../mcp-loopback.js";
-import { PARILKA_MCP_NAME, PARILKA_MCP_VERSION } from "../mcp-protocol.js";
+import { BOT_MCP_NAME, BOT_MCP_VERSION } from "../mcp-protocol.js";
 import type { JsonEventLogger } from "../observability/contracts.js";
 import { safeError } from "../observability/redaction.js";
 import { stringify } from "../json.js";
@@ -37,8 +37,8 @@ export async function runProxy(
   });
   const remote = new Client(
     {
-      name: `${PARILKA_MCP_NAME}-stdio-proxy`,
-      version: PARILKA_MCP_VERSION,
+      name: `${BOT_MCP_NAME}-stdio-proxy`,
+      version: BOT_MCP_VERSION,
     },
     { capabilities: {} },
   );
@@ -66,8 +66,8 @@ export async function runProxy(
 
   const local: McpServer = new Server(
     {
-      name: PARILKA_MCP_NAME,
-      version: PARILKA_MCP_VERSION,
+      name: BOT_MCP_NAME,
+      version: BOT_MCP_VERSION,
     },
     { capabilities: { tools: {} } },
   );

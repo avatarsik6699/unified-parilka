@@ -1,22 +1,22 @@
 [Unit]
-Description=Parilka bounded SQLite maintenance and digest generation
+Description=Bot Agi bounded SQLite maintenance and digest generation
 Documentation=file:%h/repos/parilka-unified/README.md
 Documentation=file:%h/repos/parilka-unified/src/maintenance/README.md
-After=parilka-sync.service parilka-bot.service
+After=bot-agi-sync.service bot-agi-bot.service
 # Weak dependency: the Hermes projection oneshot runs after this unit finishes,
 # even when maintenance itself failed (e.g. a partial digest failure). A failed
 # projection must never fail maintenance, hence Wants, not Requires.
-Wants=parilka-hermes-project.service
+Wants=bot-agi-hermes-project.service
 
 [Service]
 Type=oneshot
 WorkingDirectory=%h/repos/parilka-unified
 EnvironmentFile=-%h/.config/telegram-mcp/.env
-EnvironmentFile=-%h/.config/parilka/parilka.env
+EnvironmentFile=-%h/.config/bot-agi/bot-agi.env
 Environment=NODE_ENV=production
 Environment=TELEGRAM_PROJECT_DIR=%h/repos/parilka-unified
-ExecStart=%h/repos/parilka-unified/bin/parilka-maintain --apply
-ExecStart=%h/repos/parilka-unified/bin/parilka-digests --apply --summary-only
+ExecStart=%h/repos/parilka-unified/bin/bot-agi-maintain --apply
+ExecStart=%h/repos/parilka-unified/bin/bot-agi-digests --apply --summary-only
 TimeoutStartSec=45min
 UMask=0077
 NoNewPrivileges=true
@@ -34,4 +34,4 @@ LockPersonality=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=parilka-maintain
+SyslogIdentifier=bot-agi-maintain

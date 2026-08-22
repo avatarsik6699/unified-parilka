@@ -7,14 +7,14 @@ project_dir="${TELEGRAM_PROJECT_DIR:-$(cd -- "$script_dir/.." && pwd)}"
 cd "$project_dir"
 
 entrypoint="$project_dir/dist/hermes-projection-cli.js"
-"$project_dir/bin/telegram-parilka-mcp-check-build" "$project_dir" "$entrypoint"
+"$project_dir/bin/telegram-bot-agi-mcp-check-build" "$project_dir" "$entrypoint"
 
-# shellcheck source=bin/parilka-secret-env
-source "$project_dir/bin/parilka-secret-env"
+# shellcheck source=bin/bot-agi-secret-env
+source "$project_dir/bin/bot-agi-secret-env"
 
 node_bin="${TELEGRAM_NODE:-node}"
-state_db="${PARILKA_DIGEST_DB_PATH:-${PARILKA_BOT_DB_PATH:-${TELEGRAM_DB_PATH:-$HOME/.telegram-parilka-mcp/messages.sqlite}}}"
-chat_id="${PARILKA_DIGEST_CHAT_ID:-${PARILKA_BOT_CHAT_ID:-}}"
+state_db="${BOT_DIGEST_DB_PATH:-${BOT_DB_PATH:-${TELEGRAM_DB_PATH:-$HOME/.telegram-parilka-mcp/messages.sqlite}}}"
+chat_id="${BOT_DIGEST_CHAT_ID:-${BOT_CHAT_ID:-}}"
 has_db=0
 has_chat=0
 has_home=0

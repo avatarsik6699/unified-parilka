@@ -105,7 +105,7 @@ export function parseHermesProjectionOptions(
 function isProjectionEnabled(
   env: Readonly<Record<string, string | undefined>>,
 ): boolean {
-  const raw = env.PARILKA_HERMES_PROJECTION_ENABLED;
+  const raw = env.BOT_HERMES_PROJECTION_ENABLED;
   if (raw === undefined) return false;
   const trimmed = raw.trim();
   if (trimmed === "") return false;
@@ -118,13 +118,13 @@ function resolveDatabasePath(
 ): string {
   const raw =
     cliValue ??
-    env.PARILKA_DIGEST_DB_PATH ??
-    env.PARILKA_BOT_DB_PATH ??
+    env.BOT_DIGEST_DB_PATH ??
+    env.BOT_DB_PATH ??
     env.TELEGRAM_DB_PATH;
   if (!raw) {
     throw new CliConfigError(
       "missing_db",
-      "Set --db, PARILKA_DIGEST_DB_PATH, PARILKA_BOT_DB_PATH, or TELEGRAM_DB_PATH.",
+      "Set --db, BOT_DIGEST_DB_PATH, BOT_DB_PATH, or TELEGRAM_DB_PATH.",
     );
   }
   return existingAbsoluteFile(raw.trim(), "database");
@@ -136,8 +136,8 @@ function resolveChatId(
 ): string {
   const raw =
     cliValue ??
-    env.PARILKA_DIGEST_CHAT_ID ??
-    env.PARILKA_BOT_CHAT_ID;
+    env.BOT_DIGEST_CHAT_ID ??
+    env.BOT_CHAT_ID;
   if (raw) {
     const trimmed = raw.trim();
     if (!/^-\d{5,20}$/u.test(trimmed)) {
@@ -159,7 +159,7 @@ function resolveChatId(
   }
   throw new CliConfigError(
     "missing_chat",
-    "Set --chat, PARILKA_DIGEST_CHAT_ID, PARILKA_BOT_CHAT_ID, or TELEGRAM_ALLOWED_CHAT_IDS.",
+    "Set --chat, BOT_DIGEST_CHAT_ID, BOT_CHAT_ID, or TELEGRAM_ALLOWED_CHAT_IDS.",
   );
 }
 

@@ -38,7 +38,7 @@ test("secret scan detects synthetic fixtures with redacted file and line finding
         privateKeyBegin,
         "synthetic-body",
         "-----END PRIVATE KEY-----",
-        `PARILKA_BOT_TOKEN=${botToken}`,
+        `BOT_TOKEN=${botToken}`,
         `GITHUB_TOKEN=${githubToken}`,
         `AWS_ACCESS_KEY_ID=${awsAccessKey}`,
         `AWS_SECRET_ACCESS_KEY=${awsSecret}`,

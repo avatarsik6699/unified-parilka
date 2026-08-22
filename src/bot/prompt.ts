@@ -99,7 +99,7 @@ export interface BotSystemPromptOptions {
   botName: string;
   modelLabel: string;
   now?: Date;
-  chatTitle?: string;
+  chatTitle: string;
   approximateMemberCount?: number;
   historyDescription?: string;
   memoryBlock?: string;
@@ -139,7 +139,7 @@ export function buildBotSystemPrompt(options: BotSystemPromptOptions): string {
   const botName = inlineConfig(options.botName, 128, "botName");
   const modelLabel = inlineConfig(options.modelLabel, 160, "modelLabel");
   const chatTitle = inlineConfig(
-    options.chatTitle ?? "Frontend228 + ML + Math + 1984",
+    options.chatTitle,
     160,
     "chatTitle",
   );

@@ -25,7 +25,7 @@ export function createLogger(
   } = {},
 ): Logger {
   const loggerOptions: LoggerOptions = {
-    level: options.level ?? process.env.PARILKA_LOG_LEVEL ?? "info",
+    level: options.level ?? process.env.BOT_LOG_LEVEL ?? "info",
     base: compact({
       service: context.service,
       version: context.version,

@@ -1,7 +1,7 @@
 # Local BGE-M3 service (operator-owned)
 
 Loopback encode/rerank service that replaces the external dense embedding
-provider for Parilka retrieval. One encode pass emits the dense vector (1024)
+provider for bot-agi retrieval. One encode pass emits the dense vector (1024)
 and the learned sparse token weights stored in
 `message_embedding_sparse_terms`; `/rerank` scores a bounded candidate list
 with ColBERT late interaction and never returns token vectors.
@@ -45,10 +45,10 @@ and the TypeScript client sends none.
 ## Provisioning (operator, one-time)
 
 ```bash
-python3 -m venv ~/.venvs/parilka-bge-m3
-~/.venvs/parilka-bge-m3/bin/pip install -r services/bge-m3/requirements.txt
+python3 -m venv ~/.venvs/bot-agi-bge-m3
+~/.venvs/bot-agi-bge-m3/bin/pip install -r services/bge-m3/requirements.txt
 # Optional: pre-download the model into the HF cache.
-~/.venvs/parilka-bge-m3/bin/python - <<'PY'
+~/.venvs/bot-agi-bge-m3/bin/python - <<'PY'
 from FlagEmbedding import BGEM3FlagModel
 BGEM3FlagModel("BAAI/bge-m3", use_fp16=True)
 PY
@@ -62,7 +62,7 @@ check current wheel support before choosing an interpreter.
 Foreground (default loopback bind `127.0.0.1:8767`):
 
 ```bash
-bin/parilka-bge-m3 --host 127.0.0.1 --port 8767
+bin/bot-agi-bge-m3 --host 127.0.0.1 --port 8767
 ```
 
 systemd (shipped **disabled**; enable only after provisioning and cutover
@@ -70,8 +70,8 @@ approval):
 
 ```bash
 systemctl --user daemon-reload
-systemctl --user enable --now parilka-bge-m3.service   # explicit operator step
-systemctl --user status parilka-bge-m3.service
+systemctl --user enable --now bot-agi-bge-m3.service   # explicit operator step
+systemctl --user status bot-agi-bge-m3.service
 ```
 
 The server itself refuses non-loopback `--host` (it exits at argument

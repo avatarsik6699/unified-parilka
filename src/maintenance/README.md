@@ -1,7 +1,7 @@
 # Maintenance
 
 Production entrypoint: `src/maintenance-cli.ts`, compiled to
-`dist/maintenance-cli.js`. `bin/parilka-maintain`, the npm `maintain` script
+`dist/maintenance-cli.js`. `bin/bot-agi-maintain`, the npm `maintain` script
 and the systemd oneshot run that built file; `scripts/maintain-state.ts` is
 only a thin development/test adapter.
 

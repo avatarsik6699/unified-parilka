@@ -18,16 +18,16 @@ export function audioTranscribeConfig(
 ): BotAudioTranscribeRuntimeConfig {
   return {
     endpoint: loopbackHttpEndpoint(
-      env.PARILKA_BOT_AUDIO_TRANSCRIBE_ENDPOINT ?? DEFAULT_ENDPOINT,
+      env.BOT_AUDIO_TRANSCRIBE_ENDPOINT ?? DEFAULT_ENDPOINT,
     ),
     timeoutMs: integer(
-      env.PARILKA_BOT_AUDIO_TRANSCRIBE_TIMEOUT_MS,
-      "PARILKA_BOT_AUDIO_TRANSCRIBE_TIMEOUT_MS",
+      env.BOT_AUDIO_TRANSCRIBE_TIMEOUT_MS,
+      "BOT_AUDIO_TRANSCRIBE_TIMEOUT_MS",
       DEFAULT_TIMEOUT_MS,
       1_000,
       600_000,
     ),
-    ...optionalBearerToken(env.PARILKA_BOT_AUDIO_TRANSCRIBE_BEARER_TOKEN),
+    ...optionalBearerToken(env.BOT_AUDIO_TRANSCRIBE_BEARER_TOKEN),
   };
 }
 
@@ -45,7 +45,7 @@ function optionalBearerToken(
     !/^[\x21-\x7e]+$/u.test(token)
   ) {
     throw new Error(
-      "PARILKA_BOT_AUDIO_TRANSCRIBE_BEARER_TOKEN must be a non-empty safe HTTP header value no longer than 16384 characters.",
+      "BOT_AUDIO_TRANSCRIBE_BEARER_TOKEN must be a non-empty safe HTTP header value no longer than 16384 characters.",
     );
   }
   return { bearerToken: token };
@@ -57,7 +57,7 @@ function loopbackHttpEndpoint(raw: string): string {
     url = new URL(raw.trim());
   } catch {
     throw new Error(
-      "PARILKA_BOT_AUDIO_TRANSCRIBE_ENDPOINT must be an absolute loopback HTTP URL.",
+      "BOT_AUDIO_TRANSCRIBE_ENDPOINT must be an absolute loopback HTTP URL.",
     );
   }
   if (
@@ -70,7 +70,7 @@ function loopbackHttpEndpoint(raw: string): string {
     (url.pathname !== "/" && url.pathname !== "")
   ) {
     throw new Error(
-      "PARILKA_BOT_AUDIO_TRANSCRIBE_ENDPOINT must be a credential-free loopback HTTP origin without a path, query, or fragment.",
+      "BOT_AUDIO_TRANSCRIBE_ENDPOINT must be a credential-free loopback HTTP origin without a path, query, or fragment.",
     );
   }
   return url.origin;

@@ -1,24 +1,24 @@
 # Architecture Map
 
-Parilka — небольшой agent-native TypeScript repository для одного Telegram
+bot-agi — небольшой agent-native TypeScript repository для одного Telegram
 group chat. Application shells только компонуют independently testable
 домены; SQLite остаётся единым correctness boundary.
 
 ## Runtime topology
 
 ```text
-Bot API ──► parilka-bot ───────────────┐
+Bot API ──► bot-agi-bot ───────────────┐
                                        ├──► SQLite WAL v21 ◄── maintenance/digests
-MTProto ──► parilka-sync ──────────────┘
+MTProto ──► bot-agi-sync ──────────────┘
                  │
                  └──► HTTP 127.0.0.1:8766/mcp
                                   ▲
 MCP harness ──stdio──► thin proxy─┘
 ```
 
-- `parilka-sync` — единственный штатный MTProto owner, history sync owner и
+- `bot-agi-sync` — единственный штатный MTProto owner, history sync owner и
   loopback MCP owner.
-- `parilka-bot` — единственный Bot API long poller для данного token; model
+- `bot-agi-bot` — единственный Bot API long poller для данного token; model
   work выполняется durable workers после committed ingest.
 - Оба процесса используют один canonical SQLite file, но не общий process.
 - Общий Telegram MCP rulesync service на `127.0.0.1:8765` — отдельная система
@@ -36,7 +36,7 @@ MCP harness ──stdio──► thin proxy─┘
 | Digests | `src/digest/` | source planning/hash, sequential day/week generation, process lock и offline dream memory consolidation |
 | Providers | `src/providers/` | validated roles/candidates, hardened HTTP, fallback classification |
 | Vector | `src/vector/`, `src/embeddings.ts` | opt-in index, atomic source recheck, dense + learned sparse search/fusion, bounded ColBERT rerank; backend `external_openai` (legacy) или операторский loopback BGE-M3 (`services/bge-m3`) |
-| Maintenance | `src/maintenance/`, `src/maintenance-cli.ts` | bounded retention, deferred FTS, WAL checkpoint, schema integrity; `parilka-maintain` |
+| Maintenance | `src/maintenance/`, `src/maintenance-cli.ts` | bounded retention, deferred FTS, WAL checkpoint, schema integrity; `bot-agi-maintain` |
 | Operational CLI | `src/{python-import,digest-cli}/` | offline migration, digest and dream command implementations compiled into `dist` |
 | Operations | `operations/`, `systemd/`, `bin/` | human-reviewed install, migration, retention и rollback procedures |
 | Long-lived handoff | `loop-develop/` | один active goal; closed/retired evidence в history |

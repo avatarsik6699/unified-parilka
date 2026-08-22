@@ -25,11 +25,11 @@ const CHAT_ID = "-1003179772905";
 test("composition wires all worker slots without performing external I/O", async (t) => {
   const { store, dbPath } = fixtureStore(t);
   const config = botConfig(dbPath, {
-    PARILKA_BOT_WORKERS: "2",
-    PARILKA_BOT_MODEL_STEP_TIMEOUT_MS: "180000",
-    PARILKA_BOT_SHUTDOWN_TIMEOUT_MS: "220000",
+    BOT_WORKERS: "2",
+    BOT_MODEL_STEP_TIMEOUT_MS: "180000",
+    BOT_SHUTDOWN_TIMEOUT_MS: "220000",
     // The production default allows a six-minute local audio turn. This
-    PARILKA_BOT_AUDIO_TRANSCRIBE_TIMEOUT_MS: "120000",
+    BOT_AUDIO_TRANSCRIBE_TIMEOUT_MS: "120000",
   });
   let apiCalls = 0;
   const webSearch: WebSearchProvider = {
@@ -144,10 +144,7 @@ test("production factory composition is dependency-injected and defaults to shad
 });
 
 test("invalid model routing fails before the shared SQLite file is opened", () => {
-  const dbPath = join(
-    tmpdir(),
-    `parilka-model-invalid-${process.pid}.sqlite`,
-  );
+  const dbPath = join(tmpdir(), `parilka-model-invalid-${process.pid}.sqlite`);
   let storeFactoryCalls = 0;
 
   assert.throws(
@@ -171,10 +168,7 @@ test("invalid model routing fails before the shared SQLite file is opened", () =
 });
 
 test("custom bot env cannot be mixed with app config from global process.env", () => {
-  const dbPath = join(
-    tmpdir(),
-    `parilka-env-mixing-${process.pid}.sqlite`,
-  );
+  const dbPath = join(tmpdir(), `parilka-env-mixing-${process.pid}.sqlite`);
   assert.throws(
     () =>
       createProductionBotDaemon({
@@ -189,25 +183,16 @@ test("combined configuration enforces the shared DB and chat allowlist", (t) => 
   const config = botConfig(dbPath);
 
   assert.doesNotThrow(() =>
-    assertBotDaemonConfiguration(
-      config,
-      minimalAppConfig(dbPath),
-    ),
+    assertBotDaemonConfiguration(config, minimalAppConfig(dbPath)),
   );
   assert.throws(
     () =>
-      assertBotDaemonConfiguration(
-        config,
-        minimalAppConfig(`${dbPath}.other`),
-      ),
+      assertBotDaemonConfiguration(config, minimalAppConfig(`${dbPath}.other`)),
     /same SQLite database/u,
   );
   assert.throws(
     () =>
-      assertBotDaemonConfiguration(
-        config,
-        minimalAppConfig(dbPath, "-100999"),
-      ),
+      assertBotDaemonConfiguration(config, minimalAppConfig(dbPath, "-100999")),
     /TELEGRAM_ALLOWED_CHAT_IDS/u,
   );
 });
@@ -358,26 +343,21 @@ function botConfig(
   });
 }
 
-function botEnv(
-  dbPath: string,
-): Readonly<Record<string, string>> {
+function botEnv(dbPath: string): Readonly<Record<string, string>> {
   return {
-    PARILKA_BOT_TOKEN:
-      "123456789:abcdefghijklmnopqrstuvwxyz_ABCD",
-    PARILKA_BOT_EXCLUSIVE_POLLER: "true",
-    PARILKA_BOT_CHAT_ID: CHAT_ID,
-    PARILKA_BOT_ID: "123456789",
-    PARILKA_BOT_USERNAME: "ParilkaBot",
-    PARILKA_BOT_DB_PATH: dbPath,
+    BOT_TOKEN: "123456789:abcdefghijklmnopqrstuvwxyz_ABCD",
+    BOT_EXCLUSIVE_POLLER: "true",
+    BOT_CHAT_ID: CHAT_ID,
+    BOT_ID: "123456789",
+    BOT_USERNAME: "ParilkaBot",
+    BOT_DB_PATH: dbPath,
     TELEGRAM_DB_PATH: dbPath,
-    PARILKA_BOT_MODEL_CONFIG_PATH: resolve("package.json"),
+    BOT_MODEL_CONFIG_PATH: resolve("package.json"),
+    BOT_CHAT_TITLE: "Test Chat",
   };
 }
 
-function minimalAppConfig(
-  dbPath: string,
-  allowedChatId = CHAT_ID,
-): AppConfig {
+function minimalAppConfig(dbPath: string, allowedChatId = CHAT_ID): AppConfig {
   return {
     storage: { dbPath },
     telegram: {
@@ -389,9 +369,7 @@ function minimalAppConfig(
 function noNetworkRouter(): TurnModelRouter {
   return {
     async executeWithFallback<T>(): Promise<never> {
-      throw new Error(
-        "model router must not execute during composition",
-      );
+      throw new Error("model router must not execute during composition");
     },
   };
 }

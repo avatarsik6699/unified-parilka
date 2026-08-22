@@ -6,10 +6,7 @@ import type {
   WebFetchProvider,
   WebFetchResponse,
 } from "./contracts.js";
-import {
-  ReadToolExecutionError,
-  success,
-} from "./payload.js";
+import { ReadToolExecutionError, success } from "./payload.js";
 import {
   isPrivateHostname,
   isPublicAddress,
@@ -21,10 +18,7 @@ import {
   type PinnedHttpsResponse,
   type ResolvedAddress,
 } from "./public-address.js";
-import {
-  webFetchResponseSchema,
-  type WebFetchArgs,
-} from "./schemas.js";
+import { webFetchResponseSchema, type WebFetchArgs } from "./schemas.js";
 import { callWebFetchProvider } from "./timeouts.js";
 
 export const DEFAULT_WEB_FETCH_TIMEOUT_MS = 30_000;
@@ -75,18 +69,24 @@ export class PublicWebFetchProvider implements WebFetchProvider {
   }): Promise<WebFetchResponse> {
     const url = validatePublicHttpsUrl(request.url);
     if (request.signal.aborted) {
-      throw request.signal.reason ?? new Error("Static page fetch was aborted.");
+      throw (
+        request.signal.reason ?? new Error("Static page fetch was aborted.")
+      );
     }
 
     const addresses = await this.#lookup(url.hostname);
-    if (addresses.length === 0 || addresses.some((item) => !isPublicAddress(item))) {
+    if (
+      addresses.length === 0 ||
+      addresses.some((item) => !isPublicAddress(item))
+    ) {
       throw new ReadToolExecutionError(
         "unsafe_url",
         false,
         "Static page fetch URL resolves to a private or unsupported address.",
       );
     }
-    const address = addresses.find((item) => item.family === 4) ?? addresses[0]!;
+    const address =
+      addresses.find((item) => item.family === 4) ?? addresses[0]!;
     const response = await this.#transport({
       url,
       address,
@@ -172,16 +172,18 @@ export async function executeWebFetch(
 
   const page = parsed.data;
   const pageText = truncateText(page.text, args.max_chars);
-  const evidence: ReadToolEvidence[] = [{
-    source: "web",
-    chat: null,
-    message: null,
-    speaker: { id: null, name: null },
-    date: null,
-    text: page.title?.trim() || page.url,
-    url: page.url,
-    ...(page.title === undefined ? {} : { title: page.title }),
-  }];
+  const evidence: ReadToolEvidence[] = [
+    {
+      source: "web",
+      chat: null,
+      message: null,
+      speaker: { id: null, name: null },
+      date: null,
+      text: page.title?.trim() || page.url,
+      url: page.url,
+      ...(page.title === undefined ? {} : { title: page.title }),
+    },
+  ];
   const result = {
     url: page.url,
     status: page.status,
@@ -210,7 +212,7 @@ function requestPinnedHttpsPage(
     signal: input.signal,
     maxBytes: input.maxBytes,
     accept: WEB_FETCH_ACCEPT,
-    userAgent: "ParilkaBot/1.0 public-page-fetch",
+    userAgent: "BotAgi/1.0 public-page-fetch",
   });
 }
 
@@ -283,19 +285,19 @@ function headerValue(
   if (Array.isArray(value)) {
     return value[0]?.trim() || undefined;
   }
-  return typeof value === "string" && value.trim()
-    ? value.trim()
-    : undefined;
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function isSupportedTextContentType(contentType: string): boolean {
-  return contentType === "text/html" ||
+  return (
+    contentType === "text/html" ||
     contentType === "application/xhtml+xml" ||
     contentType === "text/plain" ||
     contentType === "text/markdown" ||
     contentType === "application/json" ||
     contentType === "application/xml" ||
-    contentType === "text/xml";
+    contentType === "text/xml"
+  );
 }
 
 function extractPageText(
@@ -305,9 +307,10 @@ function extractPageText(
 ): { text: string; title?: string } {
   if (contentType === "text/html" || contentType === "application/xhtml+xml") {
     const titleMatch = /<title\b[^>]*>([\s\S]*?)<\/title\s*>/iu.exec(body);
-    const title = titleMatch === null
-      ? undefined
-      : boundedText(htmlToText(titleMatch[1]), 500);
+    const title =
+      titleMatch === null
+        ? undefined
+        : boundedText(htmlToText(titleMatch[1]), 500);
     return {
       text: truncateText(htmlToText(body), maxChars),
       ...(title === undefined ? {} : { title }),
@@ -325,7 +328,10 @@ function htmlToText(value: string): string {
           /<(script|style|noscript|template|svg|iframe|object|embed)\b[^>]*>[\s\S]*?<\/\1\s*>/giu,
           " ",
         )
-        .replace(/<\/?(?:p|div|section|article|main|header|footer|h[1-6]|li|tr|br|hr)\b[^>]*>/giu, "\n")
+        .replace(
+          /<\/?(?:p|div|section|article|main|header|footer|h[1-6]|li|tr|br|hr)\b[^>]*>/giu,
+          "\n",
+        )
         .replace(/<[^>]+>/gu, " "),
     ),
   );
@@ -338,7 +344,7 @@ function decodeHtmlEntities(value: string): string {
     gt: ">",
     lt: "<",
     nbsp: " ",
-    quot: "\"",
+    quot: '"',
   };
   return value
     .replace(/&#x([0-9a-f]{1,6});?/giu, (_match, raw: string) => {
@@ -349,8 +355,9 @@ function decodeHtmlEntities(value: string): string {
       const codePoint = Number.parseInt(raw, 10);
       return safeCodePoint(codePoint);
     })
-    .replace(/&([a-z]{2,8});/giu, (match, name: string) =>
-      named[name.toLowerCase()] ?? match,
+    .replace(
+      /&([a-z]{2,8});/giu,
+      (match, name: string) => named[name.toLowerCase()] ?? match,
     );
 }
 
@@ -377,7 +384,10 @@ function truncateText(value: string, maximum: number): string {
   return `${characters.slice(0, Math.max(1, maximum - 1)).join("")}…`;
 }
 
-function boundedText(value: string | undefined, maximum: number): string | undefined {
+function boundedText(
+  value: string | undefined,
+  maximum: number,
+): string | undefined {
   if (!value) {
     return undefined;
   }

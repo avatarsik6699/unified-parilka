@@ -1,7 +1,7 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { MessageStore } from "../store.js";
 import type { TelegramGateway } from "../telegram/types.js";
-import { createParilkaMcpServer } from "../mcp-protocol.js";
+import { createBotMcpServer } from "../mcp-protocol.js";
 import { TelegramTools } from "../tools.js";
 import type { JsonEventLogger } from "../observability/contracts.js";
 import { safeError } from "../observability/redaction.js";
@@ -50,7 +50,7 @@ export async function runDirect(logger: JsonEventLogger): Promise<void> {
     return;
   }
 
-  const server = createParilkaMcpServer(tools);
+  const server = createBotMcpServer(tools);
   const transport = new StdioServerTransport();
   let shutdownPromise: Promise<void> | undefined;
   const shutdown = (closeServer: boolean): Promise<void> => {

@@ -10,14 +10,14 @@ import {
 } from "../src/config.js";
 
 test("hermes projection defaults to disabled when unset", () => {
-  withEnv({ PARILKA_HERMES_PROJECTION_ENABLED: undefined }, () => {
+  withEnv({ BOT_HERMES_PROJECTION_ENABLED: undefined }, () => {
     assert.equal(loadConfig().hermesProjection!.enabled, false);
   });
 });
 
 test("hermes projection accepts truthy boolean values", () => {
   for (const raw of ["1", "true", "yes", "on", " TRUE ", "Yes"]) {
-    withEnv({ PARILKA_HERMES_PROJECTION_ENABLED: raw }, () => {
+    withEnv({ BOT_HERMES_PROJECTION_ENABLED: raw }, () => {
       assert.equal(
         loadConfig().hermesProjection!.enabled,
         true,
@@ -29,7 +29,7 @@ test("hermes projection accepts truthy boolean values", () => {
 
 test("hermes projection accepts falsy boolean values", () => {
   for (const raw of ["0", "false", "no", "off", "False"]) {
-    withEnv({ PARILKA_HERMES_PROJECTION_ENABLED: raw }, () => {
+    withEnv({ BOT_HERMES_PROJECTION_ENABLED: raw }, () => {
       assert.equal(
         loadConfig().hermesProjection!.enabled,
         false,
@@ -41,10 +41,10 @@ test("hermes projection accepts falsy boolean values", () => {
 
 test("hermes projection rejects non-boolean and empty values", () => {
   for (const raw of ["", "1.5", "maybe", "enabled"]) {
-    withEnv({ PARILKA_HERMES_PROJECTION_ENABLED: raw }, () => {
+    withEnv({ BOT_HERMES_PROJECTION_ENABLED: raw }, () => {
       assert.throws(
         () => loadConfig(),
-        /PARILKA_HERMES_PROJECTION_ENABLED must be a boolean/,
+        /BOT_HERMES_PROJECTION_ENABLED must be a boolean/,
         `must reject ${JSON.stringify(raw)}`,
       );
     });
@@ -52,14 +52,14 @@ test("hermes projection rejects non-boolean and empty values", () => {
 });
 
 test("redacted config reports the projection kill switch without secrets", () => {
-  withEnv({ PARILKA_HERMES_PROJECTION_ENABLED: "1" }, () => {
+  withEnv({ BOT_HERMES_PROJECTION_ENABLED: "1" }, () => {
     const config = redactedConfig(loadConfig()) as {
       hermesProjection: { enabled: boolean };
     };
     assert.equal(config.hermesProjection.enabled, true);
     assert.doesNotMatch(
       JSON.stringify(config),
-      /PARILKA_HERMES_PROJECTION_ENABLED/,
+      /BOT_HERMES_PROJECTION_ENABLED/,
     );
   });
 });

@@ -278,8 +278,8 @@ test("digest CLI applies explicit overrides, safe defaults, and upper bounds", (
       "2",
     ],
     {
-      PARILKA_DIGEST_MAX_DAY_GENERATIONS_PER_RUN: "7",
-      PARILKA_DIGEST_MAX_WEEK_GENERATIONS_PER_RUN: "4",
+      BOT_DIGEST_MAX_DAY_GENERATIONS_PER_RUN: "7",
+      BOT_DIGEST_MAX_WEEK_GENERATIONS_PER_RUN: "4",
     },
   );
   assert.equal(overridden.maxDayGenerationsPerRun, 2);
@@ -289,7 +289,7 @@ test("digest CLI applies explicit overrides, safe defaults, and upper bounds", (
   assert.throws(
     () =>
       parseOptions(required, {
-        PARILKA_DIGEST_MAX_DAY_GENERATIONS_PER_RUN: String(
+        BOT_DIGEST_MAX_DAY_GENERATIONS_PER_RUN: String(
           MAX_DAY_GENERATIONS_PER_RUN + 1,
         ),
       }),
@@ -300,7 +300,7 @@ test("digest CLI applies explicit overrides, safe defaults, and upper bounds", (
   assert.throws(
     () =>
       parseOptions(required, {
-        PARILKA_DIGEST_MAX_WEEK_GENERATIONS_PER_RUN: String(
+        BOT_DIGEST_MAX_WEEK_GENERATIONS_PER_RUN: String(
           MAX_WEEK_GENERATIONS_PER_RUN + 1,
         ),
       }),

@@ -69,7 +69,7 @@ The public entry points remain thin compatibility files:
   skill loading. Read tools are always bounded; write tools exist only when
   the addressed trigger both explicitly asks to remember/update something and
   comes from an operator-authorized numeric Telegram account. The private
-  `PARILKA_BOT_MEMORY_WRITE_SENDER_IDS` allowlist is never exposed to the
+  `BOT_MEMORY_WRITE_SENDER_IDS` allowlist is never exposed to the
   model; writes remain source-attributed to that trigger.
 - `telegram-publication.ts` — narrow transport contract for the final text.
   Before mode selection it runs one deterministic Markdown table-block
@@ -171,9 +171,9 @@ tests together.
 
 Configure loopback endpoints via environment variables (defaults to localhost):
 
-- `PARILKA_BOT_SEARXNG_ENDPOINT` — credential-free HTTP origin, default
+- `BOT_SEARXNG_ENDPOINT` — credential-free HTTP origin, default
   `http://127.0.0.1:8080`.
-- `PARILKA_BOT_FIRECRAWL_ENDPOINT` — credential-free HTTP origin, default
+- `BOT_FIRECRAWL_ENDPOINT` — credential-free HTTP origin, default
   `http://127.0.0.1:3002`.
 
 Both are validated as loopback-only HTTP origins without path, query,

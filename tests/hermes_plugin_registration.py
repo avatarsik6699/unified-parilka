@@ -400,7 +400,7 @@ class DistributionAndEnvTests(unittest.TestCase):
         with open(tmpl_path, "r", encoding="utf-8") as f:
             content = f.read()
 
-        self.assertIn("PARILKA_TELEGRAM_CHAT_ID=-1003179772905", content)
+        self.assertIn("BOT_TELEGRAM_CHAT_ID=-1003179772905", content)
         self.assertIn("SEARXNG_URL=", content)
         self.assertNotIn("SEARXNG_BASE_URL", content)
         self.assertIn("FIRECRAWL_API_URL=", content)

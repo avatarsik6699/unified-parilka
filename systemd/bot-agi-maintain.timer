@@ -1,11 +1,11 @@
 [Unit]
-Description=Run Parilka maintenance daily
+Description=Run Bot Agi maintenance daily
 
 [Timer]
 OnCalendar=*-*-* 04:20:00
 Persistent=true
 RandomizedDelaySec=5min
-Unit=parilka-maintain.service
+Unit=bot-agi-maintain.service
 
 [Install]
 WantedBy=timers.target

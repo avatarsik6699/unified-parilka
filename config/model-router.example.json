@@ -5,13 +5,13 @@
       "id": "openai_primary",
       "protocol": "openai",
       "baseUrl": "https://api.openai.com/v1",
-      "apiKeyEnv": "PARILKA_OPENAI_API_KEY"
+      "apiKeyEnv": "BOT_OPENAI_API_KEY"
     },
     {
       "id": "anthropic_fallback",
       "protocol": "anthropic",
       "baseUrl": "https://api.anthropic.com/v1",
-      "apiKeyEnv": "PARILKA_ANTHROPIC_API_KEY"
+      "apiKeyEnv": "BOT_ANTHROPIC_API_KEY"
     }
   ],
   "modelCapabilities": {

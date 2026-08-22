@@ -345,7 +345,7 @@ function resolveGcloudPath(custom: string | undefined): string {
       return resolved;
     }
     throw new Error(
-      "PARILKA_GCLOUD_PATH must point to an executable gcloud binary.",
+      "BOT_GCLOUD_PATH must point to an executable gcloud binary.",
     );
   }
   const candidates = [
@@ -363,7 +363,7 @@ function resolveGcloudPath(custom: string | undefined): string {
     }
   }
   throw new Error(
-    "gcloud was not found in PATH or standard locations; install the Google Cloud SDK or set PARILKA_GCLOUD_PATH.",
+    "gcloud was not found in PATH or standard locations; install the Google Cloud SDK or set BOT_GCLOUD_PATH.",
   );
 }
 

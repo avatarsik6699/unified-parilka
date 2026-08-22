@@ -14,11 +14,10 @@ export interface UnixSocketResearchGatewayProviderOptions {
 }
 
 /**
- * The Parilka side knows only a local socket and a narrow JSON envelope. It
+ * The bot side knows only a local socket and a narrow JSON envelope. It
  * has no source-root path, file manifest, database handle, or HH credential.
  */
-export class UnixSocketResearchGatewayProvider
-  implements ResearchGatewayProvider {
+export class UnixSocketResearchGatewayProvider implements ResearchGatewayProvider {
   readonly #socketPath: string;
   readonly #maxResponseBytes: number;
 
@@ -38,10 +37,12 @@ export class UnixSocketResearchGatewayProvider
     if (request.signal.aborted) {
       throw request.signal.reason ?? new Error("Research gateway was aborted.");
     }
-    const body = Buffer.from(JSON.stringify({
-      query: request.query,
-      limit: request.limit,
-    }));
+    const body = Buffer.from(
+      JSON.stringify({
+        query: request.query,
+        limit: request.limit,
+      }),
+    );
     const response = await this.#post(body, request.signal);
     const parsed = researchGatewayResponseSchema.safeParse(response);
     if (!parsed.success) {
@@ -89,12 +90,12 @@ export class UnixSocketResearchGatewayProvider
           const chunks: Buffer[] = [];
           let byteLength = 0;
           response.on("data", (chunk: Buffer | Uint8Array | string) => {
-            const buffer = Buffer.isBuffer(chunk)
-              ? chunk
-              : Buffer.from(chunk);
+            const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
             byteLength += buffer.length;
             if (byteLength > this.#maxResponseBytes) {
-              response.destroy(new Error("Research gateway response is too large."));
+              response.destroy(
+                new Error("Research gateway response is too large."),
+              );
               return;
             }
             chunks.push(buffer);
@@ -127,8 +128,14 @@ export class UnixSocketResearchGatewayProvider
 
 function boundedResponseBytes(value: number | undefined): number {
   const maximum = value ?? MAX_RESPONSE_BYTES;
-  if (!Number.isSafeInteger(maximum) || maximum < 1_024 || maximum > 128 * 1024) {
-    throw new TypeError("research gateway maxResponseBytes must be 1024-131072.");
+  if (
+    !Number.isSafeInteger(maximum) ||
+    maximum < 1_024 ||
+    maximum > 128 * 1024
+  ) {
+    throw new TypeError(
+      "research gateway maxResponseBytes must be 1024-131072.",
+    );
   }
   return maximum;
 }

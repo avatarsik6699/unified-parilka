@@ -154,7 +154,7 @@ test("production router config targets DeepSeek V4 Flash for both roles", () => 
     new URL("../config/model-router.production.json", import.meta.url),
   );
   const parsed = loadModelRouterConfigFile(path, {
-    env: { PARILKA_DEEPSEEK_API_KEY: "test-placeholder" },
+    env: { BOT_DEEPSEEK_API_KEY: "test-placeholder" },
   });
 
   assert.deepEqual(parsed.providers, [
@@ -162,7 +162,7 @@ test("production router config targets DeepSeek V4 Flash for both roles", () => 
       id: "deepseek",
       protocol: "deepseek",
       baseUrl: "https://api.deepseek.com",
-      apiKeyEnv: "PARILKA_DEEPSEEK_API_KEY",
+      apiKeyEnv: "BOT_DEEPSEEK_API_KEY",
       thinkingMode: "enabled",
     },
   ]);
@@ -179,7 +179,7 @@ test("production router config targets DeepSeek V4 Flash for both roles", () => 
   assert.doesNotMatch(JSON.stringify(parsed), /qwen/i);
 
   const router = new ModelRouter(parsed, {
-    env: { PARILKA_DEEPSEEK_API_KEY: "test-placeholder" },
+    env: { BOT_DEEPSEEK_API_KEY: "test-placeholder" },
   });
   assert.equal(router.inspectConfig().providers[0]?.thinkingMode, "enabled");
   assert.deepEqual(

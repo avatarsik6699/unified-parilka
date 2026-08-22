@@ -4,18 +4,18 @@ import { resolve } from "node:path";
 import { test } from "node:test";
 
 const maintainSource = readFileSync(
-  resolve("systemd/parilka-maintain.service"),
+  resolve("systemd/bot-agi-maintain.service"),
   "utf8",
 );
 const projectSource = readFileSync(
-  resolve("systemd/parilka-hermes-project.service"),
+  resolve("systemd/bot-agi-hermes-project.service"),
   "utf8",
 );
 
 test("maintain unit weakly wants the projection oneshot", () => {
   assert.match(
     maintainSource,
-    /^Wants=parilka-hermes-project\.service$/mu,
+    /^Wants=bot-agi-hermes-project\.service$/mu,
   );
   for (const strong of ["Requires=", "BindsTo=", "PartOf="]) {
     assert.doesNotMatch(
@@ -29,7 +29,7 @@ test("maintain unit weakly wants the projection oneshot", () => {
 test("maintain unit no longer runs the projection ExecStart", () => {
   assert.doesNotMatch(
     maintainSource,
-    /^ExecStart=.*parilka-hermes-project/mu,
+    /^ExecStart=.*bot-agi-hermes-project/mu,
   );
   assert.doesNotMatch(maintainSource, /hermes\/profiles/u);
 });
@@ -37,7 +37,7 @@ test("maintain unit no longer runs the projection ExecStart", () => {
 test("projection unit runs after maintenance", () => {
   assert.match(
     projectSource,
-    /^After=parilka-maintain\.service$/mu,
+    /^After=bot-agi-maintain\.service$/mu,
   );
 });
 
@@ -47,7 +47,7 @@ test("projection unit has exactly one ExecStart with --apply", () => {
   assert.equal(execStarts.length, 1);
   assert.match(
     execStarts[0]!,
-    /bin\/parilka-hermes-project --apply$/u,
+    /bin\/bot-agi-hermes-project --apply$/u,
   );
 });
 

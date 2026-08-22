@@ -1,4 +1,4 @@
-# Parilka Architecture Docs
+# bot-agi Architecture Docs
 
 `docs/` содержит только стабильную архитектуру, контракты и принятые решения.
 Active TODO, goal prompts, audit/research evidence, rehearsal logs и operator

@@ -17,7 +17,7 @@ Five cache-only bot-read tools (`rag_bm25_search`, `keyword_search`,
 `BotReadTools` + `CanonicalBotReadCache` on top of `MessageStore` and
 `VectorRag`. They use the configured `TELEGRAM_DEFAULT_CHAT_ID`, require
 `source_message_id` as an exclusive causal upper bound, and never call
-Telegram. The optional `PARILKA_BOT_ID` env var (exposed as
+Telegram. The optional `BOT_ID` env var (exposed as
 `botSenderId` in `AppConfig`) marks the bot's own messages with
 `authorRole=assistant` / `isOwnTurn=true`.
 

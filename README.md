@@ -1,41 +1,41 @@
-# Parilka
+# bot-agi
 
-Parilka — единый TypeScript-проект для Telegram-бота, синхронизации истории
+bot-agi — единый TypeScript-проект для Telegram-бота, синхронизации истории
 через MTProto и локального MCP-сервера. Проект рассчитан на один хост и один
 versioned SQLite store (текущая схема исходников — v19).
 
 Текущая топология:
 
 ```text
-Bot API ──► parilka-bot ───────────────┐
+Bot API ──► bot-agi-bot ───────────────┐
                                        ├──► SQLite WAL v19 ◄── maintain + digests
-MTProto ──► parilka-sync ──────────────┘
+MTProto ──► bot-agi-sync ──────────────┘
                  │
                  └── HTTP 127.0.0.1:8766/mcp
                               ▲
 MCP client ──stdio──► thin proxy
 ```
 
-- `parilka-sync` — единственный штатный владелец MTProto-клиента и mtcute auth
+- `bot-agi-sync` — единственный штатный владелец MTProto-клиента и mtcute auth
   storage. Он синхронизирует corpus и обслуживает session-scoped Streamable
   HTTP MCP только на loopback.
-- `telegram-parilka-mcp` — по умолчанию тонкий stdio-proxy к `parilka-sync`; он
+- `telegram-bot-agi-mcp` — по умолчанию тонкий stdio-proxy к `bot-agi-sync`; он
   не открывает Telegram session и SQLite.
-- `parilka-bot` — durable Bot API poller. Update, сообщение и turn reservation
+- `bot-agi-bot` — durable Bot API poller. Update, сообщение и turn reservation
   записываются до сдвига polling offset; turns используют leases, stored draft,
   terminal `lost_ack` после неоднозначного dispatch и bounded retries до
   `dead_letter`.
-- `parilka-maintain` — проверка `quick_check`, ограниченный retention
+- `bot-agi-maintain` — проверка `quick_check`, ограниченный retention
   history/bot/terminal send-outbox, `PRAGMA optimize` и passive WAL
   checkpoint.
-- `parilka-digests` — отдельный последовательный job для daily и ISO-weekly
+- `bot-agi-digests` — отдельный последовательный job для daily и ISO-weekly
   сводок через роль `summary`; dry-run по умолчанию. Timer запускает его после
   успешного maintenance. Встроенного backup по-прежнему нет.
 
-Production cutover на этом хосте завершён 2026-07-30: `parilka-sync`,
-`parilka-bot` и `parilka-maintain.timer` enabled/active, legacy Parilka units
-disabled/inactive, а отдельный общий Telegram MCP продолжает работать на
-`127.0.0.1:8765`. Новый Parilka owner слушает только
+Production cutover на этом хосте завершён 2026-07-30: `bot-agi-sync`,
+`bot-agi-bot` и `bot-agi-maintain.timer` enabled/active, pre-unification
+legacy units disabled/inactive, а отдельный общий Telegram MCP продолжает работать на
+`127.0.0.1:8765`. Новый bot-agi owner слушает только
 `127.0.0.1:8766`; MCP writes остаются выключены и в hard dry-run. Проверяемые
 детали deployment/E2E и rollback находятся в
 [архиве goal 001](loop-develop/history/001-unified-parilka/001-todo.md) и
@@ -77,18 +77,18 @@ MTProto/MCP-конфиг загружается в таком порядке:
 
 - `TELEGRAM_API_ID`, `TELEGRAM_API_HASH` и Telegram session;
 - `TELEGRAM_DEFAULT_CHAT_ID` и `TELEGRAM_ALLOWED_CHAT_IDS`;
-- для bot runtime — `PARILKA_BOT_TOKEN`, `PARILKA_BOT_CHAT_ID`,
-  `PARILKA_BOT_ID`, `PARILKA_BOT_USERNAME` и абсолютный
-  `PARILKA_BOT_MODEL_CONFIG_PATH`; подтверждение
-  `PARILKA_BOT_EXCLUSIVE_POLLER` задаётся позднее, после проверки
+- для bot runtime — `BOT_TOKEN`, `BOT_CHAT_ID`,
+  `BOT_ID`, `BOT_USERNAME` и абсолютный
+  `BOT_MODEL_CONFIG_PATH`; подтверждение
+  `BOT_EXCLUSIVE_POLLER` задаётся позднее, после проверки
   эксклюзивности token;
 - переменные с ключами провайдеров, на которые ссылается model-router JSON.
 
-Поставляемые `parilka-bot` и `parilka-digests` wrappers также принимают
-`PARILKA_BOT_TOKEN_FILE` и `PARILKA_DEEPSEEK_API_KEY_FILE`. Штатный
-production router ссылается только на `PARILKA_DEEPSEEK_API_KEY`, поэтому
-ему достаточно одного `PARILKA_DEEPSEEK_API_KEY_FILE`;
-`PARILKA_QWEN_API_KEY_FILE` нужен лишь для кастомного non-production router
+Поставляемые `bot-agi-bot` и `bot-agi-digests` wrappers также принимают
+`BOT_TOKEN_FILE` и `BOT_DEEPSEEK_API_KEY_FILE`. Штатный
+production router ссылается только на `BOT_DEEPSEEK_API_KEY`, поэтому
+ему достаточно одного `BOT_DEEPSEEK_API_KEY_FILE`;
+`BOT_QWEN_API_KEY_FILE` нужен лишь для кастомного non-production router
 с Qwen-провайдером (поддержка Qwen в wrappers сохранена). Они читают только
 принадлежащий текущему пользователю однострочный regular file с mode
 `0400`/`0600`, экспортируют значение лишь в дочерний Node process и никогда
@@ -96,16 +96,16 @@ production router ссылается только на `PARILKA_DEEPSEEK_API_KEY
 private state без копирования секретов в новый dotenv.
 
 Digest job по умолчанию переиспользует bot chat, общий DB и
-`PARILKA_BOT_MODEL_CONFIG_PATH`. Dedicated значения можно выбрать через
-`PARILKA_DIGEST_CHAT_ID`, `PARILKA_DIGEST_DB_PATH` и
-`PARILKA_DIGEST_MODEL_CONFIG_PATH`, но это не отдельный state: chat обязан
+`BOT_MODEL_CONFIG_PATH`. Dedicated значения можно выбрать через
+`BOT_DIGEST_CHAT_ID`, `BOT_DIGEST_DB_PATH` и
+`BOT_DIGEST_MODEL_CONFIG_PATH`, но это не отдельный state: chat обязан
 совпадать с единственным `TELEGRAM_ALLOWED_CHAT_IDS`, а DB — указывать на тот
-же canonical pathname, что `PARILKA_BOT_DB_PATH`/`TELEGRAM_DB_PATH`, если они
+же canonical pathname, что `BOT_DB_PATH`/`TELEGRAM_DB_PATH`, если они
 заданы. Symlink разрешён после `realpath`; другой hardlink к тому же inode
 запрещён, потому что отдельные имена WAL/SHM небезопасны для SQLite.
 
-`PARILKA_BOT_DB_PATH`, если задан, обязан указывать на тот же файл, что и
-`TELEGRAM_DB_PATH`. `PARILKA_BOT_CHAT_ID` обязан входить в
+`BOT_DB_PATH`, если задан, обязан указывать на тот же файл, что и
+`TELEGRAM_DB_PATH`. `BOT_CHAT_ID` обязан входить в
 `TELEGRAM_ALLOWED_CHAT_IDS`.
 
 Булевы значения Telegram-конфига строгие: `1,true,yes,on` или
@@ -119,13 +119,13 @@ Digest job по умолчанию переиспользует bot chat, общ
 только публичный фасад `src/config.ts`: это сохраняет единый порядок загрузки
 env и не даёт разным entrypoint расходиться в defaults или валидации.
 
-`PARILKA_BOT_EXCLUSIVE_POLLER` — отдельное fail-closed подтверждение оператора,
+`BOT_EXCLUSIVE_POLLER` — отдельное fail-closed подтверждение оператора,
 а не обычный boolean. Bot стартует только при значении ровно `true` в нижнем
 регистре, включая shadow mode. Выставляйте его лишь после остановки всех других
 `getUpdates` poller для этого token; отсутствие, пустое значение и `TRUE`
 отклоняются. Это подтверждение не является распределённой блокировкой.
 
-`PARILKA_MTPROTO_EXCLUSIVE_OWNER` действует так же для sync daemon/once:
+`BOT_MTPROTO_EXCLUSIVE_OWNER` действует так же для sync daemon/once:
 значение должно быть ровно `true` и задаётся только после остановки прежнего
 `telegram-parilka-sync` и любого другого owner той же MTProto session.
 Отсутствующее или иное значение останавливает startup.
@@ -174,13 +174,13 @@ Router поддерживает три adapters (`openai` Chat Completions, `ant
       "id": "openai_primary",
       "protocol": "openai",
       "baseUrl": "https://api.openai.com/v1",
-      "apiKeyEnv": "PARILKA_OPENAI_API_KEY"
+      "apiKeyEnv": "BOT_OPENAI_API_KEY"
     },
     {
       "id": "anthropic_fallback",
       "protocol": "anthropic",
       "baseUrl": "https://api.anthropic.com/v1",
-      "apiKeyEnv": "PARILKA_ANTHROPIC_API_KEY"
+      "apiKeyEnv": "BOT_ANTHROPIC_API_KEY"
     }
   ],
   "roles": {
@@ -211,7 +211,7 @@ DeepSeek adapter принимает `thinkingMode=enabled|disabled`; default —
 (DeepSeek V4 Flash 0731, text-only, окно 1M токенов) для обеих ролей: без
 Qwen и без fallback-провайдера.
 
-Bot turn использует роль `turn`; `parilka-digests` использует роль `summary`.
+Bot turn использует роль `turn`; `bot-agi-digests` использует роль `summary`.
 В production обе роли содержат ровно один DeepSeek candidate
 `deepseek:deepseek-v4-flash`: это покрывает ответы агента, day/ISO-weekly
 summaries и dream-консолидацию памяти. Month rows можно
@@ -219,17 +219,17 @@ summaries и dream-консолидацию памяти. Month rows можно
 их не читает и автоматически не генерирует.
 
 Bot turn не имеет общего deadline и фиксированного лимита model/tool ходов.
-`PARILKA_BOT_MODEL_STEP_TIMEOUT_MS` ограничивает только один provider step
+`BOT_MODEL_STEP_TIMEOUT_MS` ограничивает только один provider step
 (default 180000); каждый tool, локальная транскрипция и Telegram publication
 сохраняют собственные timeout/cancellation и bounded payload-контракты.
 
 ### Опциональный web search
 
-Web search выбирается через `PARILKA_BOT_WEB_SEARCH_PROVIDER` (`auto` по
+Web search выбирается через `BOT_WEB_SEARCH_PROVIDER` (`auto` по
 умолчанию) и имеет два опциональных бэкенда:
 
 - **HTTP adapter** — provider-neutral boundary. При заданном
-  `PARILKA_BOT_WEB_SEARCH_ENDPOINT` бот делает:
+  `BOT_WEB_SEARCH_ENDPOINT` бот делает:
 
   ```text
   POST {"query":"..."}
@@ -237,21 +237,21 @@ Web search выбирается через `PARILKA_BOT_WEB_SEARCH_PROVIDER` (`a
   ```
 
   Bearer token можно сослать через
-  `PARILKA_BOT_WEB_SEARCH_BEARER_TOKEN_ENV`. Endpoint должен быть HTTPS либо
+  `BOT_WEB_SEARCH_BEARER_TOKEN_ENV`. Endpoint должен быть HTTPS либо
   loopback HTTP, без credentials/query/fragment.
 
 - **Vertex adapter** — bot-owned native Gemini grounding
-  (`PARILKA_BOT_WEB_SEARCH_PROVIDER=vertex`). Gemini здесь только поисковый
+  (`BOT_WEB_SEARCH_PROVIDER=vertex`). Gemini здесь только поисковый
   прокси: один `generateContent` с `googleSearch`, видимый ответ возвращается
   как есть, grounding chunks становятся источниками. Авторизация — Application
   Default Credentials через `gcloud auth application-default print-access-token`
   (часовой user-token, кэшируется), как у эмбеддингов; API-ключа нет. Модель,
-  проект, регион и путь к `gcloud` настраиваются через `PARILKA_VERTEX_*` /
-  `PARILKA_GCLOUD_PATH`.
+  проект, регион и путь к `gcloud` настраиваются через `BOT_VERTEX_*` /
+  `BOT_GCLOUD_PATH`.
 
 `auto` включает HTTP adapter при заданном endpoint, иначе Vertex при заданном
-`PARILKA_VERTEX_PROJECT`, иначе поиск выключен. Ни один бэкенд не является
-частью rulesync. Отключённый там `gemini-search` восстанавливать для Parilka не
+`BOT_VERTEX_PROJECT`, иначе поиск выключен. Ни один бэкенд не является
+частью rulesync. Отключённый там `gemini-search` восстанавливать для bot-agi не
 нужно.
 
 ### Встроенный static page fetch
@@ -272,7 +272,7 @@ Lightpanda и не требует отдельной настройки. Он о
 `research_lookup` не читает файлы HH из этого репозитория и не знает их
 структуру. Это клиент к owner-only Unix socket отдельного read-only сервиса,
 который владеет закрытым исследовательским корпусом. При заданном
-`PARILKA_BOT_RESEARCH_GATEWAY_SOCKET` в private bot env клиент передаёт только
+`BOT_RESEARCH_GATEWAY_SOCKET` в private bot env клиент передаёт только
 короткий запрос и получает строго ограниченный обезличенный конверт; путь к
 HH-репозиторию, manifest, БД, credential и raw record не входят в контракт.
 В env указывается уже развёрнутый абсолютный путь, например
@@ -298,21 +298,21 @@ systemd unit.
 MTProto session остановлены, запускается единственный новый owner:
 
 ```bash
-PARILKA_MTPROTO_EXCLUSIVE_OWNER=true \
-  ./bin/telegram-parilka-mcp-sync-daemon
+BOT_MTPROTO_EXCLUSIVE_OWNER=true \
+  ./bin/telegram-bot-agi-mcp-sync-daemon
 ```
 
 Проверка статуса идёт через его loopback MCP:
 
 ```bash
-./bin/telegram-parilka-mcp --status
+./bin/telegram-bot-agi-mcp --status
 ```
 
 После проверки, что других `getUpdates` poller для этого token нет, bot
 стартует в shadow по умолчанию:
 
 ```bash
-PARILKA_BOT_EXCLUSIVE_POLLER=true PARILKA_BOT_MODE=shadow ./bin/parilka-bot
+BOT_EXCLUSIVE_POLLER=true BOT_MODE=shadow ./bin/bot-agi-bot
 ```
 
 Shadow сохраняет и обрабатывает updates, строит drafts, но не вызывает
@@ -321,7 +321,7 @@ Bot API `sendMessage`. При этом он всё равно является l
 параллельного shadow нужен отдельный тестовый bot/token; иначе старый poller
 следует остановить на контролируемое окно.
 
-Аналогично, новый `parilka-sync` нельзя запускать рядом со старым MTProto
+Аналогично, новый `bot-agi-sync` нельзя запускать рядом со старым MTProto
 owner той же session.
 
 ### MCP client
@@ -329,12 +329,12 @@ owner той же session.
 Штатная конфигурация клиента указывает на stdio-обёртку:
 
 ```toml
-[mcp_servers.telegram-parilka]
-command = "/absolute/path/to/parilka-unified/bin/telegram-parilka-mcp"
+[mcp_servers.telegram-bot-agi]
+command = "/absolute/path/to/bot-agi/bin/telegram-bot-agi-mcp"
 ```
 
-`parilka-sync` должен уже слушать `http://127.0.0.1:8766/mcp` (или одинаковый
-`PARILKA_MCP_HTTP_URL` должен быть задан owner и proxy).
+`bot-agi-sync` должен уже слушать `http://127.0.0.1:8766/mcp` (или одинаковый
+`BOT_MCP_HTTP_URL` должен быть задан owner и proxy).
 
 Loopback transport session-scoped намеренно: MCP
 `notifications/cancelled` приходит отдельным запросом и должен попасть в тот же
@@ -355,25 +355,25 @@ Owner ограничивает число loopback-сессий до 32 и уд�
 по-прежнему принимает только loopback Host/Origin; GET отключён.
 
 `--direct` — только аварийный recovery при полностью остановленном
-`parilka-sync`:
+`bot-agi-sync`:
 
 ```bash
-systemctl --user stop parilka-sync.service
-PARILKA_MTPROTO_EXCLUSIVE_OWNER=true \
-  ./bin/telegram-parilka-mcp --direct
+systemctl --user stop bot-agi-sync.service
+BOT_MTPROTO_EXCLUSIVE_OWNER=true \
+  ./bin/telegram-bot-agi-mcp --direct
 ```
 
-Без exact guard `PARILKA_MTPROTO_EXCLUSIVE_OWNER=true` direct mode завершится
+Без exact guard `BOT_MTPROTO_EXCLUSIVE_OWNER=true` direct mode завершится
 до открытия Telegram session. Не запускайте `--direct` рядом с owner: это
 создаст второго владельца MTProto session. После recovery завершите direct process до возврата
-`parilka-sync.service`.
+`bot-agi-sync.service`.
 
 ## systemd user services
 
 Поставляемые unit-файлы ожидают checkout в `%h/repos/parilka-unified` и читают:
 
 - `%h/.config/telegram-mcp/.env` — MTProto/shared DB;
-- `%h/.config/parilka/parilka.env` — bot/router/web-search.
+- `%h/.config/bot-agi/bot-agi.env` — bot/router/web-search.
 
 Если checkout находится в другом месте, сначала исправьте пути в
 устанавливаемых копиях unit-файлов. Секретные env-файлы должны иметь mode
@@ -382,27 +382,27 @@ Units разрешают запись только в `%h/.telegram-parilka-mcp`
 осознанно изменить `ReadWritePaths` в устанавливаемой копии.
 
 Для новой установки до первого запуска убедитесь, что в bot env явно стоит
-`PARILKA_BOT_MODE=shadow`, MCP writes выключены
+`BOT_MODE=shadow`, MCP writes выключены
 (`TELEGRAM_SEND_ENABLED=false`, `TELEGRAM_DRY_RUN_DEFAULT=true`), а старые
 poller/MTProto owner остановлены либо новые services используют отдельные
 test token/session. Только после этой проверки задайте в private bot env
-`PARILKA_BOT_EXCLUSIVE_POLLER=true`. Поставляемый unit намеренно не задаёт
+`BOT_EXCLUSIVE_POLLER=true`. Поставляемый unit намеренно не задаёт
 подтверждение через `Environment=`. Аналогично, в private shared env задайте
-`PARILKA_MTPROTO_EXCLUSIVE_OWNER=true` лишь после остановки прежнего
+`BOT_MTPROTO_EXCLUSIVE_OWNER=true` лишь после остановки прежнего
 `telegram-parilka-sync`; sync unit тоже намеренно не задаёт guard сам.
 
 ```bash
 install -d -m 0700 \
   "$HOME/.config/systemd/user" \
   "$HOME/.telegram-parilka-mcp"
-install -m 0644 systemd/parilka-sync.service "$HOME/.config/systemd/user/"
-install -m 0644 systemd/parilka-bot.service "$HOME/.config/systemd/user/"
-install -m 0644 systemd/parilka-maintain.service "$HOME/.config/systemd/user/"
-install -m 0644 systemd/parilka-maintain.timer "$HOME/.config/systemd/user/"
+install -m 0644 systemd/bot-agi-sync.service "$HOME/.config/systemd/user/"
+install -m 0644 systemd/bot-agi-bot.service "$HOME/.config/systemd/user/"
+install -m 0644 systemd/bot-agi-maintain.service "$HOME/.config/systemd/user/"
+install -m 0644 systemd/bot-agi-maintain.timer "$HOME/.config/systemd/user/"
 
 systemctl --user daemon-reload
-systemctl --user enable --now parilka-sync.service
-systemctl --user enable --now parilka-bot.service
+systemctl --user enable --now bot-agi-sync.service
+systemctl --user enable --now bot-agi-bot.service
 ```
 
 Сначала отдельно проверьте dry-run maintenance и digest plan; второй не
@@ -411,12 +411,12 @@ systemctl --user enable --now parilka-bot.service
 иначе fail-closed identity check правильно отклонит другой файл:
 
 ```bash
-./bin/parilka-maintain --db /path/to/parilka-shadow.sqlite
+./bin/bot-agi-maintain --db /path/to/bot-agi-shadow.sqlite
 env -u TELEGRAM_DB_PATH \
-  -u PARILKA_BOT_DB_PATH \
+  -u BOT_DB_PATH \
   -u TELEGRAM_ALLOWED_CHAT_IDS \
-  ./bin/parilka-digests \
-    --db /path/to/parilka-shadow.sqlite \
+  ./bin/bot-agi-digests \
+    --db /path/to/bot-agi-shadow.sqlite \
     --chat -1000000000000
 ```
 
@@ -426,8 +426,8 @@ apply после новых day rows может дополнительно вы�
 проверки timer запускает maintenance, а затем digest apply:
 
 ```bash
-systemctl --user enable --now parilka-maintain.timer
-systemctl --user list-timers parilka-maintain.timer
+systemctl --user enable --now bot-agi-maintain.timer
+systemctl --user list-timers bot-agi-maintain.timer
 ```
 
 Команды выше являются безопасным рецептом новой shadow-установки, а не
@@ -443,14 +443,14 @@ Bot, sync и MCP entrypoints пишут redacted Pino JSON в stderr; systemd
 
 ```bash
 journalctl --user \
-  -u parilka-sync.service \
-  -u parilka-bot.service \
-  -u parilka-maintain.service \
+  -u bot-agi-sync.service \
+  -u bot-agi-bot.service \
+  -u bot-agi-maintain.service \
   -f -o cat
 ```
 
-Уровень сервисных логов задаёт `PARILKA_LOG_LEVEL` (default `info`). Retention и
-лимиты журнала настраиваются в journald, не в Parilka.
+Уровень сервисных логов задаёт `BOT_LOG_LEVEL` (default `info`). Retention и
+лимиты журнала настраиваются в journald, не в bot-agi.
 
 ## Write safety
 
@@ -470,7 +470,7 @@ caller может сам создать и использовать его. От
 `dedupe_key` необязателен, но настоятельно рекомендуется для actionable live
 sends. Durable outbox не повторяет неоднозначный dispatch автоматически.
 
-`PARILKA_BOT_MODE=live` управляет Bot API публикацией независимо от MCP
+`BOT_MODE=live` управляет Bot API публикацией независимо от MCP
 write-флагов. Bot записывает draft до `sending`; transport timeout, partial send
 или неизвестный ACK после dispatch завершается terminal `lost_ack` и требует
 ручной сверки.
@@ -515,8 +515,8 @@ Provider/model namespaces изолированы, но полноценного 
 Без `--apply` maintenance открывает DB read-only и печатает dry-run report:
 
 ```bash
-./bin/parilka-maintain --db /path/to/snapshot.sqlite
-./bin/parilka-maintain --db /path/to/snapshot.sqlite --apply
+./bin/bot-agi-maintain --db /path/to/snapshot.sqlite
+./bin/bot-agi-maintain --db /path/to/snapshot.sqlite --apply
 ```
 
 Apply помечает stale `history_jobs`, удаляет bounded terminal history/bot rows
@@ -548,12 +548,12 @@ Digest CLI тоже dry-run по умолчанию. Он читает толь�
 недостающие Moscow-calendar days и ISO weeks и не вызывает модель:
 
 ```bash
-./bin/parilka-digests \
-  --db /path/to/parilka-shadow.sqlite \
+./bin/bot-agi-digests \
+  --db /path/to/bot-agi-shadow.sqlite \
   --chat -1000000000000
 
-./bin/parilka-digests \
-  --db /path/to/parilka-shadow.sqlite \
+./bin/bot-agi-digests \
+  --db /path/to/bot-agi-shadow.sqlite \
   --chat -1000000000000 \
   --model-config /absolute/path/to/model-router.json \
   --apply
@@ -564,8 +564,8 @@ Apply обрабатывает периоды последовательно и 
 provider/model attribution. Один apply вызывает не больше трёх day и одной
 week generation по умолчанию; самые свежие due periods идут первыми.
 Пределы задаются
-`PARILKA_DIGEST_MAX_DAY_GENERATIONS_PER_RUN` (0–31) и
-`PARILKA_DIGEST_MAX_WEEK_GENERATIONS_PER_RUN` (0–8), либо явными
+`BOT_DIGEST_MAX_DAY_GENERATIONS_PER_RUN` (0–31) и
+`BOT_DIGEST_MAX_WEEK_GENERATIONS_PER_RUN` (0–8), либо явными
 `--max-day-generations-per-run` и `--max-week-generations-per-run`.
 Dry-run эти пределы не обрезают: он планирует весь backlog без model calls.
 Лишние apply-кандидаты получают `deferred/run_limit`, а существующие legacy
@@ -591,9 +591,9 @@ private SQLite lock-БД. Это OS-backed single-owner lock: после crash �
 SQLite inode через разные hardlink-пути запрещено: digest CLI fail closed до
 read-only preflight, если `nlink` application DB не равен одному.
 
-`parilka-maintain.service` выполняет built `parilka-maintain --apply` с
+`bot-agi-maintain.service` выполняет built `bot-agi-maintain --apply` с
 указанными выше retention defaults, затем
-`parilka-digests --apply`; поэтому для timer должен быть доступен role
+`bot-agi-digests --apply`; поэтому для timer должен быть доступен role
 `summary` и provider credentials. Digest CLI сам `.env` не загружает: прямому
 apply нужны экспортированные provider variables, а systemd получает их из
 `EnvironmentFile`. SQLite process-lock живёт рядом с canonical DB в private
@@ -606,20 +606,20 @@ apply после legacy import может пересобрать day rows с п�
 постепенно разбирает его newest-first в пределах указанных выше лимитов.
 Оцените provider cost по dry-run и выполните первый apply вручную до включения
 timer.
-`PARILKA_DIGEST_MODEL_CANDIDATE_TIMEOUT_MS` не может превышать
-`PARILKA_DIGEST_MODEL_TOTAL_TIMEOUT_MS`. Backup/restore ни один job не создаёт.
+`BOT_DIGEST_MODEL_CANDIDATE_TIMEOUT_MS` не может превышать
+`BOT_DIGEST_MODEL_TOTAL_TIMEOUT_MS`. Backup/restore ни один job не создаёт.
 
 Python state importer также dry-run по умолчанию:
 
 ```bash
-./bin/parilka-import-python-state \
+./bin/bot-agi-import-python-state \
   --source /path/to/legacy-bot.snapshot.sqlite \
-  --target /path/to/parilka-shadow.sqlite \
+  --target /path/to/bot-agi-shadow.sqlite \
   --chat-id -1000000000000
 
-./bin/parilka-import-python-state \
+./bin/bot-agi-import-python-state \
   --source /path/to/legacy-bot.snapshot.sqlite \
-  --target /path/to/parilka-shadow.sqlite \
+  --target /path/to/bot-agi-shadow.sqlite \
   --chat-id -1000000000000 \
   --apply
 ```
@@ -631,8 +631,8 @@ Python заполняет только отсутствующие canonical mess
 outbox rows, включая `lost_ack`, только подсчитываются в отчёте и не попадают
 в live retry queue.
 
-Operational bin (`parilka-import-python-state`, `parilka-maintain` и
-`parilka-digests`) исполняют только собранные `dist/*-cli.js` и fail closed,
+Operational bin (`bot-agi-import-python-state`, `bot-agi-maintain` и
+`bot-agi-digests`) исполняют только собранные `dist/*-cli.js` и fail closed,
 если build отсутствует или старее source/config. После изменения исходников
 выполните `npm run build`. TypeScript-файлы в `scripts/` — только thin
 development/test wrappers.

@@ -95,21 +95,21 @@ export function parseOptions(
 
   const chatId = telegramChatId(
     values.get("--chat") ??
-      env.PARILKA_DIGEST_CHAT_ID ??
-      env.PARILKA_BOT_CHAT_ID ??
+      env.BOT_DIGEST_CHAT_ID ??
+      env.BOT_CHAT_ID ??
       onlyAllowedChat(env.TELEGRAM_ALLOWED_CHAT_IDS),
   );
   assertMatchesAllowlist(chatId, env.TELEGRAM_ALLOWED_CHAT_IDS);
 
   const configuredDb =
     values.get("--db") ??
-    env.PARILKA_DIGEST_DB_PATH ??
-    env.PARILKA_BOT_DB_PATH ??
+    env.BOT_DIGEST_DB_PATH ??
+    env.BOT_DB_PATH ??
     env.TELEGRAM_DB_PATH;
   if (!configuredDb) {
     throw new CliConfigError(
       "missing_db",
-      "Set --db, PARILKA_DIGEST_DB_PATH, PARILKA_BOT_DB_PATH, or TELEGRAM_DB_PATH.",
+      "Set --db, BOT_DIGEST_DB_PATH, BOT_DB_PATH, or TELEGRAM_DB_PATH.",
     );
   }
   const dbPath = existingAbsoluteFile(
@@ -121,25 +121,25 @@ export function parseOptions(
 
   const configuredModel =
     values.get("--model-config") ??
-    env.PARILKA_DIGEST_MODEL_CONFIG_PATH ??
-    env.PARILKA_BOT_MODEL_CONFIG_PATH;
+    env.BOT_DIGEST_MODEL_CONFIG_PATH ??
+    env.BOT_MODEL_CONFIG_PATH;
   const modelConfigPath = configuredModel
     ? existingAbsoluteFile(configuredModel, "model router config")
     : undefined;
   if (apply && !modelConfigPath) {
     throw new CliConfigError(
       "missing_model_config",
-      "Apply mode requires --model-config, PARILKA_DIGEST_MODEL_CONFIG_PATH, or PARILKA_BOT_MODEL_CONFIG_PATH.",
+      "Apply mode requires --model-config, BOT_DIGEST_MODEL_CONFIG_PATH, or BOT_MODEL_CONFIG_PATH.",
     );
   }
 
   const botIdValue =
-    values.get("--bot-id") ?? env.PARILKA_BOT_ID;
+    values.get("--bot-id") ?? env.BOT_ID;
   const botId = botIdValue ? telegramBotId(botIdValue) : "";
   if (apply && modelConfigPath && botId === "") {
     throw new CliConfigError(
       "missing_bot_id",
-      "Dream mode requires --bot-id or PARILKA_BOT_ID to the application bot Telegram user id.",
+      "Dream mode requires --bot-id or BOT_ID to the application bot Telegram user id.",
     );
   }
 
@@ -154,35 +154,35 @@ export function parseOptions(
     modelConfigPath,
     maxInputChars: integerOption(
       values.get("--max-input-chars") ??
-        env.PARILKA_DIGEST_MAX_INPUT_CHARS,
+        env.BOT_DIGEST_MAX_INPUT_CHARS,
       "max input characters",
       1_000,
       2_000_000,
     ),
     maxOutputChars: integerOption(
       values.get("--max-output-chars") ??
-        env.PARILKA_DIGEST_MAX_OUTPUT_CHARS,
+        env.BOT_DIGEST_MAX_OUTPUT_CHARS,
       "max output characters",
       1_000,
       200_000,
     ),
     itemTimeoutMs: integerOption(
       values.get("--item-timeout-ms") ??
-        env.PARILKA_DIGEST_ITEM_TIMEOUT_MS,
+        env.BOT_DIGEST_ITEM_TIMEOUT_MS,
       "item timeout",
       1_000,
       15 * 60_000,
     ),
     modelTotalTimeoutMs: integerOption(
       values.get("--model-total-timeout-ms") ??
-        env.PARILKA_DIGEST_MODEL_TOTAL_TIMEOUT_MS,
+        env.BOT_DIGEST_MODEL_TOTAL_TIMEOUT_MS,
       "model total timeout",
       1_000,
       15 * 60_000,
     ),
     modelCandidateTimeoutMs: integerOption(
       values.get("--model-candidate-timeout-ms") ??
-        env.PARILKA_DIGEST_MODEL_CANDIDATE_TIMEOUT_MS,
+        env.BOT_DIGEST_MODEL_CANDIDATE_TIMEOUT_MS,
       "model candidate timeout",
       500,
       15 * 60_000,
@@ -190,7 +190,7 @@ export function parseOptions(
     maxDayGenerationsPerRun:
       integerOption(
         values.get("--max-day-generations-per-run") ??
-          env.PARILKA_DIGEST_MAX_DAY_GENERATIONS_PER_RUN,
+          env.BOT_DIGEST_MAX_DAY_GENERATIONS_PER_RUN,
         "day generations per run",
         0,
         MAX_DAY_GENERATIONS_PER_RUN,
@@ -198,13 +198,13 @@ export function parseOptions(
     maxWeekGenerationsPerRun:
       integerOption(
         values.get("--max-week-generations-per-run") ??
-          env.PARILKA_DIGEST_MAX_WEEK_GENERATIONS_PER_RUN,
+          env.BOT_DIGEST_MAX_WEEK_GENERATIONS_PER_RUN,
         "week generations per run",
         0,
         MAX_WEEK_GENERATIONS_PER_RUN,
       ) ?? DEFAULT_MAX_WEEK_GENERATIONS_PER_RUN,
     memoryMaxChars: integerFromEnvironment(
-      env.PARILKA_MEMORY_MAX_CHARS,
+      env.BOT_MEMORY_MAX_CHARS,
       "memory max chars",
       500,
       4_000,
@@ -304,7 +304,7 @@ function assertSharedDatabaseIdentity(
   env: Readonly<Record<string, string | undefined>>,
 ): void {
   for (const [name, value] of [
-    ["PARILKA_BOT_DB_PATH", env.PARILKA_BOT_DB_PATH],
+    ["BOT_DB_PATH", env.BOT_DB_PATH],
     ["TELEGRAM_DB_PATH", env.TELEGRAM_DB_PATH],
   ] as const) {
     if (!value) {

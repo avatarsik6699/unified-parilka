@@ -232,12 +232,12 @@ export function loadConfig(): AppConfig {
     },
     memory: {
       memoryMaxChars: intFromEnv(
-        "PARILKA_MEMORY_MAX_CHARS",
+        "BOT_MEMORY_MAX_CHARS",
       ),
     },
     hermesProjection: {
       enabled: boolFromEnv(
-        "PARILKA_HERMES_PROJECTION_ENABLED",
+        "BOT_HERMES_PROJECTION_ENABLED",
       ),
     },
   };
@@ -314,19 +314,19 @@ export function loadTelegramAuthConfig(
  * config self-contained.
  */
 function parseOptionalBotSenderId(): string | undefined {
-  const raw = process.env.PARILKA_BOT_ID?.trim();
+  const raw = process.env.BOT_ID?.trim();
   if (raw == null || raw === "") {
     return undefined;
   }
   if (!/^[1-9]\d*$/.test(raw)) {
     throw new Error(
-      "PARILKA_BOT_ID must be a positive decimal integer without a leading zero.",
+      "BOT_ID must be a positive decimal integer without a leading zero.",
     );
   }
   const parsed = Number(raw);
   if (!Number.isSafeInteger(parsed)) {
     throw new Error(
-      "PARILKA_BOT_ID must not exceed the JavaScript safe integer range.",
+      "BOT_ID must not exceed the JavaScript safe integer range.",
     );
   }
   return raw;

@@ -181,7 +181,7 @@ function cosine(left: number[], right: number[]): number {
 }
 
 function main(): void {
-  const dir = mkdtempSync(join(tmpdir(), "parilka-retrieval-eval-"));
+  const dir = mkdtempSync(join(tmpdir(), "bot-agi-retrieval-eval-"));
   const dbPath = join(dir, "eval.sqlite");
   const store = new MessageStore(dbPath);
   try {

@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+project_dir="${TELEGRAM_PROJECT_DIR:-$(cd -- "$script_dir/.." && pwd)}"
+cd "$project_dir"
+
+entrypoint="$project_dir/dist/bot-daemon.js"
+"$project_dir/bin/telegram-bot-agi-mcp-check-build" "$project_dir" "$entrypoint"
+
+# shellcheck source=bin/bot-agi-secret-env
+source "$project_dir/bin/bot-agi-secret-env"
+bot_agi_load_secret_file BOT_TOKEN BOT_TOKEN_FILE
+bot_agi_load_secret_file BOT_QWEN_API_KEY BOT_QWEN_API_KEY_FILE
+bot_agi_load_secret_file BOT_DEEPSEEK_API_KEY BOT_DEEPSEEK_API_KEY_FILE
+
+node_bin="${TELEGRAM_NODE:-node}"
+exec "$node_bin" "$entrypoint" "$@"

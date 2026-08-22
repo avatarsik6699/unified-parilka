@@ -1,4 +1,4 @@
-# parilka-unified
+# bot-agi
 
 > Единый TypeScript runtime для Parilka: durable Telegram Bot API poller,
 > MTProto history owner, loopback MCP, SQLite state, provider-routed agent и
@@ -22,11 +22,11 @@
 - `src/digest/`: day/week planning, generation, hashing, process lock и offline
   dream memory consolidation.
 - `src/dream/`: per-chat memory consolidator через router role "summary".
-- `src/digest-cli/`: `parilka-digests --apply` запускает digest-фазы и dream-проход.
+- `src/digest-cli/`: `bot-agi-digests --apply` запускает digest-фазы и dream-проход.
 - `src/providers/`: model/provider config, hardened HTTP и fallback.
 - `src/vector/`, `src/embeddings.ts`: opt-in embedding index/search.
 - `src/maintenance/`, `src/maintenance-cli.ts`: bounded retention, deferred FTS,
-  WAL checkpoint и schema integrity; `parilka-maintain`.
+  WAL checkpoint и schema integrity; `bot-agi-maintain`.
 
 ## Agent workflow
 

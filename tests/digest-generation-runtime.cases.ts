@@ -258,12 +258,12 @@ test("CLI defaults to a read-only dry-run and needs no model config", (t) => {
   writable.close();
   const env = { ...process.env };
   for (const name of [
-    "PARILKA_BOT_DB_PATH",
-    "PARILKA_DIGEST_DB_PATH",
+    "BOT_DB_PATH",
+    "BOT_DIGEST_DB_PATH",
     "TELEGRAM_DB_PATH",
     "TELEGRAM_ALLOWED_CHAT_IDS",
-    "PARILKA_BOT_MODEL_CONFIG_PATH",
-    "PARILKA_DIGEST_MODEL_CONFIG_PATH",
+    "BOT_MODEL_CONFIG_PATH",
+    "BOT_DIGEST_MODEL_CONFIG_PATH",
   ]) {
     delete env[name];
   }
@@ -308,12 +308,12 @@ test("CLI rejects a hardlink alias without relying on shared DB env", (t) => {
   linkSync(primaryPath, hardlinkPath);
   const env = { ...process.env };
   for (const name of [
-    "PARILKA_BOT_DB_PATH",
-    "PARILKA_DIGEST_DB_PATH",
+    "BOT_DB_PATH",
+    "BOT_DIGEST_DB_PATH",
     "TELEGRAM_DB_PATH",
     "TELEGRAM_ALLOWED_CHAT_IDS",
-    "PARILKA_BOT_MODEL_CONFIG_PATH",
-    "PARILKA_DIGEST_MODEL_CONFIG_PATH",
+    "BOT_MODEL_CONFIG_PATH",
+    "BOT_DIGEST_MODEL_CONFIG_PATH",
   ]) {
     delete env[name];
   }
@@ -355,11 +355,11 @@ test("CLI rejects a database divergent from configured shared state", (t) => {
     TELEGRAM_DB_PATH: primaryPath,
   };
   for (const name of [
-    "PARILKA_BOT_DB_PATH",
-    "PARILKA_DIGEST_DB_PATH",
+    "BOT_DB_PATH",
+    "BOT_DIGEST_DB_PATH",
     "TELEGRAM_ALLOWED_CHAT_IDS",
-    "PARILKA_BOT_MODEL_CONFIG_PATH",
-    "PARILKA_DIGEST_MODEL_CONFIG_PATH",
+    "BOT_MODEL_CONFIG_PATH",
+    "BOT_DIGEST_MODEL_CONFIG_PATH",
   ]) {
     delete env[name];
   }

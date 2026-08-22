@@ -1,6 +1,6 @@
 # Dream offline memory consolidation
 
-`src/dream/` — offline pass, который запускается внутри `parilka-digests` и
+`src/dream/` — offline pass, который запускается внутри `bot-agi-digests` и
 обновляет семантический слой `bot_chat_memory` (и при необходимости
 fast/lessons/skills) на основе реальных bot-reply interactions.
 
@@ -101,7 +101,7 @@ fast/lessons/skills) на основе реальных bot-reply interactions.
   `candidates_exhausted:transport:ETIMEDOUT`). Outer/first semantic string
   code wins (ETIMEDOUT over nested ABORT_ERR or numeric DOM 20). Incomplete
   review/shortening включают `finishReason`. Без provider messages и секретов.
-- Observability: production `parilka-digests` main wires
+- Observability: production `bot-agi-digests` main wires
   `createLogger({ service: "cli" })` into `DreamConsolidator` via DI.
   Progress events (safe metadata only): `bot.dream.day_started`,
   `batch_started` / `batch_completed` / `batch_failed`, `day_completed`.

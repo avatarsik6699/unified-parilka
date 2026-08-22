@@ -14,8 +14,8 @@ import type {
 
 export const DIGEST_TIME_ZONE = "Europe/Moscow";
 export const DIGEST_STALE_MESSAGE_THRESHOLD = 25;
-export const DAY_DIGEST_PROMPT_VERSION = "parilka-day-v1";
-export const WEEK_DIGEST_PROMPT_VERSION = "parilka-week-v1";
+export const DAY_DIGEST_PROMPT_VERSION = "bot-agi-day-v1";
+export const WEEK_DIGEST_PROMPT_VERSION = "bot-agi-week-v1";
 export const DEFAULT_MAX_DAY_GENERATIONS_PER_RUN = 3;
 export const DEFAULT_MAX_WEEK_GENERATIONS_PER_RUN = 1;
 export const MAX_DAY_GENERATIONS_PER_RUN = 31;
@@ -78,10 +78,10 @@ export interface DigestStore {
     input: UpsertDayDigestInput,
     sourceIsCurrent: () => boolean,
   ): StoredDayDigest | undefined;
-  deleteDayDigest(params: {
-    chatId: string;
-    day: string;
-  }): { dayDeleted: boolean; weekRollupsDeleted: number };
+  deleteDayDigest(params: { chatId: string; day: string }): {
+    dayDeleted: boolean;
+    weekRollupsDeleted: number;
+  };
   getDigestRollups(params: {
     chatId: string;
     kind: "week" | "month";
@@ -89,9 +89,7 @@ export interface DigestStore {
     dayTo: string;
     limit?: number;
   }): StoredDigestRollup[];
-  upsertDigestRollup(
-    input: UpsertDigestRollupInput,
-  ): StoredDigestRollup;
+  upsertDigestRollup(input: UpsertDigestRollupInput): StoredDigestRollup;
   commitDigestRollupIfCurrent(
     input: UpsertDigestRollupInput,
     sourceIsCurrent: () => boolean,

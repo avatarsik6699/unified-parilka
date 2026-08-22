@@ -15,8 +15,8 @@ backlog.
 
 Scheduled apply defaults to three day generations and one week generation per
 run. Environment owners are
-`PARILKA_DIGEST_MAX_DAY_GENERATIONS_PER_RUN` and
-`PARILKA_DIGEST_MAX_WEEK_GENERATIONS_PER_RUN`; the explicit CLI overrides are
+`BOT_DIGEST_MAX_DAY_GENERATIONS_PER_RUN` and
+`BOT_DIGEST_MAX_WEEK_GENERATIONS_PER_RUN`; the explicit CLI overrides are
 `--max-day-generations-per-run` and `--max-week-generations-per-run`.
 Accepted ranges are 0–31 and 0–8. Apply processes due candidates newest-first;
 deferred legacy rows remain intact for a later run. The JSON report exposes
@@ -41,11 +41,11 @@ day failure discards the whole stage (fail-closed): persisted knowledge,
 memory block and watermark stay unchanged.
 
 `--dream-only` skips day/week generation and runs only the Dream pass.
-`--bot-id` (or `PARILKA_BOT_ID`) is required whenever apply with a model
+`--bot-id` (or `BOT_ID`) is required whenever apply with a model
 config runs Dream, because the consolidator needs the application bot sender
 id to recognize bot replies; dry-run digest does not need it. Dream shares the
-`PARILKA_DIGEST_MODEL_TOTAL_TIMEOUT_MS` and
-`PARILKA_DIGEST_MODEL_CANDIDATE_TIMEOUT_MS` env deadlines with day/week
+`BOT_DIGEST_MODEL_TOTAL_TIMEOUT_MS` and
+`BOT_DIGEST_MODEL_CANDIDATE_TIMEOUT_MS` env deadlines with day/week
 summaries; when they are unset each phase falls back to its own internal
 default (digest summaries 120 s total / 45 s per candidate, Dream 300 s /
 60 s). The Dream review output budget is 8192 tokens while day/week summaries

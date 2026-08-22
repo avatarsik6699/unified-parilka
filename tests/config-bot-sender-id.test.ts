@@ -5,22 +5,22 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { loadConfig, redactedConfig } from "../src/config.js";
 
-test("PARILKA_BOT_ID accepts positive decimals up to MAX_SAFE_INTEGER", () => {
+test("BOT_ID accepts positive decimals up to MAX_SAFE_INTEGER", () => {
   for (const raw of ["1", "123456789", "9007199254740991"]) {
-    withEnv({ PARILKA_BOT_ID: raw }, () => {
+    withEnv({ BOT_ID: raw }, () => {
       assert.equal(loadConfig().telegram.botSenderId, raw);
     });
   }
 });
 
-test("PARILKA_BOT_ID unset or empty yields undefined and redacts the value", () => {
-  withEnv({ PARILKA_BOT_ID: undefined }, () => {
+test("BOT_ID unset or empty yields undefined and redacts the value", () => {
+  withEnv({ BOT_ID: undefined }, () => {
     assert.equal(loadConfig().telegram.botSenderId, undefined);
   });
-  withEnv({ PARILKA_BOT_ID: "" }, () => {
+  withEnv({ BOT_ID: "" }, () => {
     assert.equal(loadConfig().telegram.botSenderId, undefined);
   });
-  withEnv({ PARILKA_BOT_ID: "9007199254740991" }, () => {
+  withEnv({ BOT_ID: "9007199254740991" }, () => {
     const config = redactedConfig(loadConfig()) as {
       telegram: { botSenderId: string };
     };
@@ -29,24 +29,24 @@ test("PARILKA_BOT_ID unset or empty yields undefined and redacts the value", () 
   });
 });
 
-test("PARILKA_BOT_ID rejects zero, leading zeros, and non-decimal values", () => {
+test("BOT_ID rejects zero, leading zeros, and non-decimal values", () => {
   for (const raw of ["0", "00", "0123", "abc", "123a", "-5", "1.5"]) {
-    withEnv({ PARILKA_BOT_ID: raw }, () => {
+    withEnv({ BOT_ID: raw }, () => {
       assert.throws(
         () => loadConfig(),
-        /PARILKA_BOT_ID must be a positive decimal integer without a leading zero/,
+        /BOT_ID must be a positive decimal integer without a leading zero/,
         `must reject ${JSON.stringify(raw)}`,
       );
     });
   }
 });
 
-test("PARILKA_BOT_ID rejects values above the safe integer range", () => {
+test("BOT_ID rejects values above the safe integer range", () => {
   for (const raw of ["9007199254740992", "99999999999999999999"]) {
-    withEnv({ PARILKA_BOT_ID: raw }, () => {
+    withEnv({ BOT_ID: raw }, () => {
       assert.throws(
         () => loadConfig(),
-        /PARILKA_BOT_ID must not exceed the JavaScript safe integer range/,
+        /BOT_ID must not exceed the JavaScript safe integer range/,
         `must reject ${JSON.stringify(raw)}`,
       );
     });

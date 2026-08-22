@@ -7,10 +7,10 @@ project_dir="${TELEGRAM_PROJECT_DIR:-$(cd -- "$script_dir/.." && pwd)}"
 cd "$project_dir"
 
 entrypoint="$project_dir/dist/maintenance-cli.js"
-"$project_dir/bin/telegram-parilka-mcp-check-build" "$project_dir" "$entrypoint"
+"$project_dir/bin/telegram-bot-agi-mcp-check-build" "$project_dir" "$entrypoint"
 
 node_bin="${TELEGRAM_NODE:-node}"
-state_db="${TELEGRAM_DB_PATH:-${PARILKA_BOT_DB_PATH:-$HOME/.telegram-parilka-mcp/messages.sqlite}}"
+state_db="${TELEGRAM_DB_PATH:-${BOT_DB_PATH:-$HOME/.telegram-parilka-mcp/messages.sqlite}}"
 has_db=0
 for argument in "$@"; do
   if [[ "$argument" == "--db" ]]; then

@@ -12,7 +12,7 @@ import {
   DREAM_CHAT_ID,
 } from "./support/dream.js";
 
-const MODEL_KEY_ENV = "PARILKA_DREAM_CLI_TEST_KEY";
+const MODEL_KEY_ENV = "BOT_DREAM_CLI_TEST_KEY";
 
 function capturedOutput(): {
   output: Pick<NodeJS.Process, "stdout" | "stderr">;

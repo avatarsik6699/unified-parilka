@@ -1,6 +1,6 @@
 """Tests: session guard (_assert_telegram_group) for parilka-chat plugin.
 
-The allowed group comes ONLY from required env PARILKA_TELEGRAM_CHAT_ID;
+The allowed group comes ONLY from required env BOT_TELEGRAM_CHAT_ID;
 a missing or empty value fails closed. Error messages carry no values.
 """
 

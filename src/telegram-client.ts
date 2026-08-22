@@ -30,7 +30,11 @@ export class TelegramService implements TelegramGateway {
   constructor(private readonly config: AppConfig) {}
 
   get isConfigured(): boolean {
-    return Boolean(this.config.telegram.apiId && this.config.telegram.apiHash && this.config.telegram.session);
+    return Boolean(
+      this.config.telegram.apiId &&
+      this.config.telegram.apiHash &&
+      this.config.telegram.session,
+    );
   }
 
   async getClient(): Promise<TelegramClient> {
@@ -45,7 +49,8 @@ export class TelegramService implements TelegramGateway {
       throw new ToolError({
         category: "auth",
         retryable: false,
-        message: "TELEGRAM_SESSION is missing. Run telegram-parilka-mcp-generate-session first.",
+        message:
+          "TELEGRAM_SESSION is missing. Run telegram-bot-agi-mcp-generate-session first.",
       });
     }
     if (this.client) {
@@ -86,7 +91,9 @@ export class TelegramService implements TelegramGateway {
     if (!this.config.telegram.requireAllowlistedChat) {
       return;
     }
-    const allowed = new Set(this.config.telegram.allowedChatIds.map(normalizeChatRef));
+    const allowed = new Set(
+      this.config.telegram.allowedChatIds.map(normalizeChatRef),
+    );
     if (!allowed.has(normalizeChatRef(chat))) {
       throw new ToolError({
         category: "permission",
@@ -116,17 +123,25 @@ export class TelegramService implements TelegramGateway {
     return resolved;
   }
 
-  async sendMessage(params: TelegramSendRequest): Promise<{ id?: number; chat: ChatInfo }> {
+  async sendMessage(
+    params: TelegramSendRequest,
+  ): Promise<{ id?: number; chat: ChatInfo }> {
     const resolved = await this.resolveChat(params.chat);
     const client = await this.getClient();
-    const sent = await client.sendMessage(resolved.input as never, {
-      message: params.text,
-      replyTo: params.replyToMessageId ?? params.topicId,
-      parseMode: params.parseMode === "none" ? false : params.parseMode,
-      linkPreview: params.linkPreview,
-      silent: params.silent,
-    } as never);
-    return { id: positiveSafeInteger(readProperty(sent, "id")), chat: resolved.info };
+    const sent = await client.sendMessage(
+      resolved.input as never,
+      {
+        message: params.text,
+        replyTo: params.replyToMessageId ?? params.topicId,
+        parseMode: params.parseMode === "none" ? false : params.parseMode,
+        linkPreview: params.linkPreview,
+        silent: params.silent,
+      } as never,
+    );
+    return {
+      id: positiveSafeInteger(readProperty(sent, "id")),
+      chat: resolved.info,
+    };
   }
 
   async getMessages(
@@ -139,25 +154,36 @@ export class TelegramService implements TelegramGateway {
     setIfDefined(options, "minId", params.minId);
     setIfDefined(options, "maxId", params.maxId);
     setIfDefined(options, "ids", params.ids);
-    const messages = await client.getMessages(resolved.input as never, options as never);
+    const messages = await client.getMessages(
+      resolved.input as never,
+      options as never,
+    );
     return {
       chat: resolved.info,
       messages: Array.from(messages as Iterable<unknown>)
         .map(gramMessageToTelegramHistory)
-        .filter((message): message is TelegramHistoryMessage => message != null),
+        .filter(
+          (message): message is TelegramHistoryMessage => message != null,
+        ),
     };
   }
 
   async iterateMessages(
     params: Omit<TelegramHistoryRequest, "ids">,
-  ): Promise<{ chat: ChatInfo; messages: AsyncIterable<TelegramHistoryMessage> }> {
+  ): Promise<{
+    chat: ChatInfo;
+    messages: AsyncIterable<TelegramHistoryMessage>;
+  }> {
     const resolved = await this.resolveChat(params.chat);
     const client = await this.getClient();
     const options: Record<string, unknown> = { limit: params.limit };
     setIfDefined(options, "offsetId", params.offsetId);
     setIfDefined(options, "minId", params.minId);
     setIfDefined(options, "maxId", params.maxId);
-    const messages = client.iterMessages(resolved.input as never, options as never) as AsyncIterable<unknown>;
+    const messages = client.iterMessages(
+      resolved.input as never,
+      options as never,
+    ) as AsyncIterable<unknown>;
 
     return {
       chat: resolved.info,
@@ -166,13 +192,19 @@ export class TelegramService implements TelegramGateway {
   }
 }
 
-export function gramMessageToTelegramHistory(message: unknown): TelegramHistoryMessage | undefined {
+export function gramMessageToTelegramHistory(
+  message: unknown,
+): TelegramHistoryMessage | undefined {
   if (!isRecord(message)) {
     return undefined;
   }
   const messageId = positiveSafeInteger(message.id);
   const kind = classNameOf(message);
-  if (messageId == null || kind.toLowerCase().includes("empty") || message.deleted === true) {
+  if (
+    messageId == null ||
+    kind.toLowerCase().includes("empty") ||
+    message.deleted === true
+  ) {
     return undefined;
   }
 
@@ -203,7 +235,8 @@ export function gramMessageToTelegramHistory(message: unknown): TelegramHistoryM
         : undefined,
     replyToMessageId: positiveSafeInteger(replyHeader?.replyToMsgId),
     topicId: positiveSafeInteger(replyHeader?.topMsgId),
-    isTopicMessage: message.forumTopic === true || replyHeader?.forumTopic === true,
+    isTopicMessage:
+      message.forumTopic === true || replyHeader?.forumTopic === true,
     isOutgoing: message.out === true,
     isService: kind.toLowerCase().includes("service"),
     isChannelPost: message.post === true,
@@ -215,7 +248,9 @@ export function gramMessageToTelegramHistory(message: unknown): TelegramHistoryM
   };
 }
 
-export function telegramClientOptions(config: AppConfig): Record<string, unknown> {
+export function telegramClientOptions(
+  config: AppConfig,
+): Record<string, unknown> {
   return {
     connectionRetries: config.telegram.connectionRetries,
     floodSleepThreshold: config.sync.floodWaitMaxSleepSec,
@@ -223,7 +258,11 @@ export function telegramClientOptions(config: AppConfig): Record<string, unknown
   };
 }
 
-function setIfDefined(target: Record<string, unknown>, key: string, value: unknown): void {
+function setIfDefined(
+  target: Record<string, unknown>,
+  key: string,
+  value: unknown,
+): void {
   if (value != null) {
     target[key] = value;
   }
@@ -291,7 +330,9 @@ function classNameOf(value: Record<string, unknown>): string {
     return explicit;
   }
   const constructor = value.constructor;
-  return typeof constructor === "function" && constructor.name ? constructor.name : "Unknown";
+  return typeof constructor === "function" && constructor.name
+    ? constructor.name
+    : "Unknown";
 }
 
 function positiveSafeInteger(value: unknown): number | undefined {
@@ -313,7 +354,9 @@ function stringifyIdentifier(value: unknown): string | undefined {
   }
   if (isRecord(value) && typeof value.toString === "function") {
     const rendered = value.toString();
-    return rendered === "[object Object]" ? undefined : nonEmptyString(rendered);
+    return rendered === "[object Object]"
+      ? undefined
+      : nonEmptyString(rendered);
   }
   return undefined;
 }
@@ -345,7 +388,8 @@ function isoDate(value: unknown): string | undefined {
     if (!Number.isFinite(numeric)) {
       return undefined;
     }
-    const milliseconds = Math.abs(numeric) < 100_000_000_000 ? numeric * 1_000 : numeric;
+    const milliseconds =
+      Math.abs(numeric) < 100_000_000_000 ? numeric * 1_000 : numeric;
     const parsed = new Date(milliseconds);
     return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : undefined;
   }

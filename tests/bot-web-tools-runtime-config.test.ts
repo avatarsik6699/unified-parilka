@@ -9,14 +9,15 @@ import {
 // ─── Runtime config contract ────────────────────────────────────────────────
 
 const VALID_ENV = {
-  PARILKA_BOT_TOKEN: "123456789:abcdefghijklmnopqrstuvwxyz_ABCD",
-  PARILKA_BOT_EXCLUSIVE_POLLER: "true",
-  PARILKA_BOT_CHAT_ID: "-1003179772905",
-  PARILKA_BOT_ID: "123456789",
-  PARILKA_BOT_USERNAME: "@ParilkaBot",
-  PARILKA_BOT_DB_PATH: "/tmp/parilka-runtime.sqlite",
+  BOT_TOKEN: "123456789:abcdefghijklmnopqrstuvwxyz_ABCD",
+  BOT_EXCLUSIVE_POLLER: "true",
+  BOT_CHAT_ID: "-1003179772905",
+  BOT_ID: "123456789",
+  BOT_USERNAME: "@ParilkaBot",
+  BOT_DB_PATH: "/tmp/parilka-runtime.sqlite",
   TELEGRAM_DB_PATH: "/tmp/parilka-runtime.sqlite",
-  PARILKA_BOT_MODEL_CONFIG_PATH: resolve("package.json"),
+  BOT_MODEL_CONFIG_PATH: resolve("package.json"),
+  BOT_CHAT_TITLE: "Test Chat",
 } as const;
 
 test("bot runtime config defaults the web tool endpoints", () => {
@@ -38,17 +39,18 @@ test("bot runtime config rejects invalid web tool endpoints", () => {
     "http://user:pass@127.0.0.1:8080",
   ]) {
     assert.throws(
-      () => parseBotRuntimeConfig({
-        ...VALID_ENV,
-        PARILKA_BOT_SEARXNG_ENDPOINT: endpoint,
-      }),
+      () =>
+        parseBotRuntimeConfig({
+          ...VALID_ENV,
+          BOT_SEARXNG_ENDPOINT: endpoint,
+        }),
       undefined,
     );
   }
-  assert.throws(
-    () => parseBotRuntimeConfig({
+  assert.throws(() =>
+    parseBotRuntimeConfig({
       ...VALID_ENV,
-      PARILKA_BOT_FIRECRAWL_ENDPOINT: "http://example.com:3002",
+      BOT_FIRECRAWL_ENDPOINT: "http://example.com:3002",
     }),
   );
 });

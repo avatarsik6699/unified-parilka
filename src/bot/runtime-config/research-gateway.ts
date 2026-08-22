@@ -17,7 +17,7 @@ const DEFAULT_TIMEOUT_MS = 20_000;
 export function optionalResearchGatewayConfig(
   env: BotRuntimeEnvironment,
 ): { researchGateway?: BotResearchGatewayRuntimeConfig } {
-  const rawSocketPath = env.PARILKA_BOT_RESEARCH_GATEWAY_SOCKET;
+  const rawSocketPath = env.BOT_RESEARCH_GATEWAY_SOCKET;
   if (rawSocketPath === undefined || rawSocketPath.trim().length === 0) {
     return {};
   }
@@ -25,11 +25,11 @@ export function optionalResearchGatewayConfig(
     researchGateway: {
       socketPath: absoluteSocketPath(
         rawSocketPath,
-        "PARILKA_BOT_RESEARCH_GATEWAY_SOCKET",
+        "BOT_RESEARCH_GATEWAY_SOCKET",
       ),
       timeoutMs: integer(
-        env.PARILKA_BOT_RESEARCH_GATEWAY_TIMEOUT_MS,
-        "PARILKA_BOT_RESEARCH_GATEWAY_TIMEOUT_MS",
+        env.BOT_RESEARCH_GATEWAY_TIMEOUT_MS,
+        "BOT_RESEARCH_GATEWAY_TIMEOUT_MS",
         DEFAULT_TIMEOUT_MS,
         1_000,
         60_000,

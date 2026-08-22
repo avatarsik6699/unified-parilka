@@ -53,7 +53,7 @@ class PreToolCallHookTests(unittest.TestCase):
 
     def tearDown(self):
         os.environ.pop(parilka_chat.ALLOWED_CHAT_ID_ENV, None)
-        os.environ.pop("PARILKA_BOT_MEMORY_WRITE_SENDER_IDS", None)
+        os.environ.pop("BOT_MEMORY_WRITE_SENDER_IDS", None)
 
     def make_hook(self, profile: str = "parilka", session=None):
         ctx = MagicMock()
@@ -65,7 +65,7 @@ class PreToolCallHookTests(unittest.TestCase):
         return parilka_chat._make_pre_tool_call_hook(ctx)
 
     def set_allowlist(self, value: str) -> None:
-        os.environ["PARILKA_BOT_MEMORY_WRITE_SENDER_IDS"] = value
+        os.environ["BOT_MEMORY_WRITE_SENDER_IDS"] = value
 
     def test_allows_non_write_tools(self):
         hook = self.make_hook()

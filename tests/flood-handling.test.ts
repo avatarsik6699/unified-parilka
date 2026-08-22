@@ -382,16 +382,16 @@ test("daemon loop exits with shutdown reason when aborted during a normal backof
 test("sync daemon requires an explicit exclusive MTProto ownership assertion", () => {
   assert.doesNotThrow(() =>
     assertExclusiveMtprotoOwner({
-      PARILKA_MTPROTO_EXCLUSIVE_OWNER: "true",
+      BOT_MTPROTO_EXCLUSIVE_OWNER: "true",
     }),
   );
   for (const value of [undefined, "", "TRUE", "1"]) {
     assert.throws(
       () =>
         assertExclusiveMtprotoOwner({
-          PARILKA_MTPROTO_EXCLUSIVE_OWNER: value,
+          BOT_MTPROTO_EXCLUSIVE_OWNER: value,
         }),
-      /PARILKA_MTPROTO_EXCLUSIVE_OWNER/u,
+      /BOT_MTPROTO_EXCLUSIVE_OWNER/u,
     );
   }
 });

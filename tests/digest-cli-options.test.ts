@@ -77,7 +77,7 @@ test("apply --dream-only accepts bot id from env", () => {
         "--model-config",
         modelConfigPath,
       ],
-      { PARILKA_BOT_ID: "123456789" },
+      { BOT_ID: "123456789" },
     );
     assert.equal(options.botId, "123456789");
   } finally {

@@ -18,7 +18,7 @@ const repositoryRoot = path.resolve(
 const loader = path.join(
   repositoryRoot,
   "bin",
-  "parilka-secret-env",
+  "bot-agi-secret-env",
 );
 
 function withSecret(
@@ -26,7 +26,7 @@ function withSecret(
   run: (path: string) => void,
 ): void {
   const directory = mkdtempSync(
-    path.join(os.tmpdir(), "parilka-secret-loader-"),
+    path.join(os.tmpdir(), "bot-agi-secret-loader-"),
   );
   try {
     const secretPath = path.join(directory, "credential");
@@ -47,10 +47,10 @@ function runLoader(secretPath: string) {
         "set -e",
         'source "$1"',
         "TEST_SECRET_FILE=$2",
-        "parilka_load_secret_file TEST_SECRET TEST_SECRET_FILE",
+        "bot_agi_load_secret_file TEST_SECRET TEST_SECRET_FILE",
         'printf "%s" "${#TEST_SECRET}"',
       ].join("\n"),
-      "parilka-secret-test",
+      "bot-agi-secret-test",
       loader,
       secretPath,
     ],

@@ -1,5 +1,8 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import {
+  getDefaultEnvironment,
+  StdioClientTransport,
+} from "@modelcontextprotocol/sdk/client/stdio.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -7,14 +10,11 @@ import { fileURLToPath } from "node:url";
 import type { AppConfig } from "../src/config.js";
 import { LoopbackMcpServer } from "../src/mcp-loopback.js";
 import { MessageStore } from "../src/store.js";
-import type {
-  ChatInfo,
-  TelegramGateway,
-} from "../src/telegram/types.js";
+import type { ChatInfo, TelegramGateway } from "../src/telegram/types.js";
 import { TelegramTools } from "../src/tools.js";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const tempDir = mkdtempSync(join(tmpdir(), "telegram-parilka-mcp-smoke-"));
+const tempDir = mkdtempSync(join(tmpdir(), "telegram-bot-agi-mcp-smoke-"));
 const smokeChatId = "-1001234567890";
 const stderrChunks: string[] = [];
 const useWrapper = process.argv.includes("--wrapper");
@@ -39,17 +39,14 @@ const owner = ownerStore
 const ownerUrl = await owner?.start();
 
 const transport = new StdioClientTransport({
-  command: useWrapper ? join(repoRoot, "bin", "telegram-parilka-mcp") : process.execPath,
+  command: useWrapper
+    ? join(repoRoot, "bin", "telegram-bot-agi-mcp")
+    : process.execPath,
   args: useWrapper
     ? useDirect
       ? ["--direct"]
       : []
-    : [
-        "--import",
-        "tsx",
-        "src/index.ts",
-        ...(useDirect ? ["--direct"] : []),
-      ],
+    : ["--import", "tsx", "src/index.ts", ...(useDirect ? ["--direct"] : [])],
   cwd: repoRoot,
   stderr: "pipe",
   env: {
@@ -72,12 +69,8 @@ const transport = new StdioClientTransport({
     TELEGRAM_EMBEDDINGS_ENABLED: "false",
     TELEGRAM_EMBEDDINGS_API_KEY: "",
     OPENAI_API_KEY: "",
-    ...(useDirect
-      ? { PARILKA_MTPROTO_EXCLUSIVE_OWNER: "true" }
-      : {}),
-    ...(ownerUrl
-      ? { PARILKA_MCP_HTTP_URL: ownerUrl.href }
-      : {}),
+    ...(useDirect ? { BOT_MTPROTO_EXCLUSIVE_OWNER: "true" } : {}),
+    ...(ownerUrl ? { BOT_MCP_HTTP_URL: ownerUrl.href } : {}),
   },
 });
 
@@ -85,24 +78,60 @@ transport.stderr?.on("data", (chunk: Buffer | string) => {
   stderrChunks.push(chunk.toString());
 });
 
-const client = new Client({ name: "telegram-parilka-mcp-smoke", version: "0.1.0" }, { capabilities: {} });
+const client = new Client(
+  { name: "telegram-bot-agi-mcp-smoke", version: "0.1.0" },
+  { capabilities: {} },
+);
 
 try {
   await client.connect(transport, { timeout: 5_000 });
 
   const tools = await client.listTools(undefined, { timeout: 5_000 });
-  assert(tools.tools.some((tool) => tool.name === "get_config"), "tools/list did not include get_config");
+  assert(
+    tools.tools.some((tool) => tool.name === "get_config"),
+    "tools/list did not include get_config",
+  );
 
-  const result = await client.callTool({ name: "get_config", arguments: {} }, undefined, { timeout: 5_000 });
+  const result = await client.callTool(
+    { name: "get_config", arguments: {} },
+    undefined,
+    { timeout: 5_000 },
+  );
   const payload = parseTextPayload(result.content);
   assert(payload.ok === true, "get_config did not return ok:true");
-  assert(payload.config?.sendEnabled === false, "smoke config must keep live sends disabled");
-  assert(payload.config?.dryRunDefault === true, "smoke config must keep dry-run enabled");
-  assert(payload.config?.isTelegramConfigured === false, "smoke must not inherit Telegram credentials");
-  assert(payload.config?.embeddings?.enabled === false, "smoke must keep embeddings disabled");
-  assert(payload.config?.embeddings?.configured === false, "smoke must not inherit embedding credentials");
+  assert(
+    payload.config?.sendEnabled === false,
+    "smoke config must keep live sends disabled",
+  );
+  assert(
+    payload.config?.dryRunDefault === true,
+    "smoke config must keep dry-run enabled",
+  );
+  assert(
+    payload.config?.isTelegramConfigured === false,
+    "smoke must not inherit Telegram credentials",
+  );
+  assert(
+    payload.config?.embeddings?.enabled === false,
+    "smoke must keep embeddings disabled",
+  );
+  assert(
+    payload.config?.embeddings?.configured === false,
+    "smoke must not inherit embedding credentials",
+  );
 
-  console.log(JSON.stringify({ ok: true, entrypoint, tools: tools.tools.length, checkedTool: "get_config" }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        ok: true,
+        entrypoint,
+        tools: tools.tools.length,
+        checkedTool: "get_config",
+      },
+      null,
+      2,
+    ),
+  );
 } catch (error) {
   console.error("MCP smoke failed:", error);
   const stderr = stderrChunks.join("").trim();
@@ -151,10 +180,7 @@ function createSmokeTelegram(chatId: string): TelegramGateway {
   };
 }
 
-function createSmokeConfig(
-  directory: string,
-  chatId: string,
-): AppConfig {
+function createSmokeConfig(directory: string, chatId: string): AppConfig {
   return {
     telegram: {
       apiId: 0,
@@ -246,11 +272,23 @@ function createSmokeConfig(
 function parseTextPayload(content: unknown): Record<string, any> {
   assert(Array.isArray(content), "tool response content was not an array");
   const text = content.find((item): item is { type: "text"; text: string } => {
-    return item != null && typeof item === "object" && "type" in item && item.type === "text" && "text" in item;
+    return (
+      item != null &&
+      typeof item === "object" &&
+      "type" in item &&
+      item.type === "text" &&
+      "text" in item
+    );
   })?.text;
-  assert(typeof text === "string", "tool response did not contain text content");
+  assert(
+    typeof text === "string",
+    "tool response did not contain text content",
+  );
   const parsed = JSON.parse(text) as unknown;
-  assert(parsed != null && typeof parsed === "object" && !Array.isArray(parsed), "tool response was not a JSON object");
+  assert(
+    parsed != null && typeof parsed === "object" && !Array.isArray(parsed),
+    "tool response was not a JSON object",
+  );
   return parsed as Record<string, any>;
 }
 

@@ -1,11 +1,11 @@
 # AGENTS.md
 
-Короткий контракт для агентов, работающих в `parilka-unified`.
+Короткий контракт для агентов, работающих в `bot-agi`.
 
 ## Safety и Git
 
 - Язык общения и рабочих документов — русский.
-- Unified Parilka services являются текущим production. Legacy services,
+- Unified bot-agi services являются текущим production. Legacy services,
   rollback bundle и базы вне репозитория считаются read-only; не запускайте
   старых owners без отдельной авторизации rollback. Для rehearsal используйте
   только согласованные SQLite `.backup`-снимки.
@@ -15,7 +15,7 @@
   только имена env-переменных.
 - Не создавайте и не переключайте git-ветки. Commit, push, новый deploy,
   rollback и live send требуют отдельной пользовательской авторизации.
-  Общий Telegram MCP на `127.0.0.1:8765` не является частью Parilka.
+  Общий Telegram MCP на `127.0.0.1:8765` не является частью bot-agi.
 - Не редактируйте unrelated пользовательские изменения в dirty worktree.
 
 ## Архитектурный контракт
@@ -24,8 +24,8 @@
   slice. Не добавляйте speculative abstractions, compatibility shims,
   DI-container, event bus, Redis/queue/vector service или новый runtime без
   доказанной failure mode.
-- Два long-lived процесса остаются явными: `parilka-sync` владеет одной
-  MTProto session и loopback MCP, `parilka-bot` владеет одним Bot API poller.
+- Два long-lived процесса остаются явными: `bot-agi-sync` владеет одной
+  MTProto session и loopback MCP, `bot-agi-bot` владеет одним Bot API poller.
   Они разделяют один versioned SQLite, но не общий процесс.
 - Storage domains используют один `DatabaseSync` и общий transaction kernel.
   Нельзя открывать соединение на repository, вкладывать транзакции или

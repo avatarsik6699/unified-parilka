@@ -149,7 +149,7 @@ export function assertBotDaemonConfiguration(
   );
   if (!allowed.has(normalizeTelegramId(bot.allowedChatId))) {
     throw new Error(
-      "PARILKA_BOT_CHAT_ID must be present in TELEGRAM_ALLOWED_CHAT_IDS.",
+      "BOT_CHAT_ID must be present in TELEGRAM_ALLOWED_CHAT_IDS.",
     );
   }
 }

@@ -241,7 +241,7 @@ export const NUMERIC_ENV_RULES = {
     min: 1,
     max: 100_000,
   },
-  PARILKA_MEMORY_MAX_CHARS: {
+  BOT_MEMORY_MAX_CHARS: {
     fallback: 2_000,
     min: 500,
     max: 4_000,
@@ -271,5 +271,5 @@ export const BOOLEAN_ENV_RULES = {
     fallback: false,
   },
   TELEGRAM_EMBEDDINGS_ENABLED: { fallback: false },
-  PARILKA_HERMES_PROJECTION_ENABLED: { fallback: false },
+  BOT_HERMES_PROJECTION_ENABLED: { fallback: false },
 } as const satisfies Record<string, BooleanEnvRule>;

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { LoopbackMcpServer } from "../src/mcp-loopback.js";
-import type { ParilkaToolRegistry } from "../src/mcp-protocol.js";
+import type { BotToolRegistry } from "../src/mcp-protocol.js";
 
 test(
   "loopback rejects a second request when a session is at its in-flight limit",
@@ -68,7 +68,7 @@ test(
   },
 );
 
-function waitRegistry(markStarted: () => void): ParilkaToolRegistry {
+function waitRegistry(markStarted: () => void): BotToolRegistry {
   return {
     listTools() {
       return [

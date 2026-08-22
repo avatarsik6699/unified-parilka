@@ -41,11 +41,11 @@ class PreToolCallGateTweaksTests(unittest.TestCase):
 
     def setUp(self):
         os.environ[parilka_chat.ALLOWED_CHAT_ID_ENV] = "-1003179772905"
-        os.environ["PARILKA_BOT_MEMORY_WRITE_SENDER_IDS"] = "123456789"
+        os.environ["BOT_MEMORY_WRITE_SENDER_IDS"] = "123456789"
 
     def tearDown(self):
         os.environ.pop(parilka_chat.ALLOWED_CHAT_ID_ENV, None)
-        os.environ.pop("PARILKA_BOT_MEMORY_WRITE_SENDER_IDS", None)
+        os.environ.pop("BOT_MEMORY_WRITE_SENDER_IDS", None)
 
     def make_hook(self, profile="parilka", session=None):
         ctx = MagicMock()

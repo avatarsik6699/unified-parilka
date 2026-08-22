@@ -4,8 +4,8 @@ import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { Request, Response } from "express";
-import { createParilkaMcpServer,
-  type ParilkaToolRegistry,
+import { createBotMcpServer,
+  type BotToolRegistry,
 } from "./mcp-protocol.js";
 import { redactLogValue } from "./observability/redaction.js";
 
@@ -27,14 +27,14 @@ export interface LoopbackMcpEndpoint {
 
 export function parseLoopbackMcpEndpoint(
   raw =
-    process.env.PARILKA_MCP_HTTP_URL?.trim() ||
+    process.env.BOT_MCP_HTTP_URL?.trim() ||
     DEFAULT_MCP_HTTP_URL,
 ): LoopbackMcpEndpoint {
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
-    throw new Error("PARILKA_MCP_HTTP_URL must be a valid URL.");
+    throw new Error("BOT_MCP_HTTP_URL must be a valid URL.");
   }
   if (
     url.protocol !== "http:" ||
@@ -46,7 +46,7 @@ export function parseLoopbackMcpEndpoint(
     url.hash
   ) {
     throw new Error(
-      "PARILKA_MCP_HTTP_URL must be an uncredentialed " +
+      "BOT_MCP_HTTP_URL must be an uncredentialed " +
         "http://127.0.0.1:<port>/mcp URL without query or fragment.",
     );
   }
@@ -57,14 +57,14 @@ export function parseLoopbackMcpEndpoint(
     port > MAX_PORT
   ) {
     throw new Error(
-      `PARILKA_MCP_HTTP_URL port must be between ${MIN_PORT} and ${MAX_PORT}.`,
+      `BOT_MCP_HTTP_URL port must be between ${MIN_PORT} and ${MAX_PORT}.`,
     );
   }
   return { url, host: LOOPBACK_HOST, port };
 }
 
 export interface LoopbackMcpServerOptions {
-  registry: ParilkaToolRegistry;
+  registry: BotToolRegistry;
   endpoint?: LoopbackMcpEndpoint;
   /**
    * Tests may ask the kernel for an ephemeral port. Runtime configuration is
@@ -84,7 +84,7 @@ export interface LoopbackMcpServerOptions {
 }
 
 type LoopbackMcpSession = {
-  protocol: ReturnType<typeof createParilkaMcpServer>;
+  protocol: ReturnType<typeof createBotMcpServer>;
   transport: StreamableHTTPServerTransport;
   sessionId?: string;
   activeRequests: number;
@@ -93,7 +93,7 @@ type LoopbackMcpSession = {
 };
 
 export class LoopbackMcpServer {
-  readonly #registry: ParilkaToolRegistry;
+  readonly #registry: BotToolRegistry;
   readonly #endpoint: LoopbackMcpEndpoint;
   readonly #testPort: 0 | undefined;
   readonly #onError: (error: unknown) => void;
@@ -372,7 +372,7 @@ export class LoopbackMcpServer {
   }
 
   #createSession(configuredPort: number): LoopbackMcpSession {
-    const protocol = createParilkaMcpServer(this.#registry);
+    const protocol = createBotMcpServer(this.#registry);
     const port = this.#url?.port || String(configuredPort);
     let session!: LoopbackMcpSession;
     const transport = new StreamableHTTPServerTransport({

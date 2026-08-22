@@ -1,17 +1,7 @@
 import { createHash } from "node:crypto";
-import type {
-  StoredDayDigest,
-  StoredMessage,
-} from "../store.js";
-import {
-  dayStartInstant,
-  isoWeekForDay,
-  nextCalendarDay,
-} from "./calendar.js";
-import {
-  DigestGenerationError,
-  type DigestStore,
-} from "./types.js";
+import type { StoredDayDigest, StoredMessage } from "../store.js";
+import { dayStartInstant, isoWeekForDay, nextCalendarDay } from "./calendar.js";
+import { DigestGenerationError, type DigestStore } from "./types.js";
 
 export interface WeeklyDigestGroup {
   period: string;
@@ -59,9 +49,10 @@ export function renderWeekSource(
   );
 }
 
-export function messageIdBounds(
-  messages: readonly StoredMessage[],
-): { start: number; end: number } {
+export function messageIdBounds(messages: readonly StoredMessage[]): {
+  start: number;
+  end: number;
+} {
   let start = Number.POSITIVE_INFINITY;
   let end = Number.NEGATIVE_INFINITY;
   for (const message of messages) {
@@ -85,7 +76,7 @@ export function hashDaySource(
   messages: readonly StoredMessage[],
 ): string {
   const hash = createHash("sha256");
-  hash.update("parilka/day-source/v1\n");
+  hash.update("bot-agi/day-source/v1\n");
   hash.update(JSON.stringify([chatId, day, messages.length]));
   for (const message of messages) {
     hash.update("\n");
@@ -113,9 +104,7 @@ export function hashHistoricalDayPrefix(
   return hashDaySource(
     chatId,
     day,
-    messages.filter(
-      ({ messageId }) => messageId <= storedEndMessageId,
-    ),
+    messages.filter(({ messageId }) => messageId <= storedEndMessageId),
   );
 }
 
@@ -124,7 +113,7 @@ export function hashWeekSource(
   group: WeeklyDigestGroup,
 ): string {
   const hash = createHash("sha256");
-  hash.update("parilka/week-source/v1\n");
+  hash.update("bot-agi/week-source/v1\n");
   hash.update(
     JSON.stringify([
       chatId,

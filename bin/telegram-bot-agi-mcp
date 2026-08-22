@@ -6,9 +6,9 @@ project_dir="${TELEGRAM_PROJECT_DIR:-$(cd -- "$script_dir/.." && pwd)}"
 cd "$project_dir"
 
 entrypoint="$project_dir/dist/index.js"
-"$project_dir/bin/telegram-parilka-mcp-check-build" "$project_dir" "$entrypoint"
+"$project_dir/bin/telegram-bot-agi-mcp-check-build" "$project_dir" "$entrypoint"
 
-# Normal/status proxy mode needs only PARILKA_MCP_HTTP_URL. Explicitly remove
+# Normal/status proxy mode needs only BOT_MCP_HTTP_URL. Explicitly remove
 # credentials inherited from a long-lived harness so each stdio child remains
 # a transport proxy rather than a secret-bearing Telegram process.
 owner_mode=0
@@ -30,12 +30,12 @@ if (( ! owner_mode )); then
     TELEGRAM_SESSION_STRING_WIFE \
     TELEGRAM_EMBEDDINGS_API_KEY \
     OPENAI_API_KEY \
-    PARILKA_BOT_TOKEN \
-    PARILKA_QWEN_API_KEY \
-    PARILKA_DEEPSEEK_API_KEY \
-    PARILKA_OPENAI_API_KEY \
-    PARILKA_ANTHROPIC_API_KEY \
-    PARILKA_WEB_SEARCH_TOKEN
+    BOT_TOKEN \
+    BOT_QWEN_API_KEY \
+    BOT_DEEPSEEK_API_KEY \
+    BOT_OPENAI_API_KEY \
+    BOT_ANTHROPIC_API_KEY \
+    BOT_WEB_SEARCH_TOKEN
 fi
 
 exec node "$entrypoint" "$@"

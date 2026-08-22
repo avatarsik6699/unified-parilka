@@ -1,7 +1,7 @@
 # Migration и rollback runbook
 
 Статус: snapshot/import rehearsal и controlled live cutover пройдены
-2026-07-30. Новые bot/sync/timer units работают, legacy Parilka units
+2026-07-30. Новые bot/sync/timer units работают, pre-unification legacy units
 disabled/inactive, отдельный общий Telegram MCP на `127.0.0.1:8765` не
 изменён. Один маркированный Telegram E2E подтверждён. Фактический post-live
 rollback не выполнялся; сохранённый rollback bundle и точное evidence
@@ -21,9 +21,9 @@ rollback не выполнялся; сохранённый rollback bundle и т
   mode `0600`;
 - auth state:
   `/home/billy/.telegram-parilka-mcp/mtcute-auth.sqlite`, mode `0600`;
-- active owners: `parilka-sync.service`, `parilka-bot.service`;
-- scheduled job: `parilka-maintain.timer`;
-- Parilka MCP: stdio proxy к `http://127.0.0.1:8766/mcp`;
+- active owners: `bot-agi-sync.service`, `bot-agi-bot.service`;
+- scheduled job: `bot-agi-maintain.timer`;
+- bot-agi MCP: stdio proxy к `http://127.0.0.1:8766/mcp`;
 - общий машинный `telegram-mcp.service`: отдельный owner на
   `http://127.0.0.1:8765/mcp`;
 - MCP send policy: `TELEGRAM_SEND_ENABLED=false`,
@@ -51,7 +51,7 @@ chat-scoped fast/long memory и skills применена на startup 2026-07-3
   заменён правилом брать identity из текущего runtime;
 - production `turn` и `summary` используют единственный candidate
   `deepseek:deepseek-v4-flash` (DeepSeek V4 Flash 0731), без Qwen/fallback;
-- штатные `parilka-sync.service` и `parilka-bot.service` стартовали с
+- штатные `bot-agi-sync.service` и `bot-agi-bot.service` стартовали с
   build preflight, `NRestarts=0`; временных systemd overrides нет.
 
 ### MCP cache-only read tools — 2026-08-07
@@ -62,7 +62,7 @@ chat-scoped fast/long memory и skills применена на startup 2026-07-3
   Они используют `TELEGRAM_DEFAULT_CHAT_ID`, не принимают model-controlled
   `chat`, требуют обязательный служебный `source_message_id` и никогда не
   вызывают Telegram.
-- `PARILKA_BOT_ID` теперь опционально читается в `AppConfig.telegram.botSenderId`
+- `BOT_ID` теперь опционально читается в `AppConfig.telegram.botSenderId`
   (positive Telegram ID, JS safe range; empty/unset → undefined) и передаётся
   в `CanonicalBotReadCache` + `BotReadTools`. Сообщения бота маркируются
   `authorRole=assistant` / `isOwnTurn=true`.
@@ -125,26 +125,26 @@ SQLite. Python importer добавляет/обновляет `live_msg` и dige
 1. Пока старый writer работает, читать только согласованный SQLite snapshot,
    никогда не его live main/WAL files по отдельности.
 2. До отдельного решения оператора держать
-   `PARILKA_BOT_MODE=shadow`,
+   `BOT_MODE=shadow`,
    `TELEGRAM_SEND_ENABLED=false` и
    `TELEGRAM_DRY_RUN_DEFAULT=true`.
 3. Один Bot API token может иметь только один long poller. Shadow mode запрещает
    публикацию, но всё равно вызывает `getUpdates`.
 4. После остановки всех других poller этого token оператор должен выставить
-   `PARILKA_BOT_EXCLUSIVE_POLLER=true` — ровно в нижнем регистре. Без него
+   `BOT_EXCLUSIVE_POLLER=true` — ровно в нижнем регистре. Без него
    bot fail closed даже в shadow; `TRUE` не принимается. Это подтверждение,
    а не distributed lock.
 5. Одна MTProto session имеет одного штатного owner. Не запускать новый
-   `parilka-sync` или `--direct` рядом со старым owner той же session.
+   `bot-agi-sync` или `--direct` рядом со старым owner той же session.
 6. После остановки прежнего `telegram-parilka-sync` и всех других owners этой
-   session вручную выставить `PARILKA_MTPROTO_EXCLUSIVE_OWNER=true` — ровно в
+   session вручную выставить `BOT_MTPROTO_EXCLUSIVE_OWNER=true` — ровно в
    нижнем регистре. Без guard sync daemon/once fail closed; guard не является
    distributed lock.
 7. Секреты не помещать в SQLite, model-router JSON, reports, logs или commits.
 8. Любой backup считается рабочим только после отдельного restore и
    `PRAGMA quick_check`.
 
-Встроенного backup/restore в Parilka нет. Snapshot создаётся проверенным
+Встроенного backup/restore в bot-agi нет. Snapshot создаётся проверенным
 внешним SQLite/volume инструментом оператора.
 
 ## 1. Подготовка
@@ -185,9 +185,9 @@ Importer по умолчанию открывает source read-only, включ
 выполняет `quick_check`, проверяет ожидаемые legacy columns и печатает report:
 
 ```bash
-./bin/parilka-import-python-state \
+./bin/bot-agi-import-python-state \
   --source /path/to/legacy-bot.snapshot.sqlite \
-  --target /path/to/parilka-shadow.sqlite \
+  --target /path/to/bot-agi-shadow.sqlite \
   --chat-id -1000000000000
 ```
 
@@ -207,9 +207,9 @@ Dry-run:
 Первый apply выполняйте только на отдельной копии:
 
 ```bash
-./bin/parilka-import-python-state \
+./bin/bot-agi-import-python-state \
   --source /path/to/legacy-bot.snapshot.sqlite \
-  --target /path/to/parilka-shadow.sqlite \
+  --target /path/to/bot-agi-shadow.sqlite \
   --chat-id -1000000000000 \
   --apply
 ```
@@ -261,7 +261,7 @@ Maintenance dry-run поддерживает schema v11–22 и ничего н�
 `--apply`:
 
 ```bash
-./bin/parilka-maintain --db /path/to/parilka-shadow.sqlite
+./bin/bot-agi-maintain --db /path/to/bot-agi-shadow.sqlite
 ```
 
 Проверьте как минимум:
@@ -294,9 +294,9 @@ legacy writers
 ```
 
 Для cache/MCP comparison сначала используйте target без Telegram writers.
-Перед стартом нового `parilka-sync` остановите прежний MTProto owner либо
+Перед стартом нового `bot-agi-sync` остановите прежний MTProto owner либо
 используйте отдельную тестовую session. После проверки эксклюзивности вручную
-задайте в private shared env `PARILKA_MTPROTO_EXCLUSIVE_OWNER=true`.
+задайте в private shared env `BOT_MTPROTO_EXCLUSIVE_OWNER=true`.
 Поставляемый systemd unit намеренно не выставляет это подтверждение сам.
 
 Параллельный shadow разрешён только с отдельным test bot/token. Production
@@ -307,11 +307,11 @@ shadow-start и live-restart.
 
 Для production token выполните offline composition/config tests и отдельный
 `getMe`, затем после quiesce зафиксируйте persisted legacy `kv.offset`.
-Перед первым unified start задайте его как `PARILKA_BOT_INITIAL_OFFSET`: новый
+Перед первым unified start задайте его как `BOT_INITIAL_OFFSET`: новый
 poller начнёт ровно с первого ещё не обработанного update, durable-ingest-ит
 весь более новый pending batch и только затем подтвердит offset. Убедившись в
 эксклюзивности token, вручную задайте в private bot env
-`PARILKA_BOT_EXCLUSIVE_POLLER=true`. Не добавляйте это подтверждение как
+`BOT_EXCLUSIVE_POLLER=true`. Не добавляйте это подтверждение как
 безусловный `Environment=` в systemd unit.
 
 В shadow сравниваются:
@@ -400,17 +400,17 @@ Cutover разрешён только после rehearsal и full gate.
    backlog. Первый bounded apply выполняется отдельно либо следующим timer run.
 
 6. После остановки всех owners прежней MTProto session выставить ровно
-   `PARILKA_MTPROTO_EXCLUSIVE_OWNER=true`, установить units и запустить
-   `parilka-sync`. Проверить active state, `127.0.0.1:8766`, status через
-   `bin/telegram-parilka-mcp --status` и 13-tool stdio smoke. MCP writes
+   `BOT_MTPROTO_EXCLUSIVE_OWNER=true`, установить units и запустить
+   `bot-agi-sync`. Проверить active state, `127.0.0.1:8766`, status через
+   `bin/telegram-bot-agi-mcp --status` и 13-tool stdio smoke. MCP writes
    остаются выключены и hard dry-run включён.
 
 7. Повторно проверить отсутствие legacy poller и записать persisted legacy
-   `kv.offset` как `PARILKA_BOT_INITIAL_OFFSET`. Выставить ровно
-   `PARILKA_BOT_EXCLUSIVE_POLLER=true` и `PARILKA_BOT_MODE=live`; production
+   `kv.offset` как `BOT_INITIAL_OFFSET`. Выставить ровно
+   `BOT_EXCLUSIVE_POLLER=true` и `BOT_MODE=live`; production
    bot запускается один раз уже live. Не запускать same-token shadow.
 
-8. Только после active/healthy bot включить `parilka-maintain.timer`.
+8. Только после active/healthy bot включить `bot-agi-maintain.timer`.
 
 9. Добавить в оба канонических rulesync sources отдельный target:
 
@@ -418,7 +418,7 @@ Cutover разрешён только после rehearsal и full gate.
    "telegram-parilka": {
      "description": "Unified Parilka read-only stdio proxy to loopback owner",
      "type": "stdio",
-     "command": "/home/billy/repos/parilka-unified/bin/telegram-parilka-mcp"
+     "command": "/home/billy/repos/parilka-unified/bin/telegram-bot-agi-mcp"
    }
    ```
 
@@ -442,11 +442,11 @@ dry-run требует уже мигрированную schema v22, но не �
 содержит production DB/allowlist env, снимите их для snapshot-команды:
 
 ```bash
-./bin/parilka-maintain --db /path/to/final-state.sqlite
+./bin/bot-agi-maintain --db /path/to/final-state.sqlite
 env -u TELEGRAM_DB_PATH \
-  -u PARILKA_BOT_DB_PATH \
+  -u BOT_DB_PATH \
   -u TELEGRAM_ALLOWED_CHAT_IDS \
-  ./bin/parilka-digests \
+  ./bin/bot-agi-digests \
     --db /path/to/final-state.sqlite \
     --chat -1000000000000
 ```
@@ -463,13 +463,13 @@ backlog. Apply обрабатывает его newest-first и по умолча
 Только затем разрешается ручной apply или timer:
 
 ```bash
-./bin/parilka-maintain --db /path/to/final-state.sqlite --apply
-./bin/parilka-digests \
+./bin/bot-agi-maintain --db /path/to/final-state.sqlite --apply
+./bin/bot-agi-digests \
   --db /path/to/final-state.sqlite \
   --chat -1000000000000 \
   --model-config /absolute/path/to/model-router.json \
   --apply
-systemctl --user enable --now parilka-maintain.timer
+systemctl --user enable --now bot-agi-maintain.timer
 ```
 
 Maintenance apply:
@@ -498,8 +498,8 @@ journald показывает `phase`, `completedPhases`,
 проверьте completed phases: повторный запуск resumable и идемпотентный, но
 предыдущие commits не откатываются.
 
-Сам `parilka-maintain` не генерирует digests/embeddings и не создаёт backup.
-Поставляемый oneshot после него запускает `parilka-digests --apply`: day и
+Сам `bot-agi-maintain` не генерирует digests/embeddings и не создаёт backup.
+Поставляемый oneshot после него запускает `bot-agi-digests --apply`: day и
 ISO-weekly summaries через router role `summary`, с текущим Moscow day
 пропущенным по умолчанию. Для timer должны быть доступны chat/DB/model config и
 provider credentials из EnvironmentFile; standalone digest CLI `.env` не
@@ -507,8 +507,8 @@ provider credentials из EnvironmentFile; standalone digest CLI `.env` не
 один device/inode-derived namespace, а `ReadWritePaths` уже разрешает запись в
 private state directory. Timer добавляет `--summary-only`, чтобы journald
 получал bounded summary вместо полного backlog. Каждый timer run читает
-`PARILKA_DIGEST_MAX_DAY_GENERATIONS_PER_RUN` и
-`PARILKA_DIGEST_MAX_WEEK_GENERATIONS_PER_RUN` из тех же EnvironmentFile
+`BOT_DIGEST_MAX_DAY_GENERATIONS_PER_RUN` и
+`BOT_DIGEST_MAX_WEEK_GENERATIONS_PER_RUN` из тех же EnvironmentFile
 (defaults 3/1, верхние границы 31/8), поэтому большой legacy backlog
 разбирается несколькими oneshot-запусками. Проверяйте `options`,
 `providerCalls` и `deferred` в journald JSON. Candidate timeout не должен
@@ -540,8 +540,8 @@ generation и backup в service не реализованы. Unit разреша
    `mcp-sync --check`. Общий `telegram`/`:8765` не менять и service не
    перезапускать.
 5. Очистить оба operator acknowledgement в env новых services: после возврата
-   legacy owner `PARILKA_BOT_EXCLUSIVE_POLLER=true` и
-   `PARILKA_MTPROTO_EXCLUSIVE_OWNER=true` больше не соответствуют реальности.
+   legacy owner `BOT_EXCLUSIVE_POLLER=true` и
+   `BOT_MTPROTO_EXCLUSIVE_OWNER=true` больше не соответствуют реальности.
 6. Вернуть legacy services в порядке MTProto sync → bot → watchdog → timer:
 
    ```bash
@@ -554,7 +554,7 @@ generation и backup в service не реализованы. Unit разреша
    Старые DB/session paths не заменять: они сохранены и не мутировались новым
    runtime. Не делать обратный автоматический импорт новых turns/outbox в
    legacy retry queue.
-7. Проверить ровно одного Bot API poller, одного владельца Parilka MTProto
+7. Проверить ровно одного Bot API poller, одного владельца bot-agi MTProto
    session, active `telegram-mcp.service` и правильные порты.
 
 Rollback DB нельзя считать чисто обратимой после live sends: Telegram — внешняя

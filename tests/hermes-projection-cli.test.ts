@@ -73,8 +73,8 @@ test("parseOptions resolves db and chat from env with --hermes-home", () => {
   const profile = tmpProfile("memory:\n  memory_char_limit: 8000\n");
   try {
     const opts = parseHermesProjectionOptions(["--hermes-home", profile.home], {
-      PARILKA_DIGEST_DB_PATH: db.path,
-      PARILKA_DIGEST_CHAT_ID: CHAT_ID,
+      BOT_DIGEST_DB_PATH: db.path,
+      BOT_DIGEST_CHAT_ID: CHAT_ID,
     });
     assert.ok(opts.dbPath);
     assert.equal(opts.chatId, CHAT_ID);
@@ -96,8 +96,8 @@ test("parseOptions throws on invalid chat id", () => {
     assert.throws(
       () =>
         parseHermesProjectionOptions([], {
-          PARILKA_DIGEST_DB_PATH: db.path,
-          PARILKA_DIGEST_CHAT_ID: "not-a-chat-id",
+          BOT_DIGEST_DB_PATH: db.path,
+          BOT_DIGEST_CHAT_ID: "not-a-chat-id",
         }),
       CliConfigError,
     );
@@ -112,8 +112,8 @@ test("parseOptions --apply disabled returns disabled option, no throw", () => {
     const opts = parseHermesProjectionOptions(
       ["--apply", "--hermes-home", "/does/not/exist"],
       {
-        PARILKA_DIGEST_DB_PATH: db.path,
-        PARILKA_DIGEST_CHAT_ID: CHAT_ID,
+        BOT_DIGEST_DB_PATH: db.path,
+        BOT_DIGEST_CHAT_ID: CHAT_ID,
       },
     );
     assert.equal(opts.apply, true);
@@ -166,9 +166,9 @@ test("parseOptions --apply enabled requires hermes home", () => {
     assert.throws(
       () =>
         parseHermesProjectionOptions(["--apply"], {
-          PARILKA_DIGEST_DB_PATH: db.path,
-          PARILKA_DIGEST_CHAT_ID: CHAT_ID,
-          PARILKA_HERMES_PROJECTION_ENABLED: "true",
+          BOT_DIGEST_DB_PATH: db.path,
+          BOT_DIGEST_CHAT_ID: CHAT_ID,
+          BOT_HERMES_PROJECTION_ENABLED: "true",
         }),
       CliConfigError,
     );
@@ -183,8 +183,8 @@ test("parseOptions dry-run also requires hermes home", () => {
     assert.throws(
       () =>
         parseHermesProjectionOptions([], {
-          PARILKA_DIGEST_DB_PATH: db.path,
-          PARILKA_DIGEST_CHAT_ID: CHAT_ID,
+          BOT_DIGEST_DB_PATH: db.path,
+          BOT_DIGEST_CHAT_ID: CHAT_ID,
         }),
       CliConfigError,
     );
@@ -200,9 +200,9 @@ test("parseOptions --apply enabled resolves profile home", () => {
     const opts = parseHermesProjectionOptions(
       ["--apply", "--hermes-home", profile.home],
       {
-        PARILKA_DIGEST_DB_PATH: db.path,
-        PARILKA_DIGEST_CHAT_ID: CHAT_ID,
-        PARILKA_HERMES_PROJECTION_ENABLED: "yes",
+        BOT_DIGEST_DB_PATH: db.path,
+        BOT_DIGEST_CHAT_ID: CHAT_ID,
+        BOT_HERMES_PROJECTION_ENABLED: "yes",
       },
     );
     assert.equal(opts.apply, true);
@@ -221,16 +221,16 @@ test("parseOptions lock timeout arg and default", () => {
     const opts = parseHermesProjectionOptions(
       ["--hermes-home", profile.home, "--lock-timeout-ms", "45000"],
       {
-        PARILKA_DIGEST_DB_PATH: db.path,
-        PARILKA_DIGEST_CHAT_ID: CHAT_ID,
+        BOT_DIGEST_DB_PATH: db.path,
+        BOT_DIGEST_CHAT_ID: CHAT_ID,
       },
     );
     assert.equal(opts.lockTimeoutMs, 45000);
     const def = parseHermesProjectionOptions(
       ["--hermes-home", profile.home],
       {
-        PARILKA_DIGEST_DB_PATH: db.path,
-        PARILKA_DIGEST_CHAT_ID: CHAT_ID,
+        BOT_DIGEST_DB_PATH: db.path,
+        BOT_DIGEST_CHAT_ID: CHAT_ID,
       },
     );
     assert.equal(def.lockTimeoutMs, 30000);
@@ -254,7 +254,7 @@ test("main: disabled apply emits skipped_disabled success JSON", async () => {
         "--hermes-home",
         "/does/not/exist",
       ],
-      {}, // PARILKA_HERMES_PROJECTION_ENABLED missing
+      {}, // BOT_HERMES_PROJECTION_ENABLED missing
       out.output,
     );
     assert.equal(code, 0);
@@ -275,7 +275,7 @@ test("main: disabled with explicit false value also skips cleanly", async () => 
   try {
     const code = await runHermesProjectionCliMain(
       ["--apply", "--db", db.path, "--chat", CHAT_ID],
-      { PARILKA_HERMES_PROJECTION_ENABLED: "false" },
+      { BOT_HERMES_PROJECTION_ENABLED: "false" },
       out.output,
     );
     assert.equal(code, 0);
@@ -368,7 +368,7 @@ test("main: apply writes memory and skills end to end", async () => {
   try {
     const code = await runHermesProjectionCliMain(
       ["--apply", "--db", dbPath, "--chat", CHAT_ID, "--hermes-home", profile.home],
-      { PARILKA_HERMES_PROJECTION_ENABLED: "true" },
+      { BOT_HERMES_PROJECTION_ENABLED: "true" },
       out.output,
     );
     assert.equal(code, 0);

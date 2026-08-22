@@ -1,4 +1,4 @@
-# Parilka Operations
+# bot-agi Operations
 
 Operator documentation находится вне архитектурного `docs/`.
 
@@ -6,19 +6,21 @@ Operator documentation находится вне архитектурного `d
 
 - [Migration and rollback](MIGRATION.md): consistent snapshots, shadow target,
   final target, cutover gates и rollback.
+- [Rename runbook: Parilka → bot-agi](RENAME-BOT-AGI.md): env/bin/systemd
+  rename, что переименовано в коде и что оператор переносит на хосте вручную.
 - [Hermes Agent Profile](HERMES.md): профиль и trusted plugin bridge для
   Парилка228, установка, cutover, rollback и контракт безопасности.
 - [../README.md](../README.md): local build, config keys, CLI и systemd install.
 
 ## Safety summary
 
-- Unified production services сейчас active; legacy Parilka services
+- Unified production services сейчас active; pre-unification legacy services
   disabled/inactive и остаются только rollback path.
 - SQLite state копируется через backup API/CLI, а не отдельным копированием
   main/WAL файлов при живом writer.
 - Bot/sync owners не стартуют без exact acknowledgements
-  `PARILKA_BOT_EXCLUSIVE_POLLER=true` и
-  `PARILKA_MTPROTO_EXCLUSIVE_OWNER=true`.
+  `BOT_EXCLUSIVE_POLLER=true` и
+  `BOT_MTPROTO_EXCLUSIVE_OWNER=true`.
 - Bot находится в live mode; operator MCP writes отдельно остаются выключены
   и в hard dry-run.
 - Не запускайте legacy owners или direct recovery рядом с unified services;
@@ -40,7 +42,7 @@ provider сохранён только как backward-compatible отключё
 
 Статус и границы:
 
-- `systemd/parilka-bge-m3.service` поставляется **disabled**; модельные
+- `systemd/bot-agi-bge-m3.service` поставляется **disabled**; модельные
   артефакты не vendored. Provisioning venv, download модели, backfill
   индексация, enable unit и любой restart сервисов требуют отдельного
   operator approval — этот раздел описывает процедуру, но не авторизует её.
@@ -75,7 +77,7 @@ provider сохранён только как backward-compatible отключё
 - Обычный ход может читать memory, но писать её может только адресный trigger,
   который прямо просит запомнить/сохранить/обновить заметку, урок или навык и
   отправлен numeric Telegram account из закрытого operator-configured
-  `PARILKA_BOT_MEMORY_WRITE_SENDER_IDS` allowlist в private env. Не записывайте
+  `BOT_MEMORY_WRITE_SENDER_IDS` allowlist в private env. Не записывайте
   этот allowlist в репозиторий, prompt, логи или ответы бота. Каждая запись
   source-attributed к ID этого сообщения,
   ограничена по размеру и отвергает вероятные credentials. Данные памяти не
@@ -83,8 +85,8 @@ provider сохранён только как backward-compatible отключё
 - Это ограничение относится к явным model memory writes (fast notes, lessons,
   skills), но не ограничивает memory reads для остальных участников и не
   меняет автоматическую Dream-консолидацию.
-- Dream-консолидация запускается существующим `parilka-digests --apply`
-  (`parilka-maintain.timer`, 04:20): daily apply job всегда прогоняет Dream
+- Dream-консолидация запускается существующим `bot-agi-digests --apply`
+  (`bot-agi-maintain.timer`, 04:20): daily apply job всегда прогоняет Dream
   после digest-фаз. При первом запуске чата Dream bootstrap'ит ровно 7
   завершённых Moscow calendar days (заканчивая вчерашним) и обрабатывает их
   oldest-first; повторные запуски добавляют пропущенные дни до вчерашнего и
@@ -93,12 +95,12 @@ provider сохранён только как backward-compatible отключё
 - Вход дня — только реальные bot-reply interactions плюс соседний контекст
   (8 live сообщений до trigger, все live сообщения от trigger до последнего
   answer chunk, 30 live сообщений после); остальные сообщения дня не читаются.
-  `--bot-id`/`PARILKA_BOT_ID` обязателен, когда apply + model config запускает
+  `--bot-id`/`BOT_ID` обязателен, когда apply + model config запускает
   Dream; dry-run digest без Dream не требует его.
 - При падении модели/невалидном выводе старый блок и watermark сохраняются
   (fail-closed), а digest CLI завершается ненулевым кодом. Dream читает те же
-  `PARILKA_DIGEST_MODEL_TOTAL_TIMEOUT_MS` и
-  `PARILKA_DIGEST_MODEL_CANDIDATE_TIMEOUT_MS`, что и day/week summaries; без
+  `BOT_DIGEST_MODEL_TOTAL_TIMEOUT_MS` и
+  `BOT_DIGEST_MODEL_CANDIDATE_TIMEOUT_MS`, что и day/week summaries; без
   них Dream fallback'ит на внутренние defaults 300 s total / 60 s на candidate
   (day/week summaries: 120 s / 45 s). Default бюджета ответа модели — 8192
   output tokens (day/week budget 2048 не меняется), после timeout того же
@@ -112,11 +114,11 @@ provider сохранён только как backward-compatible отключё
   только на подтверждённом backup/maintenance workflow, не во время live
   writer.
 - Параметры:
-  - `PARILKA_MEMORY_MAX_CHARS` — бюджет блока (500–4000, default 2000).
-  - `PARILKA_DIGEST_MODEL_TOTAL_TIMEOUT_MS` /
-    `PARILKA_DIGEST_MODEL_CANDIDATE_TIMEOUT_MS` — общие model deadlines
+  - `BOT_MEMORY_MAX_CHARS` — бюджет блока (500–4000, default 2000).
+  - `BOT_DIGEST_MODEL_TOTAL_TIMEOUT_MS` /
+    `BOT_DIGEST_MODEL_CANDIDATE_TIMEOUT_MS` — общие model deadlines
     digest/Dream apply прогона.
-  - Удалённые `PARILKA_DREAM_EVERY_N_MESSAGES` и `PARILKA_DREAM_MAX_MESSAGES`
+  - Удалённые `BOT_DREAM_EVERY_N_MESSAGES` и `BOT_DREAM_MAX_MESSAGES`
     больше не читаются; старые значения в env файлах просто игнорируются.
 
 ## MCP trust boundary
@@ -146,27 +148,27 @@ tool arguments).
 
 ## Логи
 
-Parilka пишет структурированный JSON в stderr; systemd направляет его в
+bot-agi пишет структурированный JSON в stderr; systemd направляет его в
 journald. Приложение не пишет файлов логов: размер, ограничение частоты,
 ротация и срок хранения целиком принадлежат journald. Этот документ не
 выбирает и не устанавливает общесистемные лимиты.
 
 ```bash
 # Следить за логами bot
-journalctl --user -u parilka-bot.service -f -o cat
+journalctl --user -u bot-agi-bot.service -f -o cat
 
 # Найти один числовой durable turnId. `-o json` оборачивает JSON приложения в MESSAGE.
 turn_id=42
-journalctl --user -u parilka-bot.service -o json | \
+journalctl --user -u bot-agi-bot.service -o json | \
   jq --argjson turnId "$turn_id" \
     '(.MESSAGE? | fromjson?) as $event | select($event.turnId == $turnId) | $event'
 
 # Последние ошибки (level >= 50)
-journalctl --user -u parilka-bot.service -o json | \
+journalctl --user -u bot-agi-bot.service -o json | \
   jq '(.MESSAGE? | fromjson?) as $event | select(($event.level // 0) >= 50) | $event'
 
 # Подтверждение штатного завершения sync
-journalctl --user -u parilka-sync.service -o json | \
+journalctl --user -u bot-agi-sync.service -o json | \
   jq '(.MESSAGE? | fromjson?) as $event | select($event.event == "sync.shutdown_completed") | $event'
 
 # Read-only объём журналов (system и user на этом host)

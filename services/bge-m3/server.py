@@ -1,4 +1,4 @@
-"""Operator-owned loopback BGE-M3 service for Parilka retrieval.
+"""Operator-owned loopback BGE-M3 service for bot-agi retrieval.
 
 Endpoints (all bounded by contract.py):
   GET  /health  -> liveness + model/contract identity
@@ -45,7 +45,7 @@ class ModelInferenceError(RuntimeError):
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Loopback BGE-M3 encode/rerank service for Parilka.",
+        description="Loopback BGE-M3 encode/rerank service for bot-agi.",
     )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8767)
@@ -498,7 +498,7 @@ def _coerce_rows(vectors) -> list[list[float]]:
 
 class Handler(BaseHTTPRequestHandler):
     gateway: BgeModelGateway
-    server_version = "ParilkaBgeM3/1"
+    server_version = "BotAgiBgeM3/1"
 
     def log_message(self, fmt: str, *args) -> None:  # noqa: A003
         logging.info("%s %s", self.address_string(), fmt % args)
@@ -595,7 +595,7 @@ def main() -> None:
     Handler.gateway = gateway
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     logging.info(
-        "parilka-bge-m3 listening on %s:%s (model %s, contract %s)",
+        "bot-agi-bge-m3 listening on %s:%s (model %s, contract %s)",
         args.host,
         args.port,
         contract.MODEL_ID,

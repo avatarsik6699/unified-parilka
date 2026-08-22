@@ -16,7 +16,7 @@ import {
 } from "../src/telegram/mtcute/client.js";
 
 const directory = mkdtempSync(
-  join(tmpdir(), "parilka-mtcute-storage-"),
+  join(tmpdir(), "bot-agi-mtcute-storage-"),
 );
 const base = new BaseTelegramClient({
   apiId: 1,

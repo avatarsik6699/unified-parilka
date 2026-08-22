@@ -3,12 +3,12 @@
 > Профиль и trusted plugin bridge для crowded Telegram-группы Парилка228
 > (chat id `-1003179772905`). **Production cutover выполнен 7 августа 2026:**
 > активен named gateway `hermes-gateway-parilka.service`, старый
-> `parilka-bot.service` оставлен установленным, но остановлен и disabled для быстрого
+> `bot-agi-bot.service` оставлен установленным, но остановлен и disabled для быстрого
 > rollback. Default `hermes-gateway.service` не затронут и продолжает работу.
 
 ## Что это
 
-Parilka-unified комплектуется готовым Hermes profile distribution для
+bot-agi комплектуется готовым Hermes profile distribution для
 Hermes ≥ 0.20.0:
 
 - **`integrations/hermes/parilka-profile/`** — профиль Parilka228
@@ -37,7 +37,7 @@ Hermes ≥ 0.20.0:
 **Важно:** native `observe_unmentioned_group_messages` отключён намеренно. В
 чате с сотнями участников чтение всех сообщений без @mention создало бы
 лавину лишних запросов. Вместо этого `pre_llm_call`-хук плагина вставляет
-bounded закэшированный срез истории (через Parilka MCP/MTProto), давая боту
+bounded закэшированный срез истории (через bot-agi MCP/MTProto), давая боту
 контекст без необходимости читать каждое сообщение через Bot API.
 
 ## Runtime footer и vision cap (parilka_chat)
@@ -115,7 +115,7 @@ hermes -p parilka auth add openai-codex
 Токен бота (`TELEGRAM_BOT_TOKEN`) получается через @BotFather и
 записывается в тот же `.env` файл. Allowlist чатов уже зафиксирован в
 `config.yaml` (`-1003179772905`). Memory write allowlist
-(`PARILKA_BOT_MEMORY_WRITE_SENDER_IDS`) — CSV numeric Telegram user IDs —
+(`BOT_MEMORY_WRITE_SENDER_IDS`) — CSV numeric Telegram user IDs —
 заполняется оператором.
 
 ### Всегда-включённый session guard
@@ -153,7 +153,7 @@ node --test --import tsx tests/hermes-tool-schemas.test.ts
 node --test --import tsx tests/hermes-projection-cli.test.ts tests/config-hermes-projection.test.ts tests/hermes-projection-systemd.test.ts
 
 # Статическая проверка units (Wants/After/ExecStart/ReadWritePaths)
-systemd-analyze --user verify systemd/parilka-maintain.service systemd/parilka-hermes-project.service
+systemd-analyze --user verify systemd/bot-agi-maintain.service systemd/bot-agi-hermes-project.service
 
 # Полный test:hermes
 npm run test:hermes
@@ -165,7 +165,7 @@ npm run check
 ## Install / re-bootstrap
 
 Все команды требуют отдельной операторской авторизации и выполняются из
-репозитория `parilka-unified`. Профиль устанавливается штатной командой
+репозитория `bot-agi`. Профиль устанавливается штатной командой
 `hermes profile install` (никаких `cp`/`ln -s` в `~/.hermes` руками):
 
 ```bash
@@ -199,8 +199,8 @@ hermes -p parilka config get model.provider
 | `SEARXNG_URL` | SearXNG instance URL | Self-hosted SearXNG |
 | `FIRECRAWL_API_URL` | Firecrawl self-hosted URL | Self-hosted Firecrawl |
 | `PARILKA_TELEGRAM_CHAT_ID` | Обязательная разрешённая группа | Фиксировано: `-1003179772905` |
-| `PARILKA_MCP_HTTP_URL` | Loopback MCP URL | Default: `http://127.0.0.1:8766/mcp` |
-| `PARILKA_BOT_MEMORY_WRITE_SENDER_IDS` | CSV numeric Telegram user IDs | Operator decision |
+| `BOT_MCP_HTTP_URL` | Loopback MCP URL | Default: `http://127.0.0.1:8766/mcp` |
+| `BOT_MEMORY_WRITE_SENDER_IDS` | CSV numeric Telegram user IDs | Operator decision |
 
 Auxiliary vision (`openai-codex/gpt-5.6-luna`) НЕ использует env-ключ:
 bootstrap — `hermes -p parilka auth add openai-codex` (native credentials).
@@ -224,17 +224,17 @@ bootstrap — `hermes -p parilka auth add openai-codex` (native credentials).
 ## Production cutover (выполнен 2026-08-07)
 
 Текущий production — профильный Hermes unit `hermes-gateway-parilka.service`;
-кастомный `parilka-bot.service` остановлен и disabled, но сохранён как rollback path.
+кастомный `bot-agi-bot.service` остановлен и disabled, но сохранён как rollback path.
 Gateway Hermes управляется только native lifecycle
 (`hermes -p parilka gateway ...`), никакого прямого `systemctl` для него:
 
 ```bash
 # 0. Только на этапе cutover: уменьшить sync-lag MTProto-кэша до ~5 секунд
-#    (systemd override parilka-sync.service или env)
+#    (systemd override bot-agi-sync.service или env)
 TELEGRAM_SYNC_INTERVAL_MS=5000
 
-# 1. Остановить кастомного бота (parilka-owned unit)
-systemctl --user disable --now parilka-bot.service
+# 1. Остановить кастомного бота (bot-agi-owned unit)
+systemctl --user disable --now bot-agi-bot.service
 
 # 2. Запустить Hermes gateway с профилем parilka (native lifecycle)
 hermes -p parilka gateway start
@@ -252,43 +252,43 @@ Rollback останавливает Hermes gateway native-командой и в
 hermes -p parilka gateway stop
 
 # 2. Вернуть кастомного бота
-systemctl --user enable --now parilka-bot.service
+systemctl --user enable --now bot-agi-bot.service
 
 # 3. Удалить override и вернуть штатный fallback 60 секунд
 TELEGRAM_SYNC_INTERVAL_MS=60000
 ```
 
-## Hermes projection (parilka-hermes-project.service)
+## Hermes projection (bot-agi-hermes-project.service)
 
-Отдельный `Type=oneshot` unit `parilka-hermes-project.service` применяет
+Отдельный `Type=oneshot` unit `bot-agi-hermes-project.service` применяет
 commit'нутый Dream state (managed memory/skills) из общего SQLite в
-установленный профиль `~/.hermes/profiles/parilka` (`bin/parilka-hermes-project
+установленный профиль `~/.hermes/profiles/parilka` (`bin/bot-agi-hermes-project
 --apply`). Он намеренно НЕ является третьим `ExecStart` внутри
-`parilka-maintain.service`: multi-ExecStart oneshot останавливается на первом
+`bot-agi-maintain.service`: multi-ExecStart oneshot останавливается на первом
 failed `ExecStart`, поэтому любой digest failure (например, частичный
 `candidates_exhausted` после успешно commit'нутого Dream day) не дал бы
 projection запуститься вообще.
 
-Вместо этого `parilka-maintain.service` объявляет слабую зависимость
-`Wants=parilka-hermes-project.service`, а projection unit имеет
-`After=parilka-maintain.service`. При запуске maintenance systemd transaction
+Вместо этого `bot-agi-maintain.service` объявляет слабую зависимость
+`Wants=bot-agi-hermes-project.service`, а projection unit имеет
+`After=bot-agi-maintain.service`. При запуске maintenance systemd transaction
 стартует wanted projection после того, как maintenance закончит activation,
 **даже если maintenance failed**; `Wants` при этом не маскирует failed status
 maintenance и не протаскивает failure projection обратно в maintenance.
 Projection не имеет `Requires`/`BindsTo`/`PartOf` ни в одну сторону.
 
-Kill switch — `PARILKA_HERMES_PROJECTION_ENABLED` (1/true/yes включает apply).
+Kill switch — `BOT_HERMES_PROJECTION_ENABLED` (1/true/yes включает apply).
 Его можно выставлять в `true` **только после** установки профиля (шаг 1
 staging install) и `hermes -p parilka gateway install --no-start-now`;
 missing/empty/false — projection завершается `skipped_disabled` ДО любых
 DB/profile touches (unit успешно отрабатывает, ничего не трогая). Управлять
 unit вручную не нужно: он стартует только как wanted от maintenance.
-Наблюдение: `systemctl --user status parilka-hermes-project`,
-`journalctl --user -u parilka-hermes-project -n 50`.
+Наблюдение: `systemctl --user status bot-agi-hermes-project`,
+`journalctl --user -u bot-agi-hermes-project -n 50`.
 
 ## Plugin bridge: контракт безопасности
 
-Плагин `parilka-chat` действует как trusted bridge между Hermes и Parilka
+Плагин `parilka-chat` действует как trusted bridge между Hermes и bot-agi
 loopback MCP:
 
 1. **Session guard:** каждый handler и оба хука проверяют захваченный при
@@ -329,7 +329,7 @@ loopback MCP:
    инструменты.
 
 4. **Outer shape:** успех — ровно `{"result": "<inner JSON>"}`; внутренний
-   Parilka `{ok:false,...}` (typed operational error) проходит без изменений.
+   bot-agi `{ok:false,...}` (typed operational error) проходит без изменений.
    Ошибки session/аргументов, внешние `{"error": ...}`, malformed/non-string
    outer, malformed inner — bounded generic top-level `{"error": "..."}`
    без сырых ValueError-деталей, ожидаемых ID и исключений. Логирование
@@ -343,9 +343,9 @@ loopback MCP:
      Telegram group session обязательны ДО любых origin-исключений.
    - `background_review` (проверяется через
      `tools.write_approval.current_origin()`) разрешён только при валидной
-     Parilka group session.
+     bot-agi group session.
    - Foreground: дополнительно требует `HERMES_SESSION_USER_ID` в CSV
-     `PARILKA_BOT_MEMORY_WRITE_SENDER_IDS`.
+     `BOT_MEMORY_WRITE_SENDER_IDS`.
    - `skill_manage` для managed projection targets (name `parilka-lessons`,
      prefix `parilka-skill-*`, category `parilka-managed`) блокируется всегда
      (stable generic error, без путей/секретов); projection пишет эти файлы
@@ -393,7 +393,7 @@ loopback MCP:
 
 ## MCP trust boundary
 
-Loopback MCP Parilka (`127.0.0.1:8766/mcp`) защищён:
+Loopback MCP bot-agi (`127.0.0.1:8766/mcp`) защищён:
 - DNS-rebinding protection, Origin/Host allowlist.
 - Defensive admission limits: ≤32 sessions, ≤128 concurrent HTTP requests,
   ≤8 на сессию.
@@ -421,7 +421,7 @@ Raw MCP tools (`rag_bm25_search`, `keyword_search`, `read_chat_slice`,
   контекста. Маркер в user content/середине суффикса игнорируется.
 - Окно контекста — 1000 строк, бюджет ровно 8500 символов.
 - Write gate: только allowlisted senders или background_review из валидной
-  Parilka group session могут мутировать memory/skills. Managed projection
+  bot-agi group session могут мутировать memory/skills. Managed projection
   targets (`parilka-lessons`, `parilka-skill-*`, category `parilka-managed`)
   никогда не редактируются моделью. current_origin из args не доверяется.
 - `write_approval: false` означает, что авторизованные writes действительно

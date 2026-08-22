@@ -1,8 +1,4 @@
-import {
-  chmodSync,
-  lstatSync,
-  statSync,
-} from "node:fs";
+import { chmodSync, lstatSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
@@ -30,24 +26,19 @@ export function acquireDigestProcessLock(
   }
   const dbStat = statSync(dbPath);
   if (!dbStat.isFile()) {
-    throw new Error(
-      "Digest lock database path must name a regular file.",
-    );
+    throw new Error("Digest lock database path must name a regular file.");
   }
   if (dbStat.nlink !== 1) {
-    throw new Error(
-      "Digest lock database must not have hardlink aliases.",
-    );
+    throw new Error("Digest lock database must not have hardlink aliases.");
   }
-  const lockDirectory =
-    options.lockDirectory ?? dirname(dbPath);
+  const lockDirectory = options.lockDirectory ?? dirname(dbPath);
   if (!isAbsolute(lockDirectory)) {
     throw new Error("Digest lock directory must be absolute.");
   }
   assertPrivateLockDirectory(lockDirectory);
   const lockPath = join(
     lockDirectory,
-    `.parilka-digests-${dbStat.dev}-${dbStat.ino}.lock.sqlite`,
+    `.bot-agi-digests-${dbStat.dev}-${dbStat.ino}.lock.sqlite`,
   );
   try {
     const lockStat = lstatSync(lockPath);

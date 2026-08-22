@@ -97,7 +97,7 @@ export function normalizeBotUsername(value: string): string {
     !/bot$/iu.test(username)
   ) {
     throw new Error(
-      "PARILKA_BOT_USERNAME must be a 5-32 character Telegram bot username ending in bot.",
+      "BOT_USERNAME must be a 5-32 character Telegram bot username ending in bot.",
     );
   }
   return username;

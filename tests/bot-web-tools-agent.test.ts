@@ -205,6 +205,7 @@ test("text-only fallback never sees the tool or bytes after a vision download", 
 
 test("system prompt names the web tools in tool list, sources and research", () => {
   const prompt = buildBotSystemPrompt({
+    chatTitle: "Test Chat",
     botUsername: "@bichiycepenstotri_bot",
     botName: "БычийЦепень103",
     modelLabel: "provider/model-v2",
@@ -221,6 +222,7 @@ test("system prompt names the web tools in tool list, sources and research", () 
   assert.match(prompt, /category=images/u);
 
   const withSources = buildBotSystemPrompt({
+    chatTitle: "Test Chat",
     botUsername: "testbot",
     botName: "Test",
     modelLabel: "provider/model-v2",
@@ -230,6 +232,7 @@ test("system prompt names the web tools in tool list, sources and research", () 
   assert.match(withSources, /searxng_search, firecrawl_crawl/u);
 
   const research = buildBotSystemPrompt({
+    chatTitle: "Test Chat",
     botUsername: "testbot",
     botName: "Test",
     modelLabel: "provider/model-v2",

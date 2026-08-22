@@ -89,9 +89,7 @@ async function downloadOneImage(
   } catch (error) {
     if (error instanceof PublicAddressError) {
       throw Object.assign(
-        new Error(
-          "URL must be a public HTTPS address without credentials.",
-        ),
+        new Error("URL must be a public HTTPS address without credentials."),
         { code: "unsafe_url" },
       );
     }
@@ -102,10 +100,9 @@ async function downloadOneImage(
   try {
     addresses = await lookup(url.hostname);
   } catch {
-    throw Object.assign(
-      new Error("DNS lookup failed."),
-      { code: "unsafe_url" },
-    );
+    throw Object.assign(new Error("DNS lookup failed."), {
+      code: "unsafe_url",
+    });
   }
   if (
     addresses.length === 0 ||
@@ -122,27 +119,22 @@ async function downloadOneImage(
   // one bounded turn budget.
   const availableBytes = options.tracker.availableBytes;
   if (availableBytes <= 0) {
-    throw Object.assign(
-      new Error("Cumulative image byte limit reached."),
-      { code: "size_limit" },
-    );
+    throw Object.assign(new Error("Cumulative image byte limit reached."), {
+      code: "size_limit",
+    });
   }
   const reserved = options.tracker.reserveBytes(
     Math.min(PER_IMAGE_MAX_BYTES, availableBytes),
   );
   if (reserved <= 0) {
-    throw Object.assign(
-      new Error("Cumulative image byte limit reached."),
-      { code: "size_limit" },
-    );
+    throw Object.assign(new Error("Cumulative image byte limit reached."), {
+      code: "size_limit",
+    });
   }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
-  const composed = composeAbortSignals([
-    options.signal,
-    controller.signal,
-  ]);
+  const composed = composeAbortSignals([options.signal, controller.signal]);
 
   let received = 0;
   try {
@@ -153,7 +145,7 @@ async function downloadOneImage(
       signal: composed.signal,
       maxBytes: reserved,
       accept: IMAGE_ACCEPT,
-      userAgent: "ParilkaBot/1.0 image-download",
+      userAgent: "BotAgi/1.0 image-download",
     });
     received = response.body.length;
 
@@ -291,17 +283,11 @@ function mediaTypeForContentType(value: string): ImageMediaType {
   return "image/jpeg";
 }
 
-export function detectTypeFromMagic(
-  buffer: Uint8Array,
-): ImageMediaType | null {
+export function detectTypeFromMagic(buffer: Uint8Array): ImageMediaType | null {
   if (buffer.length < 12) return null;
 
   // JPEG: starts with FF D8 FF
-  if (
-    buffer[0] === 0xff &&
-    buffer[1] === 0xd8 &&
-    buffer[2] === 0xff
-  ) {
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
     return "image/jpeg";
   }
 
