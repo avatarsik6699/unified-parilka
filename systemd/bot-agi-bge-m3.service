@@ -1,6 +1,6 @@
 [Unit]
 Description=Bot Agi local BGE-M3 encode/rerank service (loopback only)
-Documentation=file:%h/projects/bot_agi/services/bge-m3/README.md
+Documentation=file:%h/repos/parilka-unified/services/bge-m3/README.md
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=10min
@@ -8,14 +8,14 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-WorkingDirectory=%h/projects/bot_agi
+WorkingDirectory=%h/repos/parilka-unified
 # This service needs no Telegram/provider credentials. Do not point it at a
 # shared EnvironmentFile with secrets; operator overrides belong in a
 # dedicated drop-in or explicit non-secret Environment values below.
 Environment=BOT_BGE_M3_VENV=%h/.venvs/bot-agi-bge-m3
 # Loopback bind is enforced by the service itself (it refuses non-loopback
 # --host); the unit hard-codes 127.0.0.1 so it cannot be overridden remotely.
-ExecStart=%h/projects/bot_agi/bin/bot-agi-bge-m3 --host 127.0.0.1 --port 8767
+ExecStart=%h/repos/parilka-unified/bin/bot-agi-bge-m3 --host 127.0.0.1 --port 8767
 Restart=on-failure
 RestartSec=10s
 TimeoutStopSec=1min

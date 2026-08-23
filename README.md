@@ -372,7 +372,7 @@ BOT_MTPROTO_EXCLUSIVE_OWNER=true \
 
 ## systemd user services
 
-Поставляемые unit-файлы ожидают checkout в `%h/projects/bot_agi` и читают:
+Поставляемые unit-файлы ожидают checkout в `%h/repos/parilka-unified` и читают:
 
 - `%h/.config/telegram-mcp/.env` — MTProto/shared DB;
 - `%h/.config/bot-agi/bot-agi.env` — bot/router/web-search.
