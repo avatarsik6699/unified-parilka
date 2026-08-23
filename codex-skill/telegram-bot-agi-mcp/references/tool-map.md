@@ -1,4 +1,4 @@
-# Telegram Parilka MCP Tool Map
+# Telegram bot-agi MCP Tool Map
 
 The current production deployment explicitly configures
 `-1003179772905` (`Парилка228`) as its default chat. All tools accept optional

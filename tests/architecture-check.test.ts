@@ -55,7 +55,7 @@ function withFixture(run: (root: string) => void): void {
       ".agents/rules/README.md",
       ".agents/rules/documentation.md",
       "AGENTS.md",
-      "codex-skill/telegram-parilka-mcp/SKILL.md",
+      "codex-skill/telegram-bot-agi-mcp/SKILL.md",
       "docs/README.md",
       "docs/architecture.md",
       "docs/adr/README.md",
@@ -122,10 +122,10 @@ test("architecture check rejects monsters and multiple active goals", () => {
     );
 
     const result = checkArchitecture(root);
-    assert.deepEqual(
-      result.findings.map((finding) => finding.code).sort(),
-      ["active-goal-count", "production-file-too-large"],
-    );
+    assert.deepEqual(result.findings.map((finding) => finding.code).sort(), [
+      "active-goal-count",
+      "production-file-too-large",
+    ]);
   });
 });
 
@@ -155,7 +155,7 @@ test("architecture check rejects a broken canonical documentation-rule link", ()
 test("architecture check rejects retired operator instructions", () => {
   withFixture((root) => {
     writeFileSync(
-      path.join(root, "codex-skill", "telegram-parilka-mcp", "SKILL.md"),
+      path.join(root, "codex-skill", "telegram-bot-agi-mcp", "SKILL.md"),
       "Run /root/telegram-parilka-mcp and telegram-parilka-mcp-sync.service\n",
     );
 
@@ -187,9 +187,10 @@ test("architecture check rejects a stale declared thin barrel", () => {
   withFixture((root) => {
     rmSync(path.join(root, "src", "tools.ts"));
 
-    assert.deepEqual(checkArchitecture(root).findings.map((finding) => finding.code), [
-      "missing-thin-barrel",
-    ]);
+    assert.deepEqual(
+      checkArchitecture(root).findings.map((finding) => finding.code),
+      ["missing-thin-barrel"],
+    );
   });
 });
 
@@ -205,24 +206,38 @@ test("architecture check requires the exact CLAUDE.md instruction alias", () => 
     rmSync(path.join(root, "CLAUDE.md"));
     writeFixtureFile(root, "CLAUDE.md", "# duplicated instructions\n");
 
-    assert.deepEqual(checkArchitecture(root).findings.map((finding) => finding.code), [
-      "invalid-claude-alias",
-    ]);
+    assert.deepEqual(
+      checkArchitecture(root).findings.map((finding) => finding.code),
+      ["invalid-claude-alias"],
+    );
 
     rmSync(path.join(root, "CLAUDE.md"));
     symlinkSync("./AGENTS.md", path.join(root, "CLAUDE.md"));
 
-    assert.deepEqual(checkArchitecture(root).findings.map((finding) => finding.code), [
-      "invalid-claude-alias",
-    ]);
+    assert.deepEqual(
+      checkArchitecture(root).findings.map((finding) => finding.code),
+      ["invalid-claude-alias"],
+    );
   });
 });
 
 test("architecture check permits storage local, core, and shared dependencies", () => {
   withFixture((root) => {
-    writeFixtureFile(root, "src/storage/core.ts", "export class StoreCore {}\n");
-    writeFixtureFile(root, "src/observability/logger.ts", "export const logger = {};\n");
-    writeFixtureFile(root, "src/telegram/types.ts", "export type ChatInfo = {};\n");
+    writeFixtureFile(
+      root,
+      "src/storage/core.ts",
+      "export class StoreCore {}\n",
+    );
+    writeFixtureFile(
+      root,
+      "src/observability/logger.ts",
+      "export const logger = {};\n",
+    );
+    writeFixtureFile(
+      root,
+      "src/telegram/types.ts",
+      "export type ChatInfo = {};\n",
+    );
     writeFixtureFile(
       root,
       "src/storage/allowed.ts",

@@ -1,16 +1,15 @@
 ---
-name: telegram-parilka-mcp
-description: "Use when Codex needs to work with Telegram through the Telegram Parilka MCP server: read or sync group history, search cached Telegram messages, inspect thread context, draft replies, preview outgoing messages, or send/reply in an allowlisted Telegram group such as Парилка228. Use for Telegram group automation, chat summarization, reply preparation, and safe MCP-mediated Telegram actions. Do not use for general Telegram advice that does not require live MCP access."
+name: telegram-bot-agi-mcp
+description: "Use when Codex needs to work with Telegram through the Telegram bot-agi MCP server: read or sync group history, search cached Telegram messages, inspect thread context, draft replies, preview outgoing messages, or send/reply in an allowlisted Telegram group. Use for Telegram group automation, chat summarization, reply preparation, and safe MCP-mediated Telegram actions. Do not use for general Telegram advice that does not require live MCP access."
 ---
 
-# Telegram Parilka MCP
+# Telegram bot-agi MCP
 
-Use this skill to operate the unified `telegram-parilka` MCP target safely.
+Use this skill to operate the unified `telegram-bot-agi` MCP target safely.
 The production checkout on this host is
-`/home/billy/repos/parilka-unified`; the default chat is `Парилка228`
-(`-1003179772905`), but the server supports other allowlisted groups through
-env config. The normal stdio wrapper is a thin proxy to the sole
-`parilka-sync` MTProto owner on loopback `127.0.0.1:8766`; it must not be
+`%h/repos/parilka-unified`, but the server supports other allowlisted groups
+through env config. The normal stdio wrapper is a thin proxy to the sole
+`bot-agi-sync` MTProto owner on loopback `127.0.0.1:8766`; it must not be
 replaced with a second direct owner.
 
 ## Operating Rules
@@ -25,7 +24,7 @@ replaced with a second direct owner.
   production deployment. A configuration change does not authorize a send.
 - Do not copy secrets, API hashes, or StringSession values into chat, commits, logs, or final answers.
 - Do not start a direct MCP process, legacy sync unit, or one-shot MTProto
-  sync while `parilka-sync.service` owns the production session.
+  sync while `bot-agi-sync.service` owns the production session.
 
 ## Workflow
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Telegram bot-agi MCP"
+  short_description: "Use the Telegram bot-agi MCP safely"
+  default_prompt: "Use $telegram-bot-agi-mcp to read chat context and draft a safe Telegram reply."

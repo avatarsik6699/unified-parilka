@@ -11,7 +11,7 @@
 
 - `TELEGRAM_DEFAULT_CHAT_ID` and `TELEGRAM_ALLOWED_CHAT_IDS` are required;
   config fails closed when either is absent. Current production explicitly
-  configures only the intended Parilka group.
+  configures only the intended bot-agi group.
 - Keep `TELEGRAM_REQUIRE_ALLOWLIST=true` for normal operation.
 - Add new groups explicitly as comma-separated IDs/usernames.
 
@@ -45,9 +45,9 @@ Use `sync_history` for large history reads, then query cached data. Do not ask a
 
 ## Runtime ownership
 
-- `parilka-sync.service` is the sole production MTProto owner and loopback MCP
+- `bot-agi-sync.service` is the sole production MTProto owner and loopback MCP
   server on `127.0.0.1:8766`.
 - Do not start direct mode, `sync-once`, session generation, or a legacy sync
   unit while it is active.
 - The general `telegram-mcp.service` on `127.0.0.1:8765` is separate and must
-  not be replaced during Parilka operations.
+  not be replaced during bot-agi operations.

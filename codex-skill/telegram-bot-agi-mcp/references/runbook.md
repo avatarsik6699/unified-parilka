@@ -1,23 +1,23 @@
-# Unified Parilka runbook
+# Unified bot-agi runbook
 
 ## Production topology
 
 The checkout on this host is:
 
 ```bash
-cd /home/billy/repos/parilka-unified
+cd %h/repos/parilka-unified
 ```
 
 There are two long-lived user services and one timer:
 
-- `parilka-sync.service`: sole MTProto/auth owner, history sync, and loopback
+- `bot-agi-sync.service`: sole MTProto/auth owner, history sync, and loopback
   MCP on `127.0.0.1:8766`;
-- `parilka-bot.service`: sole Bot API poller and durable turn workers;
-- `parilka-maintain.timer`: bounded maintenance followed by digest work.
+- `bot-agi-bot.service`: sole Bot API poller and durable turn workers;
+- `bot-agi-maintain.timer`: bounded maintenance followed by digest work.
 
 The shared user service `telegram-mcp.service` on `127.0.0.1:8765` is
 independent.
-Never stop, replace, or reconfigure it as part of Parilka work.
+Never stop, replace, or reconfigure it as part of bot-agi work.
 
 Legacy `telegram-parilka-sync.service`, `parlang-bot.service`,
 `parlang-watchdog.service`, and `parlang-maintain.timer` are rollback-only and
@@ -26,20 +26,20 @@ must remain disabled while unified services own production state.
 ## Read-only health checks
 
 ```bash
-cd /home/billy/repos/parilka-unified
-./bin/telegram-parilka-mcp --status
+cd %h/repos/parilka-unified
+./bin/telegram-bot-agi-mcp --status
 
 systemctl --user show \
-  parilka-sync.service parilka-bot.service telegram-mcp.service \
+  bot-agi-sync.service bot-agi-bot.service telegram-mcp.service \
   --property=Id,ActiveState,SubState,UnitFileState,MainPID,Result
-systemctl --user list-timers parilka-maintain.timer
+systemctl --user list-timers bot-agi-maintain.timer
 ss -ltnp '( sport = :8765 or sport = :8766 )'
 
-journalctl --user -u parilka-sync.service -n 100 --no-pager
-journalctl --user -u parilka-bot.service -n 100 --no-pager
+journalctl --user -u bot-agi-sync.service -n 100 --no-pager
+journalctl --user -u bot-agi-bot.service -n 100 --no-pager
 ```
 
-Healthy production has exactly one Parilka listener on loopback `:8766`, the
+Healthy production has exactly one bot-agi listener on loopback `:8766`, the
 independent general Telegram MCP on loopback `:8765`, both new services
 active, and all four legacy Parilka units inactive. Structured logs must not
 contain message bodies, model output, credentials, or raw provider payloads.
@@ -49,7 +49,7 @@ contain message bodies, model output, credentials, or raw provider payloads.
 Run before installing or restarting code:
 
 ```bash
-cd /home/billy/repos/parilka-unified
+cd %h/repos/parilka-unified
 npm ci
 npm run check
 npm run check:architecture
@@ -78,7 +78,7 @@ npm run smoke:mcp:wrapper
 ```
 
 Do not use `--direct`, `npm run sync-once`, session generation, or a raw
-sync daemon against production while `parilka-sync.service` is active. Direct
+sync daemon against production while `bot-agi-sync.service` is active. Direct
 mode is recovery-only and also requires the exact exclusive-owner guard.
 
 ## Controlled restart
@@ -88,17 +88,17 @@ checks prove there is no second Bot API poller or MTProto owner. Build and
 verify first, restart one owner at a time, then inspect state and journal:
 
 ```bash
-cd /home/billy/repos/parilka-unified
+cd %h/repos/parilka-unified
 npm run build
 npm run check:systemd
 npm run smoke:mcp:wrapper
 
-systemctl --user restart parilka-sync.service
-systemctl --user is-active parilka-sync.service
-./bin/telegram-parilka-mcp --status
+systemctl --user restart bot-agi-sync.service
+systemctl --user is-active bot-agi-sync.service
+./bin/telegram-bot-agi-mcp --status
 
-systemctl --user restart parilka-bot.service
-systemctl --user is-active parilka-bot.service
+systemctl --user restart bot-agi-bot.service
+systemctl --user is-active bot-agi-bot.service
 ```
 
 For sync shutdown, require `sync.shutdown_completed`, an inactive old PID,
@@ -115,7 +115,7 @@ the canonical [migration and rollback runbook](../../../operations/MIGRATION.md)
 Production runtime reads private env files owned by the current user:
 
 - `~/.config/telegram-mcp/.env` for shared MTProto settings;
-- `~/.config/parilka/parilka.env` for bot/router/runtime settings.
+- `~/.config/bot-agi/bot-agi.env` for bot/router/runtime settings.
 
 Keep their mode `0600`. Do not print, commit, paste, or copy token, API hash,
 session, or provider-key values. The model router stores env variable names,
@@ -123,9 +123,9 @@ not credentials.
 
 Normal production invariants:
 
-- `PARILKA_MTPROTO_EXCLUSIVE_OWNER=true` only while unified sync is the sole
+- `BOT_MTPROTO_EXCLUSIVE_OWNER=true` only while unified sync is the sole
   owner;
-- `PARILKA_BOT_EXCLUSIVE_POLLER=true` only while unified bot is the sole
+- `BOT_EXCLUSIVE_POLLER=true` only while unified bot is the sole
   poller;
 - operator MCP `TELEGRAM_SEND_ENABLED=false`;
 - operator MCP `TELEGRAM_DRY_RUN_DEFAULT=true`;
@@ -141,8 +141,8 @@ auth DB merely to test a session.
 The normal target is a credentialless stdio proxy:
 
 ```toml
-[mcp_servers.telegram-parilka]
-command = "/home/billy/repos/parilka-unified/bin/telegram-parilka-mcp"
+[mcp_servers.telegram-bot-agi]
+command = "%h/repos/parilka-unified/bin/telegram-bot-agi-mcp"
 startup_timeout_sec = 30.0
 tool_timeout_sec = 600.0
 ```

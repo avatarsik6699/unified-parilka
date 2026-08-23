@@ -327,7 +327,10 @@ CPU/RSS regression, которые mtcute не устраняет.
 ## Addendum
 
 Процессы, названные выше `parilka-bot`/`parilka-sync`/`parilka-maintain`,
-переименованы в `bot-agi-bot`/`bot-agi-sync`/`bot-agi-maintain` (переименование
-`Parilka` → `bot-agi`, коммит `c5e7ac2`, см. `operations/RENAME-BOT-AGI.md`).
-Архитектурное решение этого ADR — два явных долгоживущих процесса на общем
-versioned SQLite — не изменилось, изменились только имена.
+переименованы в `bot-agi-bot`/`bot-agi-sync`/`bot-agi-maintain`, бинарник
+`telegram-parilka-mcp` — в `telegram-bot-agi-mcp`, переменная
+`PARILKA_MTPROTO_EXCLUSIVE_OWNER` — в `BOT_MTPROTO_EXCLUSIVE_OWNER`
+(переименование `Parilka` → `bot-agi`, коммит `c5e7ac2`, см.
+`operations/RENAME-BOT-AGI.md`). Архитектурное решение этого ADR — два явных
+долгоживущих процесса на общем versioned SQLite — не изменилось, изменились
+только имена.

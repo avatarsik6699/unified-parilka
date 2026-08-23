@@ -37,7 +37,7 @@ const requiredPaths = [
   ".agents/rules/README.md",
   ".agents/rules/documentation.md",
   "AGENTS.md",
-  "codex-skill/telegram-parilka-mcp/SKILL.md",
+  "codex-skill/telegram-bot-agi-mcp/SKILL.md",
   "docs/README.md",
   "docs/architecture.md",
   "docs/adr/README.md",
@@ -123,7 +123,9 @@ export function countSourceLines(text: string): number {
   return lines.at(-1) === "" ? lines.length - 1 : lines.length;
 }
 
-export function checkArchitecture(repositoryRoot = process.cwd()): ArchitectureCheck {
+export function checkArchitecture(
+  repositoryRoot = process.cwd(),
+): ArchitectureCheck {
   const findings: ArchitectureFinding[] = [];
   const productionFiles = ["src", "scripts"].flatMap((relative) =>
     listFiles(path.join(repositoryRoot, relative)).filter((file) =>
@@ -287,14 +289,16 @@ function checkClaudeInstructionAlias(
       findings.push({
         code: "invalid-claude-alias",
         file: relative,
-        message: "CLAUDE.md must be a symbolic link whose exact target is AGENTS.md",
+        message:
+          "CLAUDE.md must be a symbolic link whose exact target is AGENTS.md",
       });
     }
   } catch {
     findings.push({
       code: "invalid-claude-alias",
       file: relative,
-      message: "CLAUDE.md must be a symbolic link whose exact target is AGENTS.md",
+      message:
+        "CLAUDE.md must be a symbolic link whose exact target is AGENTS.md",
     });
   }
 }
@@ -366,17 +370,11 @@ function resolveRelativeModuleSpecifier(
   file: string,
   specifier: string,
 ): string | undefined {
-  return ts.resolveModuleName(
-    specifier,
-    file,
-    moduleResolutionOptions,
-    ts.sys,
-  ).resolvedModule?.resolvedFileName;
+  return ts.resolveModuleName(specifier, file, moduleResolutionOptions, ts.sys)
+    .resolvedModule?.resolvedFileName;
 }
 
-function forbiddenStorageBoundary(
-  targetRelative: string,
-): string | undefined {
+function forbiddenStorageBoundary(targetRelative: string): string | undefined {
   if (
     isPathWithin(targetRelative, path.join("src", "bot")) ||
     targetRelative === path.join("src", "bot-daemon.ts") ||
@@ -403,8 +401,7 @@ function forbiddenStorageBoundary(
 
 function isPathWithin(candidate: string, directory: string): boolean {
   return (
-    candidate === directory ||
-    candidate.startsWith(`${directory}${path.sep}`)
+    candidate === directory || candidate.startsWith(`${directory}${path.sep}`)
   );
 }
 
@@ -472,6 +469,9 @@ function main(): void {
   );
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
   main();
 }
