@@ -20,7 +20,8 @@ test("reply to bot message sets replyToBot true", () => {
   );
 
   assert.equal(result.replyToBot, true);
-  assert.equal(result.reason, "not_addressed");
+  assert.equal(result.addressed, true);
+  assert.equal(result.reason, "reply_to_bot");
   assert.equal(result.ingest, true);
 });
 

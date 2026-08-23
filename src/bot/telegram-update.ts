@@ -6,6 +6,7 @@ export type TelegramUpdateKind = "message" | "edited_message";
 export type TelegramUpdateReason =
   | "username_mention"
   | "text_mention"
+  | "reply_to_bot"
   | "not_addressed"
   | "edited_message"
   | "own_message"
@@ -180,6 +181,18 @@ export function normalizeTelegramUpdate(
       addressed: true,
       reason: mention,
       ...(replyToBot === undefined ? {} : { replyToBot }),
+    });
+  }
+
+  // A reply to the bot's own message is just as explicit an address as an
+  // @mention -- it starts a new turn the same way, not only a fold into an
+  // already-active one (see TurnCoordinator.routeMessage's owner_follow_up).
+  if (replyToBot === true) {
+    return compactResult({
+      ...base,
+      addressed: true,
+      reason: "reply_to_bot",
+      replyToBot: true,
     });
   }
 

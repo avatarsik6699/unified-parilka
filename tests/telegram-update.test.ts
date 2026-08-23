@@ -160,7 +160,7 @@ test("a deleted or inaccessible reply is retained by id but is not a trigger", (
   assert.equal(stored(result).topicId, 55);
 });
 
-test("replying to the bot without a mention does not address it", () => {
+test("replying to the bot addresses it via reply_to_bot, not the quoted message's own mention entities", () => {
   const result = normalizeTelegramUpdate(
     botUpdate({
       text: "да, продолжай",
@@ -188,8 +188,11 @@ test("replying to the bot without a mention does not address it", () => {
   );
 
   assert.equal(result.ingest, true);
-  assert.equal(result.addressed, false);
-  assert.equal(result.reason, "not_addressed");
+  // Addressed via the reply itself, not via the "@ParilkaBot" mention entity
+  // that only exists on the quoted reply_to_message, not the current one.
+  assert.equal(result.addressed, true);
+  assert.equal(result.reason, "reply_to_bot");
+  assert.equal(result.replyToBot, true);
   assert.equal(stored(result).replyToMessageId, 42);
 });
 
