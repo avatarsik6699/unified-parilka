@@ -6,7 +6,7 @@
       "protocol": "openai",
       "baseUrl": "https://api.openai.com/v1",
       "apiKeyEnv": "BOT_OPENAI_API_KEY",
-      "reasoningEffort": "low"
+      "reasoningEffort": "none"
     },
     {
       "id": "deepseek",
