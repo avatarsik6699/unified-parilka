@@ -3,6 +3,7 @@ import {
   rowToHumanPersonaProposal,
   rowToHumanPersonaStyleProfile,
   rowToHumanPersonaTriggerState,
+  rowToStoredMessage,
 } from "./mappers.js";
 import type {
   HumanPersonaAutonomyMode,
@@ -10,8 +11,11 @@ import type {
   StoredHumanPersonaProposal,
   StoredHumanPersonaStyleProfile,
   StoredHumanPersonaTriggerState,
+  StoredMessage,
   UpsertHumanPersonaStyleProfileInput,
 } from "./types.js";
+
+const MAX_STYLE_SOURCE_MESSAGES = 5_000;
 
 /**
  * Method module installed on MessageStore.prototype.
@@ -59,6 +63,39 @@ export abstract class HumanPersonaMethods extends StoreCore {
           nowMs,
         );
     });
+  }
+
+  /**
+   * Source messages for the style-profile pipeline (4f): a target person's
+   * own text in one chat, newest first, bounded so a very long history
+   * cannot blow the source budget. `targetUserKey` matches either the
+   * Telegram sender id or sender display name, mirroring `searchLexical`'s
+   * `sender` filter.
+   */
+  getHumanPersonaStyleSourceMessages(
+    chatId: string,
+    targetUserKey: string,
+    limit = MAX_STYLE_SOURCE_MESSAGES,
+  ): StoredMessage[] {
+    const boundedLimit = Math.min(
+      Math.max(1, limit),
+      MAX_STYLE_SOURCE_MESSAGES,
+    );
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM messages
+         WHERE chat_id = ?
+           AND deleted_at IS NULL
+           AND length(trim(text)) > 0
+           AND (sender_id = ? OR sender_name = ?)
+         ORDER BY message_id DESC
+         LIMIT ?`,
+      )
+      .all(chatId, targetUserKey, targetUserKey, boundedLimit) as Record<
+      string,
+      unknown
+    >[];
+    return rows.map(rowToStoredMessage);
   }
 
   getHumanPersonaStyleProfile(
@@ -285,6 +322,7 @@ export abstract class HumanPersonaMethods extends StoreCore {
 
 export type HumanPersonaApi = Pick<
   HumanPersonaMethods,
+  | "getHumanPersonaStyleSourceMessages"
   | "upsertHumanPersonaStyleProfile"
   | "getHumanPersonaStyleProfile"
   | "getHumanPersonaTriggerState"
