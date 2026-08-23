@@ -323,3 +323,11 @@ CPU/RSS regression, которые mtcute не устраняет.
 Операционная последовательность и реальные ограничения импорта описаны в
 [migration runbook](../../operations/MIGRATION.md), а состоявшийся cutover —
 в [deployment evidence](../../loop-develop/history/001-unified-parilka/001-evidence/deployment-2026-07-30.md).
+
+## Addendum
+
+Процессы, названные выше `parilka-bot`/`parilka-sync`/`parilka-maintain`,
+переименованы в `bot-agi-bot`/`bot-agi-sync`/`bot-agi-maintain` (переименование
+`Parilka` → `bot-agi`, коммит `c5e7ac2`, см. `operations/RENAME-BOT-AGI.md`).
+Архитектурное решение этого ADR — два явных долгоживущих процесса на общем
+versioned SQLite — не изменилось, изменились только имена.

@@ -5,6 +5,11 @@ network boundaries, secrets, storage, agent tool isolation, fail-closed defaults
 Метод: статический анализ кода и документации. Без live send / polling / model
 calls (в соответствии с AGENTS.md).
 
+> Снимок на дату аудита (до переименования `Parilka` → `bot-agi`,
+> см. `operations/RENAME-BOT-AGI.md`) — упомянутые здесь `PARILKA_*`-имена
+> с тех пор переименованы в `BOT_*`; находки ниже сохранены как есть, не
+> актуализировались.
+
 ## Итоговая оценка
 
 Архитектура демонстрирует зрелый, последовательный security-дизайн: явные

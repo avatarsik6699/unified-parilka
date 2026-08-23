@@ -30,25 +30,31 @@
 | Approval poster | `bot-agi-bot` | Постит `pending`-предложения approval-режима в отдельный approval-чат с кнопками |
 | Callback/edit handling | `bot-agi-bot` | Обрабатывает нажатия кнопок и reply-правки в approval-чате |
 
-Ни одна из этих способностей не активируется частично: у каждой свой набор
-обязательных `BOT_HUMAN_PERSONA_*` переменных (см. `.env.example`), и
-отсутствие любой из них тихо оставляет соответствующий runner
-неактивным — поведение процесса не меняется.
+Ни одна из этих способностей не активируется частично, но конфигурация
+теперь идёт из **двух независимых источников** (ADR 0007) — не путать их:
 
-## Обязательные переменные (см. `.env.example` для полного списка с дефолтами)
+## Конфигурация: два независимых источника
 
-- `BOT_HUMAN_PERSONA_ID`, `BOT_HUMAN_PERSONA_CHAT_ID`,
-  `BOT_HUMAN_PERSONA_TARGET_USER` — общие для style-profile, trigger-engine
-  и send-tick.
-- `BOT_HUMAN_PERSONA_CONSENT_BASIS` — только для style-profile CLI
-  (`--apply`), не читается daemon-процессами.
-- `BOT_HUMAN_PERSONA_APPROVAL_CHAT_ID` — только для `bot-agi-bot` (approval
-  poster + callback handling). Отдельный чат от `BOT_HUMAN_PERSONA_CHAT_ID`:
-  подтверждения и правки текста происходят там, не в чате персоны.
-- `BOT_HUMAN_PERSONA_AUTONOMY_MODE` — `approval` (default) или `auto`.
-- `BOT_MODEL_CONFIG_PATH` — уже используется другими daemon-процессами;
-  переиспользуется тем же путём для роли «человек» (нет отдельного
-  `BOT_HUMAN_PERSONA_MODEL_CONFIG_PATH`).
+- **Style-profile CLI** (`bin/bot-agi-human-persona-style`, offline,
+  запускается вручную/по таймеру, не daemon) по-прежнему читает отдельные
+  скаляры из env: `BOT_HUMAN_PERSONA_ID`, `BOT_HUMAN_PERSONA_CHAT_ID`,
+  `BOT_HUMAN_PERSONA_TARGET_USER`, `BOT_HUMAN_PERSONA_CONSENT_BASIS` (см.
+  `.env.example`). Это одноразовое операторское решение о согласии на
+  анализ истории — другой жизненный цикл, ADR 0007 их не трогает.
+- **Trigger-engine, send-tick, approval poster и callback handling**
+  (`bot-agi-sync` и `bot-agi-bot`) читают единственную опциональную запись
+  `role: "human-persona"` из общего `BOT_BOTS_CONFIG_PATH` (тот же файл,
+  что и записи `role: "assistant"`, см. `config/bots.example.json`):
+  `personaId`, `chatId`, `chatTitle`, `targetUserKey`, `approvalChatId`,
+  `autonomyMode` (`approval` по умолчанию, `auto`), `activeHourStart/End`,
+  `minSilenceMs`, `maxInitiationsPerWindow`, `windowMs`. Отсутствие такой
+  записи в файле тихо оставляет trigger/send/poster неактивными — поведение
+  процессов не меняется, как и раньше. `approvalChatId` обязан отличаться
+  от `chatId` (и от всех `role: "assistant"` chatId в том же файле) —
+  подтверждения и правки текста идут в отдельном чате, не в чате персоны;
+  это проверяется на старте `bot-agi-bot` (`assertBotDaemonConfiguration`).
+- `BOT_MODEL_CONFIG_PATH` — общий для всех daemon-процессов, отдельного
+  `BOT_HUMAN_PERSONA_MODEL_CONFIG_PATH` нет и не было.
 
 ## Первый запуск: approval-режим, не auto
 
@@ -59,17 +65,17 @@
    --persona-id <id> --chat <chat_id> --target-user <user_key>
    --consent-basis confirmed_by_owner` (или `self`, если персона строится по
    собственным сообщениям пользователя).
-2. Установить `BOT_HUMAN_PERSONA_ID/CHAT_ID/TARGET_USER` и
-   `BOT_HUMAN_PERSONA_APPROVAL_CHAT_ID`; **не** устанавливать
-   `BOT_HUMAN_PERSONA_AUTONOMY_MODE` (дефолт — `approval`).
+2. Добавить запись `role: "human-persona"` в файл `BOT_BOTS_CONFIG_PATH`
+   (`personaId`, `chatId`, `targetUserKey`, `approvalChatId`); **не**
+   указывать `autonomyMode` (дефолт — `approval`).
 3. Перезапустить `bot-agi-sync` и `bot-agi-bot` (отдельная операторская
    авторизация на restart).
 4. Наблюдать за approval-чатом: каждое предложение персоны приходит с
    кнопками Подтвердить/Отклонить/Перегенерировать/Скорректировать. Правка
    текста — обычный reply на запощенное сообщение, не отдельная команда.
 5. Только после того, как качество предложений в approval-режиме
-   устраивает, осознанно переключать `BOT_HUMAN_PERSONA_AUTONOMY_MODE=auto`
-   и перезапускать `bot-agi-sync`.
+   устраивает, осознанно установить `"autonomyMode": "auto"` в этой записи
+   `BOT_BOTS_CONFIG_PATH` и перезапустить `bot-agi-sync`.
 
 ## Диагностика без polling
 
@@ -120,8 +126,11 @@ journalctl --user -u bot-agi-bot.service -o json | \
 
 ## Отключение
 
-Удалить (или закомментировать) `BOT_HUMAN_PERSONA_ID` (и/или
-`BOT_HUMAN_PERSONA_APPROVAL_CHAT_ID` для `bot-agi-bot`) из env-файла и
-перезапустить соответствующий процесс. Trigger/send/poster runner просто не
-конструируются при следующем старте — это не отдельный kill switch, а то же
-"опционально сконфигурировано" поведение, что и при первом включении.
+Удалить запись `role: "human-persona"` из файла `BOT_BOTS_CONFIG_PATH` и
+перезапустить `bot-agi-sync` и `bot-agi-bot`. Trigger/send/poster runner
+просто не конструируются при следующем старте — это не отдельный kill
+switch, а то же "опционально сконфигурировано" поведение, что и при первом
+включении. Style-profile CLI (`bin/bot-agi-human-persona-style`) не
+затронут — это отдельный вызов, не daemon-runner, отдельная переменная
+`BOT_HUMAN_PERSONA_ID` для него по-прежнему читается только при явном
+запуске CLI.
