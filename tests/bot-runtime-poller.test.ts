@@ -96,6 +96,15 @@ test("migration offset skips only legacy-confirmed updates on the first poll", a
       recordBotUpdateFailure() {
         throw new Error("not expected");
       },
+      getHumanPersonaProposal() {
+        return undefined;
+      },
+      recordHumanPersonaProposalDecision() {
+        return false;
+      },
+      getClaimedHumanPersonaProposalByApprovalMessage() {
+        return undefined;
+      },
     },
     coordinator: new TurnCoordinator({ maxActiveTurns: 1 }),
     workNotifier: { notify() {} },
@@ -148,6 +157,15 @@ test("pinned bot identity is verified before any queued worker can run", async (
       },
       recordBotUpdateFailure() {
         throw new Error("not expected");
+      },
+      getHumanPersonaProposal() {
+        return undefined;
+      },
+      recordHumanPersonaProposalDecision() {
+        return false;
+      },
+      getClaimedHumanPersonaProposalByApprovalMessage() {
+        return undefined;
       },
     },
     coordinator: new TurnCoordinator({ maxActiveTurns: 1 }),
@@ -216,6 +234,15 @@ test("runtime stops polling first and waits for an in-flight worker probe", asyn
       recordBotUpdateFailure() {
         throw new Error("not expected");
       },
+      getHumanPersonaProposal() {
+        return undefined;
+      },
+      recordHumanPersonaProposalDecision() {
+        return false;
+      },
+      getClaimedHumanPersonaProposalByApprovalMessage() {
+        return undefined;
+      },
     },
     coordinator: new TurnCoordinator({ maxActiveTurns: 1 }),
     workNotifier: { notify() {} },
@@ -276,6 +303,15 @@ test("fatal polling conflict waits in-flight work but does not drain new queued 
       },
       recordBotUpdateFailure() {
         throw new Error("not expected");
+      },
+      getHumanPersonaProposal() {
+        return undefined;
+      },
+      recordHumanPersonaProposalDecision() {
+        return false;
+      },
+      getClaimedHumanPersonaProposalByApprovalMessage() {
+        return undefined;
       },
     },
     coordinator: new TurnCoordinator({ maxActiveTurns: 1 }),
@@ -352,6 +388,15 @@ test("a storage failure is retried without sending a larger offset", async () =>
     },
     recordBotUpdateFailure() {
       throw new Error("not expected");
+    },
+    getHumanPersonaProposal() {
+      return undefined;
+    },
+    recordHumanPersonaProposalDecision() {
+      return false;
+    },
+    getClaimedHumanPersonaProposalByApprovalMessage() {
+      return undefined;
     },
   };
   const processor = new BotUpdateProcessor({

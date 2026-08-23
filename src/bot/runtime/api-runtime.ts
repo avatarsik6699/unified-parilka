@@ -1,3 +1,4 @@
+import type { ApprovalPosterLoop } from "../../human-persona-approval-poster.js";
 import type { JsonEventLogger } from "../worker.js";
 import type { BotApiLongPoller } from "./long-poller.js";
 import type { BotWorkerDrainResult, BotWorkerPump } from "./worker-pump.js";
@@ -8,6 +9,13 @@ export interface BotApiRuntimeOptions {
   workers: BotWorkerPump;
   shutdownTimeoutMs?: number;
   logger?: JsonEventLogger;
+  /**
+   * Human-persona approval poster (plan Фаза 4d/5 Шаг 5), undefined when no
+   * persona/approval chat is configured. Runs concurrently with the poller
+   * for the whole lifetime of `run()`; a poster failure is logged and never
+   * affects the poller/workers.
+   */
+  approvalPoster?: ApprovalPosterLoop;
 }
 
 export class BotApiRuntime {
@@ -15,6 +23,7 @@ export class BotApiRuntime {
   readonly #workers: BotWorkerPump;
   readonly #shutdownTimeoutMs: number;
   readonly #logger: JsonEventLogger | undefined;
+  readonly #approvalPoster: ApprovalPosterLoop | undefined;
 
   constructor(options: BotApiRuntimeOptions) {
     this.#poller = options.poller;
@@ -26,9 +35,20 @@ export class BotApiRuntime {
       "shutdownTimeoutMs",
     );
     this.#logger = options.logger;
+    this.#approvalPoster = options.approvalPoster;
   }
 
   async run(signal?: AbortSignal): Promise<BotWorkerDrainResult> {
+    const posterController = new AbortController();
+    const forwardAbort = (): void => posterController.abort();
+    signal?.addEventListener("abort", forwardAbort, { once: true });
+    const posterPromise = this.#approvalPoster
+      ?.run(posterController.signal)
+      .catch((error: unknown) => {
+        this.#log("warn", "human_persona.approval_poster_failed", {
+          failure: error instanceof Error ? error.message : String(error),
+        });
+      });
     let pollError: unknown;
     try {
       await this.#poller.run(signal, () => this.#workers.start());
@@ -36,6 +56,9 @@ export class BotApiRuntime {
       pollError = error;
     } finally {
       this.#poller.requestStop();
+      posterController.abort();
+      signal?.removeEventListener("abort", forwardAbort);
+      await posterPromise;
     }
     // Queued turns are already durable. Graceful shutdown stops admission and
     // waits only for in-flight workers; it does not begin fresh model calls

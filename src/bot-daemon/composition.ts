@@ -11,6 +11,7 @@ import {
   BotUpdateProcessor,
   BotWorkerPump,
   botRuntimeOptionsFromConfig,
+  createApprovalPosterApiPort,
   createDurableGrammyBotTurnPublisher,
   createGrammyLongPollingApi,
   createGrammyTelegramMediaDownloader,
@@ -19,6 +20,7 @@ import {
 import { TurnCoordinator } from "../bot/turn-coordinator.js";
 import type { TypingPort } from "../bot/typing.js";
 import { BotTurnWorker } from "../bot/worker.js";
+import { ApprovalPosterLoop } from "../human-persona-approval-poster.js";
 import type {
   BotDaemonComposition,
   ComposeBotDaemonOptions,
@@ -42,9 +44,7 @@ export function composeBotDaemon(
   });
   const cache = new CanonicalBotReadCache({
     store: options.store,
-    ...(options.vector === undefined
-      ? {}
-      : { vector: options.vector }),
+    ...(options.vector === undefined ? {} : { vector: options.vector }),
     logger: options.logger,
     botSenderId: config.botId,
     rerankMaxCandidates:
@@ -92,14 +92,12 @@ export function composeBotDaemon(
       botName: config.botDisplayName,
       chatTitle: config.chatTitle,
       historyDescription: config.historyDescription,
-      memoryMaxChars:
-        options.appConfig?.memory?.memoryMaxChars ?? 2_000,
+      memoryMaxChars: options.appConfig?.memory?.memoryMaxChars ?? 2_000,
       botSenderId: config.botId,
       ...(config.approximateMemberCount === undefined
         ? {}
         : {
-            approximateMemberCount:
-              config.approximateMemberCount,
+            approximateMemberCount: config.approximateMemberCount,
           }),
     },
     logger: options.logger,
@@ -159,6 +157,9 @@ export function composeBotDaemon(
       allowedChatId: config.allowedChatId,
       botId: config.botId,
       botUsername: config.botUsername,
+      ...(options.humanPersonaApprovalChatId === undefined
+        ? {}
+        : { humanPersonaApprovalChatId: options.humanPersonaApprovalChatId }),
     },
     triggerCooldownMs: config.triggerCooldownMs,
     updateMaxAttempts: config.updateMaxAttempts,
@@ -170,17 +171,30 @@ export function composeBotDaemon(
     ...botRuntimeOptionsFromConfig(config),
     logger: options.logger,
   });
+  const approvalPoster =
+    options.humanPersonaId !== undefined &&
+    options.humanPersonaApprovalChatId !== undefined
+      ? new ApprovalPosterLoop({
+          store: options.store,
+          api: createApprovalPosterApiPort(options.api),
+          personaId: options.humanPersonaId,
+          approvalChatId: options.humanPersonaApprovalChatId,
+          claimedBy: workerIdPrefix,
+        })
+      : undefined;
   const runtime = new BotApiRuntime({
     poller,
     workers: workerPump,
     shutdownTimeoutMs: config.shutdownTimeoutMs,
     logger: options.logger,
+    ...(approvalPoster === undefined ? {} : { approvalPoster }),
   });
 
   return {
     runtime,
     poller,
     workerPump,
+    ...(approvalPoster === undefined ? {} : { approvalPoster }),
     workers,
     processor,
     coordinator,

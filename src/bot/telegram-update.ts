@@ -13,12 +13,21 @@ export type TelegramUpdateReason =
   | "chat_not_allowed"
   | "malformed_update"
   | "malformed_message"
-  | "unsupported_update";
+  | "unsupported_update"
+  | "human_persona_approval_reply";
 
 export interface TelegramUpdateOptions {
   allowedChatId: string | number;
   botId: string | number;
   botUsername: string;
+  /**
+   * Human-persona approval chat (plan Фаза 4d/5 Шаг 5), distinct from
+   * `allowedChatId`. A message here bypasses the single-chat allowlist but
+   * is never mention-checked or routed to the turn coordinator — it can
+   * only ever be an edit reply to a posted proposal, handled entirely
+   * outside the normal chat-turn pipeline.
+   */
+  humanPersonaApprovalChatId?: string | number;
 }
 
 export interface NormalizedTelegramUpdate {
@@ -63,6 +72,13 @@ export function normalizeTelegramUpdate(
   const allowedChatId = configuredId(options.allowedChatId, "allowedChatId");
   const botId = configuredId(options.botId, "botId");
   const botUsername = normalizeBotUsername(options.botUsername);
+  const approvalChatId =
+    options.humanPersonaApprovalChatId === undefined
+      ? undefined
+      : configuredId(
+          options.humanPersonaApprovalChatId,
+          "humanPersonaApprovalChatId",
+        );
   const update = asObject(input);
   const updateId = nonNegativeSafeInteger(update?.update_id);
   const selected = selectMessage(update);
@@ -97,7 +113,9 @@ export function normalizeTelegramUpdate(
     });
   }
 
-  if (chatId !== allowedChatId) {
+  const isApprovalChat =
+    approvalChatId !== undefined && chatId === approvalChatId;
+  if (chatId !== allowedChatId && !isApprovalChat) {
     return compactResult({
       ingest: false,
       addressed: false,
@@ -138,17 +156,20 @@ export function normalizeTelegramUpdate(
     return compactResult({ ...base, reason: "bot_message" });
   }
 
-  // replyToBot is computed only for routable user messages.
-  const replyToBot = replyToBotFromReplyToMessage(
-    selected.message,
-    botId,
-  );
+  // Approval-chat replies are never mention-checked or turn-routed; the
+  // update-processor decides, from `replyToMessageId`, whether this is an
+  // edit for a still-claimed proposal (plan 4d/5 Шаг 5).
+  if (isApprovalChat) {
+    return compactResult({
+      ...base,
+      reason: "human_persona_approval_reply",
+    });
+  }
 
-  const mention = explicitBotMention(
-    selected.message,
-    botUsername,
-    botId,
-  );
+  // replyToBot is computed only for routable user messages.
+  const replyToBot = replyToBotFromReplyToMessage(selected.message, botId);
+
+  const mention = explicitBotMention(selected.message, botUsername, botId);
   if (mention) {
     return compactResult({
       ...base,
@@ -181,9 +202,7 @@ function toChatInfo(chat: JsonObject, chatId: string): ChatInfo {
 
 function selectMessage(
   update: JsonObject | undefined,
-):
-  | { kind: TelegramUpdateKind; message: JsonObject }
-  | undefined {
+): { kind: TelegramUpdateKind; message: JsonObject } | undefined {
   if (!update) {
     return undefined;
   }
@@ -336,10 +355,7 @@ function entitySpan(
     return undefined;
   }
   const end = offset + length;
-  if (
-    isInsideSurrogatePair(text, offset) ||
-    isInsideSurrogatePair(text, end)
-  ) {
+  if (isInsideSurrogatePair(text, offset) || isInsideSurrogatePair(text, end)) {
     return undefined;
   }
   return text.slice(offset, end);
@@ -387,9 +403,7 @@ function mediaPlaceholder(message: JsonObject): string {
   const voice = asObject(message.voice);
   if (voice) {
     const duration = positiveSafeInteger(voice.duration);
-    return duration === undefined
-      ? "[голосовое]"
-      : `[голосовое ${duration}с]`;
+    return duration === undefined ? "[голосовое]" : `[голосовое ${duration}с]`;
   }
 
   if (present(message.video_note)) {

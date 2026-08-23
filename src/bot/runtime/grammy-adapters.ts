@@ -1,23 +1,37 @@
 import type { Api } from "grammy";
+import type { ApprovalPosterApiPort } from "../../human-persona-approval-poster.js";
 import type { ChatInfo } from "../../telegram/types.js";
 import type { StoredMessage } from "../../store.js";
-import { GrammyBotTurnPublisher, type GrammyBotApiPort } from "../grammy-publisher.js";
+import {
+  GrammyBotTurnPublisher,
+  type GrammyBotApiPort,
+} from "../grammy-publisher.js";
 import type { BotRuntimeConfig } from "../runtime-config.js";
 import type { ToolProgressBotApiPort } from "../tool-progress.js";
 import { BotMediaError } from "../media/contracts.js";
 import { TelegramMediaDownloader } from "../media/telegram-downloader.js";
 import type { OwnSendStore } from "./contracts.js";
-import type { BotApiLongPollerOptions, GrammyLongPollingApiPort } from "./long-poller.js";
-import { asRecord, botApiDate, BotRuntimeProtocolError, normalizeExpectedUsername, positiveSafeInteger, positiveTelegramId, stringifyUpdate, telegramId } from "./helpers.js";
+import type {
+  BotApiLongPollerOptions,
+  GrammyLongPollingApiPort,
+} from "./long-poller.js";
+import {
+  asRecord,
+  botApiDate,
+  BotRuntimeProtocolError,
+  normalizeExpectedUsername,
+  positiveSafeInteger,
+  positiveTelegramId,
+  stringifyUpdate,
+  telegramId,
+} from "./helpers.js";
 
 export function createGrammyLongPollingApi(
   api: Pick<Api, "getMe" | "deleteWebhook" | "getUpdates">,
 ): GrammyLongPollingApiPort {
   return {
     getMe: (signal) =>
-      api.getMe(
-        signal as unknown as Parameters<Api["getMe"]>[0],
-      ),
+      api.getMe(signal as unknown as Parameters<Api["getMe"]>[0]),
     deleteWebhook: (options, signal) =>
       api.deleteWebhook(
         options,
@@ -141,6 +155,31 @@ export function createToolProgressGrammyBotApiPort(
 }
 
 /**
+ * Adapter for the human-persona approval poster (plan 4d/5 Шаг 5): posts a
+ * proposal with its inline keyboard, nothing else. Deliberately does not
+ * reuse `createDurableGrammyBotTurnPublisher` -- an approval post is an
+ * operational UI message, not a persona reply, so it has no place in the
+ * assistant's own-send corpus recording.
+ */
+export function createApprovalPosterApiPort(
+  api: Pick<Api, "sendMessage">,
+): ApprovalPosterApiPort {
+  return {
+    async sendMessage(chatId, text, replyMarkup, signal) {
+      const message = await api.sendMessage(
+        chatId,
+        text,
+        { reply_markup: replyMarkup } as unknown as Parameters<
+          Api["sendMessage"]
+        >[2],
+        signal as unknown as Parameters<Api["sendMessage"]>[3],
+      );
+      return { message_id: message.message_id };
+    },
+  };
+}
+
+/**
  * Builds the only component that can turn a Bot API file reference into bytes.
  * The authenticated URL is constructed here, after the downloader has
  * validated Telegram's file path, and never crosses into an agent/model
@@ -226,29 +265,23 @@ function recordOwnSend(
     throw new BotRuntimeProtocolError("OWN_SEND_RESPONSE_MALFORMED");
   }
   const responseSenderId = telegramId(asRecord(response.from)?.id);
-  if (
-    responseSenderId !== undefined &&
-    responseSenderId !== input.botId
-  ) {
+  if (responseSenderId !== undefined && responseSenderId !== input.botId) {
     throw new BotRuntimeProtocolError("OWN_SEND_IDENTITY_MISMATCH");
   }
 
   const cachedChat = store.getCachedChat(input.requestedChatId);
-  const chat: ChatInfo =
-    cachedChat ?? {
-      chatId: input.requestedChatId,
-      requested: input.requestedChatId,
-      kind:
-        typeof responseChat?.type === "string"
-          ? responseChat.type
-          : "unknown",
-      ...(typeof responseChat?.title === "string"
-        ? { title: responseChat.title }
-        : {}),
-      ...(typeof responseChat?.username === "string"
-        ? { username: responseChat.username }
-        : {}),
-    };
+  const chat: ChatInfo = cachedChat ?? {
+    chatId: input.requestedChatId,
+    requested: input.requestedChatId,
+    kind:
+      typeof responseChat?.type === "string" ? responseChat.type : "unknown",
+    ...(typeof responseChat?.title === "string"
+      ? { title: responseChat.title }
+      : {}),
+    ...(typeof responseChat?.username === "string"
+      ? { username: responseChat.username }
+      : {}),
+  };
   const date = botApiDate(response.date);
   const rawJson = stringifyUpdate(response);
   store.upsertMessages(chat, [

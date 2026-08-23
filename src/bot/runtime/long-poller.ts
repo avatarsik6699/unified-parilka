@@ -1,9 +1,31 @@
 import type { JsonEventLogger } from "../worker.js";
 import type { BotUpdateProcessor } from "./update-processor.js";
-import { abortableSleep, assertBotIdentity, boundedInteger, BotRuntimeProtocolError, BotRuntimeStopError, compact, isFatalPollingError, normalizeExpectedUsername, positiveTelegramId, safeErrorCode, telegramErrorCode, telegramRetryAfterMs, updateBatch, updateIdentifier } from "./helpers.js";
+import {
+  abortableSleep,
+  assertBotIdentity,
+  boundedInteger,
+  BotRuntimeProtocolError,
+  BotRuntimeStopError,
+  compact,
+  isFatalPollingError,
+  normalizeExpectedUsername,
+  positiveTelegramId,
+  safeErrorCode,
+  telegramErrorCode,
+  telegramRetryAfterMs,
+  updateBatch,
+  updateIdentifier,
+} from "./helpers.js";
 
 const OFFSET_CONFIRMATION_TIMEOUT_MS = 5_000;
-const ALLOWED_UPDATES = ["message", "edited_message"] as const;
+// callback_query carries human-persona approval button presses (plan Фаза
+// 4d/5 Шаг 5). Telegram's getUpdates offset is a single global cursor per
+// bot token, so this must stay one poller/allowlist, not a second one.
+const ALLOWED_UPDATES = [
+  "message",
+  "edited_message",
+  "callback_query",
+] as const;
 const HEARTBEAT_INTERVAL_MS = 5 * 60_000;
 
 export interface GrammyLongPollingApiPort {
@@ -17,7 +39,9 @@ export interface GrammyLongPollingApiPort {
       offset?: number;
       limit: number;
       timeout: number;
-      allowed_updates: readonly ("message" | "edited_message")[];
+      allowed_updates: readonly (
+        "message" | "edited_message" | "callback_query"
+      )[];
     },
     signal: AbortSignal,
   ): Promise<unknown>;
@@ -113,10 +137,7 @@ export class BotApiLongPoller {
     return this.#nextOffset;
   }
 
-  async run(
-    signal?: AbortSignal,
-    onReady?: () => void,
-  ): Promise<void> {
+  async run(signal?: AbortSignal, onReady?: () => void): Promise<void> {
     if (this.#running) {
       throw new Error("BotApiLongPoller is already running.");
     }
@@ -159,9 +180,7 @@ export class BotApiLongPoller {
               `POLL_FATAL_${telegramErrorCode(error) ?? "UNKNOWN"}`,
             );
           }
-          const retryAfterMs =
-            telegramRetryAfterMs(error) ??
-            backoffMs;
+          const retryAfterMs = telegramRetryAfterMs(error) ?? backoffMs;
           this.#log("warn", "bot.poll.retry", {
             code: safeErrorCode(error),
             retryAfterMs,
@@ -189,10 +208,7 @@ export class BotApiLongPoller {
           if (updateId === undefined) {
             throw new BotRuntimeProtocolError("POLL_BATCH_UPDATE_ID_MISSING");
           }
-          if (
-            this.#nextOffset !== undefined &&
-            updateId < this.#nextOffset
-          ) {
+          if (this.#nextOffset !== undefined && updateId < this.#nextOffset) {
             throw new BotRuntimeProtocolError("POLL_BATCH_OFFSET_REGRESSION");
           }
 
@@ -254,11 +270,7 @@ export class BotApiLongPoller {
 
   async #initialize(signal: AbortSignal): Promise<void> {
     const identity = await this.#api.getMe(signal);
-    assertBotIdentity(
-      identity,
-      this.#expectedBotId,
-      this.#expectedBotUsername,
-    );
+    assertBotIdentity(identity, this.#expectedBotId, this.#expectedBotUsername);
     const deleted = await this.#api.deleteWebhook(
       { drop_pending_updates: false },
       signal,

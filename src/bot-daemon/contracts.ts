@@ -1,9 +1,6 @@
 import type { Api } from "grammy";
 import type { AppConfig } from "../config.js";
-import type {
-  AiSdkBotTurnAgent,
-  TurnModelRouter,
-} from "../bot/ai-agent.js";
+import type { AiSdkBotTurnAgent, TurnModelRouter } from "../bot/ai-agent.js";
 import type {
   BotVectorSearchPort,
   CanonicalBotReadCache,
@@ -28,10 +25,8 @@ import type {
   BotWebSearchRuntimeConfig,
 } from "../bot/runtime-config.js";
 import type { TurnCoordinator } from "../bot/turn-coordinator.js";
-import type {
-  BotTurnWorker,
-  JsonEventLogger,
-} from "../bot/worker.js";
+import type { BotTurnWorker, JsonEventLogger } from "../bot/worker.js";
+import type { ApprovalPosterLoop } from "../human-persona-approval-poster.js";
 import type { MessageStore } from "../store.js";
 
 export type BotDaemonApi = Pick<
@@ -58,6 +53,14 @@ export interface ComposeBotDaemonOptions {
   appConfig?: Readonly<AppConfig>;
   logger?: JsonEventLogger;
   workerIdPrefix?: string;
+  /**
+   * Human-persona approval workflow (plan Фаза 4d/5 Шаг 5). Both must be
+   * set for the approval poster to run; either missing means the feature
+   * stays off, same shape as the other opt-in human-persona wiring
+   * (`src/human-persona-trigger/config.ts`).
+   */
+  humanPersonaId?: string;
+  humanPersonaApprovalChatId?: string;
 }
 
 export interface BotDaemonComposition {
@@ -72,6 +75,7 @@ export interface BotDaemonComposition {
   mediaTools: BotMediaTools;
   memoryTools: BotMemoryTools;
   agent: AiSdkBotTurnAgent;
+  approvalPoster?: ApprovalPosterLoop;
 }
 
 export interface ProductionBotDaemonFactories {

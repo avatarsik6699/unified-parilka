@@ -1,12 +1,34 @@
 import { normalizeTelegramUpdate } from "../telegram-update.js";
-import { boundedInteger, BotRuntimeProtocolError, compact, durableMessageId, safeMachineCode, stringifyUpdate, updateIdentifier } from "./helpers.js";
-import type { BotRuntimeStore, BotUpdateProcessingResult, BotUpdateProcessorOptions, BotWorkNotifier } from "./contracts.js";
+import {
+  asRecord,
+  boundedInteger,
+  BotRuntimeProtocolError,
+  compact,
+  durableMessageId,
+  safeMachineCode,
+  stringifyUpdate,
+  updateIdentifier,
+} from "./helpers.js";
+import type {
+  BotRuntimeStore,
+  BotUpdateProcessingResult,
+  BotUpdateProcessorOptions,
+  BotWorkNotifier,
+} from "./contracts.js";
 import type { TurnCoordinator } from "../turn-coordinator.js";
 import type { TelegramUpdateOptions } from "../telegram-update.js";
 import type { JsonEventLogger } from "../worker.js";
 
 const MAX_RAW_UPDATE_CHARS = 2_000_000;
 const BOT_TRIGGER_COOLDOWN_PREFIX = "telegram-user:";
+/**
+ * Human-persona approval button callback data (plan 4d/5 Шаг 5):
+ * `hp:<action>:<proposalId>`. `edit` never mutates the proposal here -- it
+ * is only a UI hint; the actual edit is captured from a reply to the
+ * posted proposal (see `#tryCaptureHumanPersonaEdit`).
+ */
+const HUMAN_PERSONA_CALLBACK_PATTERN =
+  /^hp:(approve|reject|regenerate|edit):([A-Za-z0-9_-]{1,120})$/u;
 
 export class BotUpdateProcessor {
   readonly #store: BotRuntimeStore;
@@ -45,16 +67,19 @@ export class BotUpdateProcessor {
       throw new BotRuntimeProtocolError("UPDATE_ID_MISSING");
     }
 
+    const callbackQuery = asRecord(asRecord(update)?.callback_query);
+    if (callbackQuery !== undefined) {
+      return this.#processHumanPersonaCallback(updateId, callbackQuery);
+    }
+
     const existing = this.#store.getBotUpdate(updateId);
     if (
       existing &&
       (existing.status === "dead_letter" ||
-        (existing.chatId != null &&
-          existing.triggerMessageId != null))
+        (existing.chatId != null && existing.triggerMessageId != null))
     ) {
       const turn =
-        existing.chatId != null &&
-        existing.triggerMessageId != null
+        existing.chatId != null && existing.triggerMessageId != null
           ? this.#store.getBotTurnByTrigger(
               existing.chatId,
               existing.triggerMessageId,
@@ -78,10 +103,7 @@ export class BotUpdateProcessor {
     }
 
     const rawJson = stringifyUpdate(update);
-    if (
-      rawJson === undefined ||
-      rawJson.length > MAX_RAW_UPDATE_CHARS
-    ) {
+    if (rawJson === undefined || rawJson.length > MAX_RAW_UPDATE_CHARS) {
       return this.#recordPoison(
         updateId,
         "raw_update_unserializable_or_too_large",
@@ -119,12 +141,20 @@ export class BotUpdateProcessor {
       nowMs: this.#now(),
     });
 
+    if (normalized.reason === "human_persona_approval_reply") {
+      this.#tryCaptureHumanPersonaEdit(
+        normalized.chat.chatId,
+        normalized.message,
+      );
+    }
+
     let routed = false;
     if (
       result.disposition !== "duplicate" &&
       normalized.updateKind === "message" &&
       normalized.reason !== "own_message" &&
-      normalized.reason !== "bot_message"
+      normalized.reason !== "bot_message" &&
+      normalized.reason !== "human_persona_approval_reply"
     ) {
       this.#coordinator.routeMessage({
         messageId: durableMessageId(normalized.message),
@@ -142,17 +172,12 @@ export class BotUpdateProcessor {
       routed = true;
     }
 
-    if (
-      result.turn?.status === "queued" ||
-      result.turn?.status === "failed"
-    ) {
+    if (result.turn?.status === "queued" || result.turn?.status === "failed") {
       this.#workNotifier.notify();
     }
     this.#log(
       result.throttled ? "warn" : "info",
-      result.throttled
-        ? "bot.update.cooldown"
-        : "bot.update.committed",
+      result.throttled ? "bot.update.cooldown" : "bot.update.committed",
       {
         updateId,
         reason: normalized.reason,
@@ -167,16 +192,112 @@ export class BotUpdateProcessor {
       ackUpdateId: result.ackUpdateId,
       disposition: result.disposition,
       turnReserved:
-        result.turn?.updateId === updateId &&
-        result.throttled === undefined,
+        result.turn?.updateId === updateId && result.throttled === undefined,
       routed,
     };
   }
 
-  #recordPoison(
+  /**
+   * Approve/reject/regenerate/edit button presses (plan 4d/5 Шаг 5). Always
+   * acknowledges: a malformed, stale (already-decided), or foreign `hp:`
+   * callback must never consume the shared poison-retry budget or block
+   * offset advancement -- it is simply a no-op click.
+   */
+  #processHumanPersonaCallback(
     updateId: number,
-    reason: string,
+    callbackQuery: Record<string, unknown>,
   ): BotUpdateProcessingResult {
+    const acked: BotUpdateProcessingResult = {
+      acknowledged: true,
+      ackUpdateId: updateId,
+      disposition: "human_persona_decision",
+      turnReserved: false,
+      routed: false,
+    };
+    const data =
+      typeof callbackQuery.data === "string" ? callbackQuery.data : undefined;
+    const parsed = data ? HUMAN_PERSONA_CALLBACK_PATTERN.exec(data) : null;
+    if (!parsed) {
+      this.#log("warn", "human_persona.callback_ignored", { updateId });
+      return acked;
+    }
+    const [, action, proposalId] = parsed as unknown as [
+      string,
+      string,
+      string,
+    ];
+    const proposal = this.#store.getHumanPersonaProposal(proposalId);
+    if (!proposal || proposal.status !== "claimed") {
+      this.#log("info", "human_persona.callback_stale", {
+        updateId,
+        proposalId,
+        action,
+        status: proposal?.status,
+      });
+      return acked;
+    }
+    if (action === "edit") {
+      // UI hint only; the edit itself comes from a reply to the posted
+      // proposal (see #tryCaptureHumanPersonaEdit), not from this click.
+      this.#log("info", "human_persona.callback_edit_hint", {
+        updateId,
+        proposalId,
+      });
+      return acked;
+    }
+    const status =
+      action === "approve"
+        ? "approved"
+        : action === "reject"
+          ? "rejected"
+          : "regenerate_requested";
+    const applied = this.#store.recordHumanPersonaProposalDecision(
+      proposalId,
+      status,
+      undefined,
+    );
+    this.#log("info", "human_persona.callback_decided", {
+      updateId,
+      proposalId,
+      action,
+      applied,
+    });
+    return acked;
+  }
+
+  /**
+   * A reply in the approval chat to a still-`claimed` proposal's posted
+   * message is the manual-edit path -- no explicit button state, see
+   * `#processHumanPersonaCallback`'s "edit" case. Best-effort: this never
+   * changes the durable ACK outcome for the message itself.
+   */
+  #tryCaptureHumanPersonaEdit(
+    chatId: string,
+    message: { text: string; replyToMessageId?: number },
+  ): void {
+    if (message.replyToMessageId === undefined) {
+      return;
+    }
+    const proposal =
+      this.#store.getClaimedHumanPersonaProposalByApprovalMessage(
+        chatId,
+        message.replyToMessageId,
+      );
+    if (!proposal) {
+      return;
+    }
+    const applied = this.#store.recordHumanPersonaProposalDecision(
+      proposal.id,
+      "edited",
+      message.text,
+    );
+    this.#log("info", "human_persona.edit_captured", {
+      proposalId: proposal.id,
+      applied,
+    });
+  }
+
+  #recordPoison(updateId: number, reason: string): BotUpdateProcessingResult {
     const result = this.#store.recordBotUpdateFailure({
       updateId,
       rawJson: JSON.stringify({ update_id: updateId, reason }),

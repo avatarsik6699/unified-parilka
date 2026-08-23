@@ -1,10 +1,7 @@
 import { statSync } from "node:fs";
 import { resolve } from "node:path";
 import { Api } from "grammy";
-import {
-  loadConfig,
-  type AppConfig,
-} from "../config.js";
+import { loadConfig, type AppConfig } from "../config.js";
 import type { BotRuntimeConfig } from "../bot/runtime-config.js";
 import { parseBotRuntimeConfig } from "../bot/runtime-config.js";
 import { ModelRouter } from "../providers/model-router.js";
@@ -79,8 +76,7 @@ export function createProductionBotDaemon(
     if (closed) {
       return;
     }
-    const activeWorkers =
-      composition?.workerPump.activeWorkers ?? 0;
+    const activeWorkers = composition?.workerPump.activeWorkers ?? 0;
     if (activeWorkers > 0) {
       safeDaemonLog(options.logger, "error", {
         event: "bot.runtime.sqlite_close_deferred",
@@ -93,13 +89,16 @@ export function createProductionBotDaemon(
   };
 
   try {
-    const vectorCandidate = factories.createVector(
-      appConfig,
-      store,
-    );
-    const vector = vectorCandidate.isConfigured
-      ? vectorCandidate
-      : undefined;
+    const vectorCandidate = factories.createVector(appConfig, store);
+    const vector = vectorCandidate.isConfigured ? vectorCandidate : undefined;
+    // Read directly from env, not through BotRuntimeConfig/AppConfig's
+    // strict parser -- this mirrors the same feature-scoped precedent as
+    // BOT_DIGEST_*/BOT_HUMAN_PERSONA_* elsewhere (see
+    // src/human-persona-trigger/config.ts): an optional feature that stays
+    // off, no behavior change, when it isn't set.
+    const humanPersonaId = env.BOT_HUMAN_PERSONA_ID?.trim();
+    const humanPersonaApprovalChatId =
+      env.BOT_HUMAN_PERSONA_APPROVAL_CHAT_ID?.trim();
     composition = composeBotDaemon({
       config,
       store,
@@ -111,6 +110,8 @@ export function createProductionBotDaemon(
       ...(researchGateway === undefined ? {} : { researchGateway }),
       logger: options.logger,
       workerIdPrefix: options.workerIdPrefix,
+      ...(humanPersonaId ? { humanPersonaId } : {}),
+      ...(humanPersonaApprovalChatId ? { humanPersonaApprovalChatId } : {}),
     });
     return {
       ...composition,
@@ -121,8 +122,7 @@ export function createProductionBotDaemon(
       vectorEnabled: vector !== undefined,
       webSearchEnabled: webSearch !== undefined,
       researchGatewayEnabled: researchGateway !== undefined,
-      activeWorkerCount: () =>
-        composition?.workerPump.activeWorkers ?? 0,
+      activeWorkerCount: () => composition?.workerPump.activeWorkers ?? 0,
       close,
     };
   } catch (error) {
@@ -144,9 +144,7 @@ export function assertBotDaemonConfiguration(
       "Bot and Telegram services must use the same SQLite database.",
     );
   }
-  const allowed = new Set(
-    app.telegram.allowedChatIds.map(normalizeTelegramId),
-  );
+  const allowed = new Set(app.telegram.allowedChatIds.map(normalizeTelegramId));
   if (!allowed.has(normalizeTelegramId(bot.allowedChatId))) {
     throw new Error(
       "BOT_CHAT_ID must be present in TELEGRAM_ALLOWED_CHAT_IDS.",
@@ -208,7 +206,5 @@ function normalizeTelegramId(value: string): string {
 }
 
 function invalidTelegramAllowlist(): Error {
-  return new Error(
-    "Telegram allowlist contains a non-integer chat id.",
-  );
+  return new Error("Telegram allowlist contains a non-integer chat id.");
 }

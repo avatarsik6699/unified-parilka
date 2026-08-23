@@ -219,9 +219,11 @@ export abstract class HumanPersonaMethods extends StoreCore {
   }
 
   /**
-   * Claims the oldest pending proposal for a persona so exactly one caller
-   * (the `bot-agi-bot` approval poster, see plan 4d/5 Шаг 5) posts it to the
-   * approval chat. Returns undefined when nothing is pending.
+   * Claims the oldest pending `approval`-autonomy proposal for a persona so
+   * exactly one caller (the `bot-agi-bot` approval poster, see plan 4d/5
+   * Шаг 5) posts it to the approval chat. `auto`-autonomy proposals are
+   * never claimed here -- Шаг 6 sends those directly, without a posted
+   * approval message. Returns undefined when nothing is pending.
    */
   claimNextPendingHumanPersonaProposal(
     personaId: string,
@@ -234,7 +236,7 @@ export abstract class HumanPersonaMethods extends StoreCore {
         const row = this.db
           .prepare(
             `SELECT id FROM human_persona_pending_proposal
-           WHERE persona_id = ? AND status = 'pending'
+           WHERE persona_id = ? AND status = 'pending' AND autonomy_mode = 'approval'
            ORDER BY created_at_ms ASC
            LIMIT 1`,
           )
@@ -310,6 +312,26 @@ export abstract class HumanPersonaMethods extends StoreCore {
     return this.getHumanPersonaProposalLocked(id);
   }
 
+  /**
+   * Finds the still-`claimed` proposal a reply in the approval chat is
+   * answering (plan 4d/5 Шаг 5: the manual-edit path is "reply to the
+   * posted proposal with new text", not a separate stored "awaiting edit"
+   * flag — any reply to `approval_message_id` while `claimed` is the edit).
+   */
+  getClaimedHumanPersonaProposalByApprovalMessage(
+    approvalChatId: string,
+    approvalMessageId: number,
+  ): StoredHumanPersonaProposal | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM human_persona_pending_proposal
+         WHERE approval_chat_id = ? AND approval_message_id = ? AND status = 'claimed'`,
+      )
+      .get(approvalChatId, approvalMessageId) as
+      Record<string, unknown> | undefined;
+    return row == null ? undefined : rowToHumanPersonaProposal(row);
+  }
+
   protected getHumanPersonaProposalLocked(
     id: string,
   ): StoredHumanPersonaProposal | undefined {
@@ -334,4 +356,5 @@ export type HumanPersonaApi = Pick<
   | "recordHumanPersonaProposalDecision"
   | "markHumanPersonaProposalSent"
   | "getHumanPersonaProposal"
+  | "getClaimedHumanPersonaProposalByApprovalMessage"
 >;
