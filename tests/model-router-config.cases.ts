@@ -10,11 +10,7 @@ import {
   loadModelRouterConfigFile,
   type ModelRouterConfig,
 } from "../src/providers/model-router.js";
-import {
-  config,
-  ENV,
-  expectInvalidConfig,
-} from "./support/model-router.js";
+import { config, ENV, expectInvalidConfig } from "./support/model-router.js";
 
 test("endpoints, subscriptions, and ordered role models swap through config only", () => {
   const first = new ModelRouter(config(), { env: ENV });
@@ -60,15 +56,10 @@ test("endpoints, subscriptions, and ordered role models swap through config only
   });
   assert.deepEqual(
     second.resolveRole("turn").map(({ reference }) => reference),
-    [
-      "anthropic_backup:claude-sonnet-4-6",
-      "openai_primary:gpt-5.6-terra",
-    ],
+    ["anthropic_backup:claude-sonnet-4-6", "openai_primary:gpt-5.6-terra"],
   );
 
-  const resolvedModel = second.resolveCandidate(
-    "openai_primary:gpt-5.6-terra",
-  );
+  const resolvedModel = second.resolveCandidate("openai_primary:gpt-5.6-terra");
   assert.equal(resolvedModel.modelId, "gpt-5.6-terra");
   assert.deepEqual(resolvedModel.capabilities, { vision: false });
   assert.equal(
@@ -128,10 +119,13 @@ test("contextWindowTokens is declared per exact model reference and validated", 
     router.resolveCandidate("openai_primary:gpt-5.6-mini").capabilities,
     { vision: false },
   );
-  assert.deepEqual(router.inspectConfig().modelCapabilities["openai_primary:gpt-5.6"], {
-    vision: true,
-    contextWindowTokens: 1_000_000,
-  });
+  assert.deepEqual(
+    router.inspectConfig().modelCapabilities["openai_primary:gpt-5.6"],
+    {
+      vision: true,
+      contextWindowTokens: 1_000_000,
+    },
+  );
 
   for (const contextWindowTokens of [
     0,
@@ -149,15 +143,24 @@ test("contextWindowTokens is declared per exact model reference and validated", 
   }
 });
 
-test("production router config targets DeepSeek V4 Flash for both roles", () => {
+test("production router config targets GPT-5.6 Luna first, DeepSeek V4 Flash as fallback", () => {
   const path = fileURLToPath(
     new URL("../config/model-router.production.json", import.meta.url),
   );
-  const parsed = loadModelRouterConfigFile(path, {
-    env: { BOT_DEEPSEEK_API_KEY: "test-placeholder" },
-  });
+  const env = {
+    BOT_OPENAI_API_KEY: "test-placeholder",
+    BOT_DEEPSEEK_API_KEY: "test-placeholder",
+  };
+  const parsed = loadModelRouterConfigFile(path, { env });
 
   assert.deepEqual(parsed.providers, [
+    {
+      id: "openai",
+      protocol: "openai",
+      baseUrl: "https://api.openai.com/v1",
+      apiKeyEnv: "BOT_OPENAI_API_KEY",
+      reasoningEffort: "none",
+    },
     {
       id: "deepseek",
       protocol: "deepseek",
@@ -167,10 +170,14 @@ test("production router config targets DeepSeek V4 Flash for both roles", () => 
     },
   ]);
   assert.deepEqual(parsed.roles, {
-    turn: ["deepseek:deepseek-v4-flash"],
-    summary: ["deepseek:deepseek-v4-flash"],
+    turn: ["openai:gpt-5.6-luna", "deepseek:deepseek-v4-flash"],
+    summary: ["openai:gpt-5.6-luna", "deepseek:deepseek-v4-flash"],
   });
   assert.deepEqual(parsed.modelCapabilities, {
+    "openai:gpt-5.6-luna": {
+      vision: true,
+      contextWindowTokens: 1_050_000,
+    },
     "deepseek:deepseek-v4-flash": {
       vision: false,
       contextWindowTokens: 1_000_000,
@@ -178,10 +185,17 @@ test("production router config targets DeepSeek V4 Flash for both roles", () => 
   });
   assert.doesNotMatch(JSON.stringify(parsed), /qwen/i);
 
-  const router = new ModelRouter(parsed, {
-    env: { BOT_DEEPSEEK_API_KEY: "test-placeholder" },
-  });
-  assert.equal(router.inspectConfig().providers[0]?.thinkingMode, "enabled");
+  const router = new ModelRouter(parsed, { env });
+  assert.equal(router.inspectConfig().providers[0]?.reasoningEffort, "none");
+  assert.equal(router.inspectConfig().providers[1]?.thinkingMode, "enabled");
+  assert.deepEqual(
+    router.resolveCandidate("openai:gpt-5.6-luna").providerOptions,
+    {
+      openai: {
+        reasoningEffort: "none",
+      },
+    },
+  );
   assert.deepEqual(
     router.resolveCandidate("deepseek:deepseek-v4-flash").providerOptions,
     {
@@ -194,11 +208,11 @@ test("production router config targets DeepSeek V4 Flash for both roles", () => 
   );
   assert.deepEqual(
     router.resolveRole("turn").map(({ reference }) => reference),
-    ["deepseek:deepseek-v4-flash"],
+    ["openai:gpt-5.6-luna", "deepseek:deepseek-v4-flash"],
   );
   assert.deepEqual(
     router.resolveRole("summary").map(({ reference }) => reference),
-    ["deepseek:deepseek-v4-flash"],
+    ["openai:gpt-5.6-luna", "deepseek:deepseek-v4-flash"],
   );
 });
 
@@ -208,7 +222,10 @@ test("JSON files use the same schema and do not perform provider requests", () =
   try {
     writeFileSync(path, JSON.stringify(config()));
 
-    assert.deepEqual(loadModelRouterConfigFile(path, { env: ENV }).roles, config().roles);
+    assert.deepEqual(
+      loadModelRouterConfigFile(path, { env: ENV }).roles,
+      config().roles,
+    );
     const router = ModelRouter.fromFile(path, { env: ENV });
     assert.deepEqual(
       router.resolveRole("summary").map(({ reference }) => reference),
@@ -256,10 +273,7 @@ test("DeepSeek uses its native adapter and disables thinking by default", () => 
       },
     },
   });
-  assert.equal(
-    router.inspectConfig().providers[0]?.thinkingMode,
-    "disabled",
-  );
+  assert.equal(router.inspectConfig().providers[0]?.thinkingMode, "disabled");
 });
 
 test("OpenAI-compatible provider profiles may lower reasoning effort per role", () => {
@@ -274,6 +288,20 @@ test("OpenAI-compatible provider profiles may lower reasoning effort per role", 
     },
   });
   assert.equal(router.inspectConfig().providers[0]?.reasoningEffort, "low");
+});
+
+test('reasoningEffort "none" is forwarded as-is, not treated as unset', () => {
+  const input = config();
+  input.providers[0]!.reasoningEffort = "none";
+  const router = new ModelRouter(input, { env: ENV });
+  const candidate = router.resolveCandidate("openai_primary:gpt-5.6-mini");
+
+  assert.deepEqual(candidate.providerOptions, {
+    openai: {
+      reasoningEffort: "none",
+    },
+  });
+  assert.equal(router.inspectConfig().providers[0]?.reasoningEffort, "none");
 });
 
 test("inspect output redacts every resolved secret while retaining env references", () => {
@@ -312,10 +340,7 @@ test("missing API key and header environment variables fail before registry use"
       assert.equal(error.code, "missing_environment");
       assert.deepEqual(
         error.issues.map(({ path }) => path),
-        [
-          "providers.0.apiKeyEnv",
-          "providers.0.headers.x-tenant-id.env",
-        ],
+        ["providers.0.apiKeyEnv", "providers.0.headers.x-tenant-id.env"],
       );
       assert.doesNotMatch(error.message, /openai-secret|tenant-secret/);
       return true;
