@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { loadHumanPersonaTriggerConfigFromEnv } from "../src/human-persona-trigger/config.js";
 import {
   evaluateHeuristicGate,
   windowStart,
@@ -118,68 +117,6 @@ test("heuristic gate: passes with no state and old-enough chat silence, inside a
     lastMessageAtMs: ACTIVE_NOW.getTime() - 60 * 60_000,
   });
   assert.deepEqual(result, { pass: true });
-});
-
-test("env config: undefined unless persona, chat, and target are all set", () => {
-  assert.equal(loadHumanPersonaTriggerConfigFromEnv({}), undefined);
-  assert.equal(
-    loadHumanPersonaTriggerConfigFromEnv({ BOT_HUMAN_PERSONA_ID: "p1" }),
-    undefined,
-  );
-  assert.notEqual(
-    loadHumanPersonaTriggerConfigFromEnv({
-      BOT_HUMAN_PERSONA_ID: "p1",
-      BOT_HUMAN_PERSONA_CHAT_ID: "c1",
-      BOT_HUMAN_PERSONA_TARGET_USER: "u1",
-    }),
-    undefined,
-  );
-});
-
-test("env config: autonomy mode defaults to approval and requires an exact 'auto'", () => {
-  const env = {
-    BOT_HUMAN_PERSONA_ID: "p1",
-    BOT_HUMAN_PERSONA_CHAT_ID: "c1",
-    BOT_HUMAN_PERSONA_TARGET_USER: "u1",
-  };
-  assert.equal(
-    loadHumanPersonaTriggerConfigFromEnv(env)?.autonomyMode,
-    "approval",
-  );
-  assert.equal(
-    loadHumanPersonaTriggerConfigFromEnv({
-      ...env,
-      BOT_HUMAN_PERSONA_AUTONOMY_MODE: "AUTO",
-    })?.autonomyMode,
-    "approval",
-  );
-  assert.equal(
-    loadHumanPersonaTriggerConfigFromEnv({
-      ...env,
-      BOT_HUMAN_PERSONA_AUTONOMY_MODE: "auto",
-    })?.autonomyMode,
-    "auto",
-  );
-});
-
-test("env config: numeric overrides are parsed and out-of-range values throw", () => {
-  const env = {
-    BOT_HUMAN_PERSONA_ID: "p1",
-    BOT_HUMAN_PERSONA_CHAT_ID: "c1",
-    BOT_HUMAN_PERSONA_TARGET_USER: "u1",
-    BOT_HUMAN_PERSONA_MAX_INITIATIONS_PER_WINDOW: "7",
-  };
-  assert.equal(
-    loadHumanPersonaTriggerConfigFromEnv(env)?.heuristics
-      .maxInitiationsPerWindow,
-    7,
-  );
-  assert.throws(() =>
-    loadHumanPersonaTriggerConfigFromEnv({
-      ...env,
-      BOT_HUMAN_PERSONA_ACTIVE_HOUR_START: "99",
-    }),
-  );
 });
 
 class FakeTriggerStore implements HumanPersonaTriggerStore {

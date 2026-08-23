@@ -41,7 +41,7 @@ export interface BotRuntimeConfig {
   /**
    * Shared across every chat this process serves -- per-chat identity
    * (allowed chat id, title, persona) lives in `AssistantChatConfig`
-   * (`src/bot-daemon/multi-chat-config.ts`), not here.
+   * (`src/bot-config/assistant.ts`), not here.
    */
   historyDescription: string;
   /** Private allowlist of immutable Telegram user IDs permitted to write chat memory. */

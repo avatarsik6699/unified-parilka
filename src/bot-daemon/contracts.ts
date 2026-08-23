@@ -28,7 +28,7 @@ import type { TurnCoordinator } from "../bot/turn-coordinator.js";
 import type { BotTurnWorker, JsonEventLogger } from "../bot/worker.js";
 import type { ApprovalPosterLoop } from "../human-persona-approval-poster.js";
 import type { MessageStore } from "../store.js";
-import type { AssistantChatConfig } from "./multi-chat-config.js";
+import type { AssistantChatConfig } from "../bot-config/assistant.js";
 
 export type BotDaemonApi = Pick<
   Api,
@@ -65,7 +65,7 @@ export interface ComposeBotDaemonOptions {
    * Human-persona approval workflow (plan Фаза 4d/5 Шаг 5). Both must be
    * set for the approval poster to run; either missing means the feature
    * stays off, same shape as the other opt-in human-persona wiring
-   * (`src/human-persona-trigger/config.ts`).
+   * (`src/bot-config/human-persona.ts`).
    */
   humanPersonaId?: string;
   humanPersonaApprovalChatId?: string;

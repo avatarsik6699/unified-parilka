@@ -78,11 +78,12 @@ MTProto/MCP-конфиг загружается в таком порядке:
 - `TELEGRAM_API_ID`, `TELEGRAM_API_HASH` и Telegram session;
 - `TELEGRAM_DEFAULT_CHAT_ID` и `TELEGRAM_ALLOWED_CHAT_IDS`;
 - для bot runtime — `BOT_TOKEN`, `BOT_ID`, `BOT_USERNAME`,
-  абсолютный `BOT_MODEL_CONFIG_PATH` и абсолютный
-  `BOT_MULTI_CHAT_CONFIG_PATH` (JSON-список 1–5 чатов роли «помощник»,
-  см. `config/multi-chat.example.json` и `config/persona.example.md`);
-  подтверждение `BOT_EXCLUSIVE_POLLER` задаётся позднее, после проверки
-  эксклюзивности token;
+  абсолютный `BOT_MODEL_CONFIG_PATH` и абсолютный `BOT_BOTS_CONFIG_PATH`
+  (JSON-список ботов этого деплоя: 1–5 записей `role: "assistant"` роли
+  «помощник» и опционально одна запись `role: "human-persona"`, см.
+  `config/bots.example.json` и `config/persona.example.md`); подтверждение
+  `BOT_EXCLUSIVE_POLLER` задаётся позднее, после проверки эксклюзивности
+  token;
 - переменные с ключами провайдеров, на которые ссылается model-router JSON.
 
 Поставляемые `bot-agi-bot` и `bot-agi-digests` wrappers также принимают
@@ -106,8 +107,8 @@ Digest job по умолчанию переиспользует bot chat, общ
 запрещён, потому что отдельные имена WAL/SHM небезопасны для SQLite.
 
 `BOT_DB_PATH`, если задан, обязан указывать на тот же файл, что и
-`TELEGRAM_DB_PATH`. Каждый `chatId` из `BOT_MULTI_CHAT_CONFIG_PATH` обязан
-входить в `TELEGRAM_ALLOWED_CHAT_IDS`.
+`TELEGRAM_DB_PATH`. Каждый assistant `chatId` из `BOT_BOTS_CONFIG_PATH`
+обязан входить в `TELEGRAM_ALLOWED_CHAT_IDS`.
 
 Булевы значения Telegram-конфига строгие: `1,true,yes,on` или
 `0,false,no,off`. Пустое булево значение не означает default.

@@ -10,6 +10,12 @@ import { VectorRag } from "../vector-rag.js";
 import { HttpJsonWebSearchProvider } from "../bot/web-search.js";
 import { VertexGeminiWebSearchProvider } from "../bot/web-search-vertex.js";
 import { UnixSocketResearchGatewayProvider } from "../bot/read-tools.js";
+import { loadBotDefinitionsFromEnv } from "../bot-config/load.js";
+import {
+  selectAssistantChats,
+  type AssistantChatConfig,
+} from "../bot-config/assistant.js";
+import { selectHumanPersona } from "../bot-config/human-persona.js";
 import { composeBotDaemon } from "./composition.js";
 import type {
   BotDaemonComposition,
@@ -17,10 +23,6 @@ import type {
   ProductionBotDaemon,
   ProductionBotDaemonFactories,
 } from "./contracts.js";
-import {
-  loadAssistantChatsFromEnv,
-  type AssistantChatConfig,
-} from "./multi-chat-config.js";
 import { safeDaemonLog } from "./trace.js";
 
 /**
@@ -43,15 +45,23 @@ export function createProductionBotDaemon(
   const config = parseBotRuntimeConfig(env);
   const appConfig = options.appConfig ?? loadConfig();
   // Kept outside BotRuntimeConfig's strict parser deliberately: same
-  // feature-scoped env-read precedent as BOT_HUMAN_PERSONA_* (see
-  // src/human-persona-trigger/config.ts) -- persona-agnostic base config
-  // stays generic, persona content is supplied separately per deployment.
-  const chats = loadAssistantChatsFromEnv(env);
+  // feature-scoped env-read precedent as the rest of `src/bot-config/` --
+  // persona-agnostic base config stays generic, persona content and the
+  // optional human-persona role are supplied separately per deployment
+  // (ADR 0007: one BOT_BOTS_CONFIG_PATH file for both roles).
+  const definitions = loadBotDefinitionsFromEnv(env);
+  const chats = selectAssistantChats(
+    definitions.entries,
+    definitions.configPath,
+  );
+  const humanPersona = selectHumanPersona(
+    definitions.entries,
+    definitions.configPath,
+  );
   // Read here (not later, alongside the rest of the human-persona wiring)
   // so assertBotDaemonConfiguration can reject an approval chat id that
   // collides with one of the assistant chats before anything else starts.
-  const humanPersonaApprovalChatId =
-    env.BOT_HUMAN_PERSONA_APPROVAL_CHAT_ID?.trim();
+  const humanPersonaApprovalChatId = humanPersona?.approvalChatId;
   assertBotDaemonConfiguration(
     config,
     appConfig,
@@ -79,7 +89,7 @@ export function createProductionBotDaemon(
 
   const chatIds = chats.map((chat) => chat.allowedChatId);
   // Self-heals after an allowlist reconfiguration (a chat that was removed
-  // from BOT_MULTI_CHAT_CONFIG_PATH still had queued/failed turns). Called
+  // from BOT_BOTS_CONFIG_PATH still had queued/failed turns). Called
   // once with the full allowlist, at startup only -- never per-claim, which
   // would wrongly quarantine every *other* still-valid chat's turns (Фаза 7).
   store.quarantineBotTurnsOutsideAllowlist(chatIds);
@@ -119,12 +129,7 @@ export function createProductionBotDaemon(
   try {
     const vectorCandidate = factories.createVector(appConfig, store);
     const vector = vectorCandidate.isConfigured ? vectorCandidate : undefined;
-    // Read directly from env, not through BotRuntimeConfig/AppConfig's
-    // strict parser -- this mirrors the same feature-scoped precedent as
-    // BOT_DIGEST_*/BOT_HUMAN_PERSONA_* elsewhere (see
-    // src/human-persona-trigger/config.ts): an optional feature that stays
-    // off, no behavior change, when it isn't set.
-    const humanPersonaId = env.BOT_HUMAN_PERSONA_ID?.trim();
+    const humanPersonaId = humanPersona?.trigger.personaId;
     composition = composeBotDaemon({
       config,
       chats,
@@ -177,7 +182,7 @@ export function assertBotDaemonConfiguration(
   for (const chat of chats) {
     if (!allowed.has(normalizeTelegramId(chat.allowedChatId))) {
       throw new Error(
-        `BOT_MULTI_CHAT_CONFIG_PATH chat ${chat.allowedChatId} must be present in TELEGRAM_ALLOWED_CHAT_IDS.`,
+        `BOT_BOTS_CONFIG_PATH assistant chat ${chat.allowedChatId} must be present in TELEGRAM_ALLOWED_CHAT_IDS.`,
       );
     }
   }
@@ -191,9 +196,9 @@ export function assertBotDaemonConfiguration(
     );
     if (collidingChat !== undefined) {
       throw new Error(
-        "BOT_HUMAN_PERSONA_APPROVAL_CHAT_ID must not be one of the " +
-          "assistant chats in BOT_MULTI_CHAT_CONFIG_PATH: the approval chat " +
-          "must stay structurally outside the assistant role's fold/turn state.",
+        "BOT_BOTS_CONFIG_PATH's human-persona approvalChatId must not be " +
+          "one of the assistant chats: the approval chat must stay " +
+          "structurally outside the assistant role's fold/turn state.",
       );
     }
   }

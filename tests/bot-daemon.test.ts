@@ -383,11 +383,16 @@ function botEnv(dbPath: string): Readonly<Record<string, string>> {
     personaPromptPath,
     "# Кто ты\nТестовая персона для юнит-тестов.",
   );
-  const multiChatConfigPath = join(directory, "multi-chat.json");
+  const botsConfigPath = join(directory, "bots.json");
   writeFileSync(
-    multiChatConfigPath,
+    botsConfigPath,
     JSON.stringify([
-      { chatId: CHAT_ID, chatTitle: "Test Chat", personaPromptPath },
+      {
+        role: "assistant",
+        chatId: CHAT_ID,
+        chatTitle: "Test Chat",
+        personaPromptPath,
+      },
     ]),
   );
   return {
@@ -398,7 +403,7 @@ function botEnv(dbPath: string): Readonly<Record<string, string>> {
     BOT_DB_PATH: dbPath,
     TELEGRAM_DB_PATH: dbPath,
     BOT_MODEL_CONFIG_PATH: resolve("package.json"),
-    BOT_MULTI_CHAT_CONFIG_PATH: multiChatConfigPath,
+    BOT_BOTS_CONFIG_PATH: botsConfigPath,
   };
 }
 

@@ -1,4 +1,3 @@
-export { loadHumanPersonaTriggerConfigFromEnv } from "./human-persona-trigger/config.js";
 export {
   evaluateHeuristicGate,
   windowStart,

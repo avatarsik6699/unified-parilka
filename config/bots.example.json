@@ -1,0 +1,23 @@
+[
+  {
+    "role": "assistant",
+    "chatId": "-1000000000000",
+    "chatTitle": "Example Chat",
+    "personaPromptPath": "/absolute/path/to/your-checkout/config/persona.example.md",
+    "approximateMemberCount": 100
+  },
+  {
+    "role": "human-persona",
+    "personaId": "example-persona",
+    "chatId": "-1000000000002",
+    "chatTitle": "Family Chat",
+    "targetUserKey": "123456789",
+    "approvalChatId": "-1000000000001",
+    "autonomyMode": "approval",
+    "activeHourStart": 9,
+    "activeHourEnd": 23,
+    "minSilenceMs": 1200000,
+    "maxInitiationsPerWindow": 3,
+    "windowMs": 86400000
+  }
+]

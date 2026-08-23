@@ -1,8 +1,9 @@
+import { loadBotDefinitionsFromEnv } from "../bot-config/load.js";
+import { selectHumanPersona } from "../bot-config/human-persona.js";
 import { loadConfig } from "../config.js";
 import { normalizeError, type NormalizedError } from "../errors.js";
 import {
   AiSdkTriggerDecisionPort,
-  loadHumanPersonaTriggerConfigFromEnv,
   runHumanPersonaRegenerate,
   runHumanPersonaTriggerTick,
   type HumanPersonaTriggerTickReport,
@@ -413,7 +414,7 @@ function throwIfDaemonAborted(signal: AbortSignal): void {
  * Builds the optional trigger and send runners passed to
  * `runSyncDaemonLoop` (plan Фаза 4e/4d/5 Шаг 4/6). Both return undefined
  * whenever no persona is configured or no model router path is set — this
- * is an opt-in feature (see `human-persona-trigger/config.ts`), so a
+ * is an opt-in feature (see `src/bot-config/human-persona.ts`), so a
  * missing/broken model config disables it rather than failing sync
  * startup. They share one config/port: the send-tick's "regenerate" path
  * is the same LLM decision call the trigger-engine itself uses, just
@@ -427,10 +428,21 @@ function buildHumanPersonaRunners(
   trigger: SyncDaemonLoopOptions["humanPersonaTrigger"];
   send: SyncDaemonLoopOptions["humanPersonaSend"];
 } {
-  const config = loadHumanPersonaTriggerConfigFromEnv(env);
-  if (!config) {
+  // BOT_BOTS_CONFIG_PATH being unset entirely means no bots are configured
+  // yet -- graceful no-op, same as the old BOT_HUMAN_PERSONA_* scalars
+  // being unset. Once it IS set, a malformed file still fails loudly.
+  if (!env.BOT_BOTS_CONFIG_PATH?.trim()) {
     return { trigger: undefined, send: undefined };
   }
+  const definitions = loadBotDefinitionsFromEnv(env);
+  const humanPersona = selectHumanPersona(
+    definitions.entries,
+    definitions.configPath,
+  );
+  if (!humanPersona) {
+    return { trigger: undefined, send: undefined };
+  }
+  const config = humanPersona.trigger;
   const modelConfigPath = env.BOT_MODEL_CONFIG_PATH;
   if (!modelConfigPath) {
     logger.warn({

@@ -27,3 +27,8 @@ ADR, небольшое уточнение — датированным addendum
   чатов внутри одного процесса (N независимых chat-графов вместо общего
   пула), конфигурация — JSON-список чатов с персоной на файл, а не
   тиражирование Hermes-профилей.
+- [ADR 0007](0007-unified-bot-config.md): один `BOT_BOTS_CONFIG_PATH`
+  JSON-файл описывает боты обеих ролей (`role: "assistant" |
+  "human-persona"`), заменяя раздельные `BOT_MULTI_CHAT_CONFIG_PATH` и
+  `BOT_HUMAN_PERSONA_*` scalars — первый шаг под будущий декларативный
+  TUI (Фаза 4).

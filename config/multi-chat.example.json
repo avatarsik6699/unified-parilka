@@ -1,8 +1,0 @@
-[
-  {
-    "chatId": "-1000000000000",
-    "chatTitle": "Example Chat",
-    "personaPromptPath": "/absolute/path/to/your-checkout/config/persona.example.md",
-    "approximateMemberCount": 100
-  }
-]

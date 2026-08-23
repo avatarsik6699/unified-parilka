@@ -144,3 +144,17 @@ Telegram-апдейта естественно идемпотентна — от
 - **Keyword/embedding pre-filter для триггера и биография-стиль через
   классические NLP-метрики** — отклонены: грубое приближение там, где
   прямое LLM-суждение и так доступно и качественнее.
+
+## Addendum (2026-08-23)
+
+Runtime-конфигурация роли (`BOT_HUMAN_PERSONA_ID/CHAT_ID/CHAT_TITLE/
+TARGET_USER/AUTONOMY_MODE/ACTIVE_HOUR_*/MIN_SILENCE_MS/
+MAX_INITIATIONS_PER_WINDOW/WINDOW_MS` и отдельно
+`BOT_HUMAN_PERSONA_APPROVAL_CHAT_ID`), описанная выше как россыпь
+env-скаляров, заменена на единственную опциональную запись `role:
+"human-persona"` в общем файле `BOT_BOTS_CONFIG_PATH` — см. ADR 0007.
+Решение процессов/владения/workflow из этого документа не меняется, только
+формат чтения runtime-конфигурации. `BOT_HUMAN_PERSONA_ID/CHAT_ID/
+TARGET_USER/CONSENT_BASIS` для офлайн style-profile CLI (`bin/bot-agi-
+human-persona-style`) не затронуты — другой жизненный цикл, см. ADR 0007
+«Следствия».
