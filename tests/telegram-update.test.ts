@@ -8,7 +8,7 @@ import {
 const CHAT_ID = -100_123_456_789;
 const BOT_ID = 7_700_011;
 const OPTIONS = {
-  allowedChatId: String(CHAT_ID),
+  allowedChatIds: [String(CHAT_ID)],
   botId: String(BOT_ID),
   botUsername: "@ParilkaBot",
 } as const;
@@ -446,9 +446,7 @@ test("UTF-16 mention parsing survives deterministic emoji fuzz cases", () => {
   }
 });
 
-function botUpdate(
-  overrides: Record<string, unknown> = {},
-): {
+function botUpdate(overrides: Record<string, unknown> = {}): {
   update_id: number;
   message: Record<string, unknown>;
 } {
@@ -491,8 +489,7 @@ function mulberry32(seed: number): () => number {
     seed |= 0;
     seed = (seed + 0x6d2b79f5) | 0;
     let value = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-    value =
-      value + Math.imul(value ^ (value >>> 7), 61 | value) ^ value;
+    value = (value + Math.imul(value ^ (value >>> 7), 61 | value)) ^ value;
     return ((value ^ (value >>> 14)) >>> 0) / 4_294_967_296;
   };
 }

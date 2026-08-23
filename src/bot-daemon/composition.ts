@@ -22,6 +22,7 @@ import type { TypingPort } from "../bot/typing.js";
 import { BotTurnWorker } from "../bot/worker.js";
 import { ApprovalPosterLoop } from "../human-persona-approval-poster.js";
 import type {
+  BotDaemonChatComposition,
   BotDaemonComposition,
   ComposeBotDaemonOptions,
 } from "./contracts.js";
@@ -37,11 +38,6 @@ export function composeBotDaemon(
   const workerIdPrefix = requireWorkerIdPrefix(
     options.workerIdPrefix ?? `bot:${process.pid}`,
   );
-  const coordinator = new TurnCoordinator({
-    maxActiveTurns: config.workerConcurrency,
-    capacityPolicy: "refuse",
-    ...coordinatorTraceOptions(options.logger),
-  });
   const cache = new CanonicalBotReadCache({
     store: options.store,
     ...(options.vector === undefined ? {} : { vector: options.vector }),
@@ -49,23 +45,6 @@ export function composeBotDaemon(
     botSenderId: config.botId,
     rerankMaxCandidates:
       options.appConfig?.embeddings?.rerankMaxCandidates ?? 0,
-  });
-  const readTools = new BotReadTools({
-    chatId: config.allowedChatId,
-    cache,
-    botSenderId: config.botId,
-    ...(options.webSearch === undefined
-      ? {}
-      : { webSearch: options.webSearch }),
-    ...(options.researchGateway === undefined
-      ? {}
-      : {
-          researchGateway: options.researchGateway,
-          ...(config.researchGateway === undefined
-            ? {}
-            : { researchGatewayTimeoutMs: config.researchGateway.timeoutMs }),
-        }),
-    timeZone: "Europe/Moscow",
   });
   const memoryTools = new BotMemoryTools({
     store: options.store,
@@ -81,34 +60,6 @@ export function composeBotDaemon(
         ? {}
         : { bearerToken: config.audioTranscribe.bearerToken }),
     }),
-  });
-  const agent = new AiSdkBotTurnAgent({
-    router: options.router,
-    readTools,
-    mediaTools,
-    memoryTools,
-    prompt: {
-      botUsername: config.botUsername,
-      botName: config.botDisplayName,
-      chatTitle: config.chatTitle,
-      personaPrompt: options.personaPrompt,
-      historyDescription: config.historyDescription,
-      memoryMaxChars: options.appConfig?.memory?.memoryMaxChars ?? 2_000,
-      botSenderId: config.botId,
-      ...(config.approximateMemberCount === undefined
-        ? {}
-        : {
-            approximateMemberCount: config.approximateMemberCount,
-          }),
-    },
-    logger: options.logger,
-    stepTimeoutMs: config.modelStepTimeoutMs,
-    toolTimeoutMs: Math.min(
-      config.audioTranscribe.timeoutMs,
-      config.modelStepTimeoutMs,
-    ),
-    searxngEndpoint: config.searxngEndpoint,
-    firecrawlEndpoint: config.firecrawlEndpoint,
   });
   const publisher = createDurableGrammyBotTurnPublisher(options.api, {
     store: options.store,
@@ -128,23 +79,86 @@ export function composeBotDaemon(
   const toolProgressBotApiPort = createToolProgressGrammyBotApiPort(
     options.api,
   );
-  const workers = Array.from(
-    { length: config.workerConcurrency },
-    (_unused, index) =>
-      new BotTurnWorker({
-        store: options.store,
-        coordinator,
-        agent,
-        publisher,
-        workerId: `${workerIdPrefix}:${index + 1}`,
-        allowedChatId: config.allowedChatId,
-        mode: config.mode,
-        publishTimeoutMs: config.publishTimeoutMs,
-        typingPort,
-        toolProgressBotApiPort,
-        logger: options.logger,
+
+  // One full graph per assistant-role chat (Фаза 7): the coordinator's
+  // fold/routing has no chat filter, so it -- and everything built against
+  // it -- must not be shared across chats.
+  const chats = new Map<string, BotDaemonChatComposition>();
+  for (const chat of options.chats) {
+    const coordinator = new TurnCoordinator({
+      maxActiveTurns: config.workerConcurrency,
+      capacityPolicy: "refuse",
+      ...coordinatorTraceOptions(options.logger),
+    });
+    const readTools = new BotReadTools({
+      chatId: chat.allowedChatId,
+      cache,
+      botSenderId: config.botId,
+      ...(options.webSearch === undefined
+        ? {}
+        : { webSearch: options.webSearch }),
+      ...(options.researchGateway === undefined
+        ? {}
+        : {
+            researchGateway: options.researchGateway,
+            ...(config.researchGateway === undefined
+              ? {}
+              : {
+                  researchGatewayTimeoutMs: config.researchGateway.timeoutMs,
+                }),
+          }),
+      timeZone: "Europe/Moscow",
+    });
+    const agent = new AiSdkBotTurnAgent({
+      router: options.router,
+      readTools,
+      mediaTools,
+      memoryTools,
+      prompt: {
+        botUsername: config.botUsername,
+        botName: config.botDisplayName,
+        chatTitle: chat.chatTitle,
+        personaPrompt: chat.personaPrompt,
+        historyDescription: config.historyDescription,
+        memoryMaxChars: options.appConfig?.memory?.memoryMaxChars ?? 2_000,
         botSenderId: config.botId,
-      }),
+        ...(chat.approximateMemberCount === undefined
+          ? {}
+          : { approximateMemberCount: chat.approximateMemberCount }),
+      },
+      logger: options.logger,
+      stepTimeoutMs: config.modelStepTimeoutMs,
+      toolTimeoutMs: Math.min(
+        config.audioTranscribe.timeoutMs,
+        config.modelStepTimeoutMs,
+      ),
+      searxngEndpoint: config.searxngEndpoint,
+      firecrawlEndpoint: config.firecrawlEndpoint,
+    });
+    const workers = Array.from(
+      { length: config.workerConcurrency },
+      (_unused, index) =>
+        new BotTurnWorker({
+          store: options.store,
+          coordinator,
+          agent,
+          publisher,
+          workerId: `${workerIdPrefix}:${chat.allowedChatId}:${index + 1}`,
+          allowedChatId: chat.allowedChatId,
+          mode: config.mode,
+          publishTimeoutMs: config.publishTimeoutMs,
+          typingPort,
+          toolProgressBotApiPort,
+          logger: options.logger,
+          botSenderId: config.botId,
+        }),
+    );
+    chats.set(chat.allowedChatId, { coordinator, readTools, agent, workers });
+  }
+
+  const workers = Array.from(chats.values()).flatMap((chat) => chat.workers);
+  const coordinators = new Map(
+    Array.from(chats.entries(), ([chatId, chat]) => [chatId, chat.coordinator]),
   );
   const workerPump = new BotWorkerPump({
     workers,
@@ -152,10 +166,10 @@ export function composeBotDaemon(
   });
   const processor = new BotUpdateProcessor({
     store: options.store,
-    coordinator,
+    coordinators,
     workNotifier: workerPump,
     telegram: {
-      allowedChatId: config.allowedChatId,
+      allowedChatIds: new Set(chats.keys()),
       botId: config.botId,
       botUsername: config.botUsername,
       ...(options.humanPersonaApprovalChatId === undefined
@@ -198,12 +212,10 @@ export function composeBotDaemon(
     ...(approvalPoster === undefined ? {} : { approvalPoster }),
     workers,
     processor,
-    coordinator,
+    chats,
     cache,
-    readTools,
     mediaTools,
     memoryTools,
-    agent,
   };
 }
 

@@ -1,8 +1,5 @@
 import { StoreCore } from "./core.js";
-import {
-  rowToStoredBotTurn,
-  rowToStoredBotUpdate,
-} from "./mappers.js";
+import { rowToStoredBotTurn, rowToStoredBotUpdate } from "./mappers.js";
 import type {
   BotDurableStatus,
   BotTurnProgressState,
@@ -27,7 +24,7 @@ import { toSqlValues } from "./sqlite-utils.js";
  * DatabaseSync owned by MessageStore.
  */
 export abstract class BotTurnMethods extends StoreCore {
-declare protected getBotUpdateLocked: (
+  declare protected getBotUpdateLocked: (
     updateId: number,
   ) => StoredBotUpdate | undefined;
 
@@ -50,7 +47,6 @@ declare protected getBotUpdateLocked: (
 
     return this.immediateTransaction("claimNextBotTurn", () => {
       this.recoverStaleBotTurnLeasesLocked(nowMs);
-      this.quarantineBotTurnsOutsideChatLocked(chatId, nowMs);
       const candidate = this.db
         .prepare(
           `SELECT id, status
@@ -77,7 +73,14 @@ declare protected getBotUpdateLocked: (
                updated_at_ms = ?
            WHERE id = ? AND status = ? AND attempts < max_attempts`,
         )
-        .run(workerId, nowMs + params.leaseMs, nowMs, nowMs, turnId, String(candidate.status));
+        .run(
+          workerId,
+          nowMs + params.leaseMs,
+          nowMs,
+          nowMs,
+          turnId,
+          String(candidate.status),
+        );
       if (result.changes === 0) {
         return undefined;
       }
@@ -105,7 +108,12 @@ declare protected getBotUpdateLocked: (
     return row?.retry_at == null ? undefined : Number(row.retry_at);
   }
 
-  saveBotTurnDraft(turnId: number, workerId: string, draftText: string, nowMs = Date.now()): boolean {
+  saveBotTurnDraft(
+    turnId: number,
+    workerId: string,
+    draftText: string,
+    nowMs = Date.now(),
+  ): boolean {
     assertBotTurnId(turnId);
     assertTimestamp(nowMs, "nowMs");
     const owner = workerId.trim();
@@ -158,7 +166,11 @@ declare protected getBotUpdateLocked: (
     });
   }
 
-  markBotTurnSending(turnId: number, workerId: string, nowMs = Date.now()): boolean {
+  markBotTurnSending(
+    turnId: number,
+    workerId: string,
+    nowMs = Date.now(),
+  ): boolean {
     assertBotTurnId(turnId);
     assertTimestamp(nowMs, "nowMs");
     const owner = workerId.trim();
@@ -182,11 +194,17 @@ declare protected getBotUpdateLocked: (
     });
   }
 
-  markBotTurnSent(turnId: number, telegramMessageId?: number, nowMs = Date.now()): boolean {
+  markBotTurnSent(
+    turnId: number,
+    telegramMessageId?: number,
+    nowMs = Date.now(),
+  ): boolean {
     assertBotTurnId(turnId);
     assertTimestamp(nowMs, "nowMs");
     if (telegramMessageId != null && !Number.isSafeInteger(telegramMessageId)) {
-      throw new Error("telegramMessageId must be a safe integer when provided.");
+      throw new Error(
+        "telegramMessageId must be a safe integer when provided.",
+      );
     }
     return this.transitionBotTurnFromSending(
       "markBotTurnSent",
@@ -198,7 +216,11 @@ declare protected getBotUpdateLocked: (
     );
   }
 
-  markBotTurnLostAck(turnId: number, error: string, nowMs = Date.now()): boolean {
+  markBotTurnLostAck(
+    turnId: number,
+    error: string,
+    nowMs = Date.now(),
+  ): boolean {
     assertBotTurnId(turnId);
     assertTimestamp(nowMs, "nowMs");
     return this.transitionBotTurnFromSending(
@@ -226,12 +248,9 @@ declare protected getBotUpdateLocked: (
     assertTimestamp(nowMs, "nowMs");
     if (
       retryAfterMs != null &&
-      (!Number.isSafeInteger(retryAfterMs) ||
-        retryAfterMs < 0)
+      (!Number.isSafeInteger(retryAfterMs) || retryAfterMs < 0)
     ) {
-      throw new RangeError(
-        "retryAfterMs must be a non-negative safe integer.",
-      );
+      throw new RangeError("retryAfterMs must be a non-negative safe integer.");
     }
     return this.immediateTransaction("markBotTurnDispatchRejected", () => {
       const current = this.getBotTurnLocked(turnId);
@@ -240,11 +259,7 @@ declare protected getBotUpdateLocked: (
         retryable &&
         current.attempts < current.maxAttempts;
       const retryNotBeforeMs = willRetry
-        ? nowMs +
-          botTurnRetryDelayMs(
-            current.attempts,
-            retryAfterMs,
-          )
+        ? nowMs + botTurnRetryDelayMs(current.attempts, retryAfterMs)
         : null;
       const result = this.db
         .prepare(
@@ -276,11 +291,27 @@ declare protected getBotUpdateLocked: (
     });
   }
 
-  markBotTurnSkipped(turnId: number, workerId: string, reason?: string, nowMs = Date.now()): boolean {
-    return this.finishClaimedBotTurn(turnId, workerId, "skipped", reason, nowMs);
+  markBotTurnSkipped(
+    turnId: number,
+    workerId: string,
+    reason?: string,
+    nowMs = Date.now(),
+  ): boolean {
+    return this.finishClaimedBotTurn(
+      turnId,
+      workerId,
+      "skipped",
+      reason,
+      nowMs,
+    );
   }
 
-  markBotTurnFailed(turnId: number, workerId: string, error: string, nowMs = Date.now()): boolean {
+  markBotTurnFailed(
+    turnId: number,
+    workerId: string,
+    error: string,
+    nowMs = Date.now(),
+  ): boolean {
     assertBotTurnId(turnId);
     assertTimestamp(nowMs, "nowMs");
     const owner = workerId.trim();
@@ -381,7 +412,10 @@ declare protected getBotUpdateLocked: (
     return this.getBotTurnLocked(turnId);
   }
 
-  getBotTurnByTrigger(chatId: string, triggerMessageId: number): StoredBotTurn | undefined {
+  getBotTurnByTrigger(
+    chatId: string,
+    triggerMessageId: number,
+  ): StoredBotTurn | undefined {
     if (!Number.isSafeInteger(triggerMessageId)) {
       throw new Error("triggerMessageId must be a safe integer.");
     }
@@ -389,7 +423,11 @@ declare protected getBotUpdateLocked: (
   }
 
   queryBotTurns(
-    params: { chatId?: string; statuses?: BotDurableStatus[]; limit?: number } = {},
+    params: {
+      chatId?: string;
+      statuses?: BotDurableStatus[];
+      limit?: number;
+    } = {},
   ): StoredBotTurn[] {
     const limit = normalizeQueryLimit(params.limit);
     const statuses = normalizeBotStatuses(params.statuses);
@@ -406,12 +444,17 @@ declare protected getBotUpdateLocked: (
     values.push(limit);
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
     const rows = this.db
-      .prepare(`SELECT * FROM bot_turns ${where} ORDER BY created_at_ms ASC, id ASC LIMIT ?`)
+      .prepare(
+        `SELECT * FROM bot_turns ${where} ORDER BY created_at_ms ASC, id ASC LIMIT ?`,
+      )
       .all(...toSqlValues(values)) as Record<string, unknown>[];
     return rows.map(rowToStoredBotTurn);
   }
 
-  countStuckSendingTurns(chatId: string, staleThresholdMs: number = 5 * 60_000): number {
+  countStuckSendingTurns(
+    chatId: string,
+    staleThresholdMs: number = 5 * 60_000,
+  ): number {
     assertNonEmptyBounded(chatId, 256, "chatId");
     const row = this.db
       .prepare(
@@ -465,18 +508,47 @@ declare protected getBotUpdateLocked: (
     }
   }
 
-  protected quarantineBotTurnsOutsideChatLocked(
-    allowedChatId: string,
+  /**
+   * Dead-letters queued/failed turns whose chat is outside the full
+   * assistant allowlist. Deliberately not called from `claimNextBotTurn`
+   * (Фаза 7): with multiple concurrently valid chats, quarantining against
+   * one chat's own worker pool's single `chatId` would wrongly destroy
+   * every *other* configured chat's still-legitimate queued turns. Call
+   * this once, with the complete allowlist, at daemon startup instead --
+   * it keeps its original purpose (self-heal after an allowlist
+   * reconfiguration) without the cross-chat destruction risk.
+   */
+  quarantineBotTurnsOutsideAllowlist(
+    allowedChatIds: readonly string[],
+    nowMs: number = Date.now(),
+  ): void {
+    const chatIds = allowedChatIds.map((value) => {
+      const trimmed = value.trim();
+      assertNonEmptyBounded(trimmed, 256, "chatId");
+      return trimmed;
+    });
+    if (chatIds.length === 0) {
+      throw new Error("allowedChatIds must not be empty.");
+    }
+    assertTimestamp(nowMs, "nowMs");
+    this.immediateTransaction("quarantineBotTurnsOutsideAllowlist", () => {
+      this.quarantineBotTurnsOutsideChatsLocked(chatIds, nowMs);
+    });
+  }
+
+  protected quarantineBotTurnsOutsideChatsLocked(
+    allowedChatIds: readonly string[],
     nowMs: number,
   ): void {
+    const placeholders = allowedChatIds.map(() => "?").join(", ");
     const rows = this.db
       .prepare(
         `SELECT id
          FROM bot_turns
-         WHERE chat_id <> ?
+         WHERE chat_id NOT IN (${placeholders})
            AND status IN ('queued', 'failed')`,
       )
-      .all(allowedChatId) as Record<string, unknown>[];
+      .all(...allowedChatIds) as Record<string, unknown>[];
     if (rows.length === 0) {
       return;
     }
@@ -488,10 +560,10 @@ declare protected getBotUpdateLocked: (
              retry_not_before_ms = NULL,
              updated_at_ms = ?,
              completed_at_ms = ?
-         WHERE chat_id <> ?
+         WHERE chat_id NOT IN (${placeholders})
            AND status IN ('queued', 'failed')`,
       )
-      .run(nowMs, nowMs, allowedChatId);
+      .run(nowMs, nowMs, ...allowedChatIds);
     for (const row of rows) {
       this.syncBotUpdateFromTurnLocked(Number(row.id), nowMs);
     }
@@ -519,7 +591,15 @@ declare protected getBotUpdateLocked: (
            WHERE id = ? AND status IN ('running', 'drafted') AND lease_owner = ?
              AND lease_expires_at_ms > ?`,
         )
-        .run(status, reason?.trim() || null, nowMs, nowMs, turnId, owner, nowMs);
+        .run(
+          status,
+          reason?.trim() || null,
+          nowMs,
+          nowMs,
+          turnId,
+          owner,
+          nowMs,
+        );
       if (result.changes > 0) {
         this.syncBotUpdateFromTurnLocked(turnId, nowMs);
       }
@@ -543,7 +623,14 @@ declare protected getBotUpdateLocked: (
                retry_not_before_ms = NULL, updated_at_ms = ?, completed_at_ms = ?
            WHERE id = ? AND status = 'sending'`,
         )
-        .run(status, telegramMessageId ?? null, error ?? null, nowMs, nowMs, turnId);
+        .run(
+          status,
+          telegramMessageId ?? null,
+          error ?? null,
+          nowMs,
+          nowMs,
+          turnId,
+        );
       if (result.changes > 0) {
         this.syncBotUpdateFromTurnLocked(turnId, nowMs);
       }
@@ -565,15 +652,20 @@ declare protected getBotUpdateLocked: (
   }
 
   protected getBotTurnLocked(turnId: number): StoredBotTurn | undefined {
-    const row = this.db.prepare("SELECT * FROM bot_turns WHERE id = ?").get(turnId) as
-      | Record<string, unknown>
-      | undefined;
+    const row = this.db
+      .prepare("SELECT * FROM bot_turns WHERE id = ?")
+      .get(turnId) as Record<string, unknown> | undefined;
     return row == null ? undefined : rowToStoredBotTurn(row);
   }
 
-  protected getBotTurnByTriggerLocked(chatId: string, triggerMessageId: number): StoredBotTurn | undefined {
+  protected getBotTurnByTriggerLocked(
+    chatId: string,
+    triggerMessageId: number,
+  ): StoredBotTurn | undefined {
     const row = this.db
-      .prepare("SELECT * FROM bot_turns WHERE chat_id = ? AND trigger_message_id = ?")
+      .prepare(
+        "SELECT * FROM bot_turns WHERE chat_id = ? AND trigger_message_id = ?",
+      )
       .get(chatId, triggerMessageId) as Record<string, unknown> | undefined;
     return row == null ? undefined : rowToStoredBotTurn(row);
   }
@@ -597,4 +689,5 @@ export type BotTurnApi = Pick<
   | "getBotTurnByTrigger"
   | "queryBotTurns"
   | "countStuckSendingTurns"
+  | "quarantineBotTurnsOutsideAllowlist"
 >;

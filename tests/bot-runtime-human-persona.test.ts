@@ -3,7 +3,7 @@ import { test, type TestContext } from "node:test";
 import { BotUpdateProcessor } from "../src/bot/runtime.js";
 import { TurnCoordinator } from "../src/bot/turn-coordinator.js";
 import type { MessageStore } from "../src/store.js";
-import { makeStore, TELEGRAM_OPTIONS } from "./support/bot-runtime.js";
+import { CHAT_ID, makeStore, TELEGRAM_OPTIONS } from "./support/bot-runtime.js";
 
 const APPROVAL_CHAT_ID = "-1009998887776";
 
@@ -15,7 +15,9 @@ const TELEGRAM_WITH_APPROVAL = {
 function processor(store: MessageStore): BotUpdateProcessor {
   return new BotUpdateProcessor({
     store,
-    coordinator: new TurnCoordinator({ maxActiveTurns: 3 }),
+    coordinators: new Map([
+      [CHAT_ID, new TurnCoordinator({ maxActiveTurns: 3 })],
+    ]),
     workNotifier: { notify() {} },
     telegram: TELEGRAM_WITH_APPROVAL,
     now: () => 1_000,

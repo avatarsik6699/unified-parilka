@@ -1,7 +1,4 @@
-import {
-  realpathSync,
-  statSync,
-} from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
 import {
@@ -96,7 +93,6 @@ export function parseOptions(
   const chatId = telegramChatId(
     values.get("--chat") ??
       env.BOT_DIGEST_CHAT_ID ??
-      env.BOT_CHAT_ID ??
       onlyAllowedChat(env.TELEGRAM_ALLOWED_CHAT_IDS),
   );
   assertMatchesAllowlist(chatId, env.TELEGRAM_ALLOWED_CHAT_IDS);
@@ -112,10 +108,7 @@ export function parseOptions(
       "Set --db, BOT_DIGEST_DB_PATH, BOT_DB_PATH, or TELEGRAM_DB_PATH.",
     );
   }
-  const dbPath = existingAbsoluteFile(
-    configuredDb,
-    "digest database",
-  );
+  const dbPath = existingAbsoluteFile(configuredDb, "digest database");
   assertSingleLinkDatabase(dbPath);
   assertSharedDatabaseIdentity(dbPath, env);
 
@@ -133,8 +126,7 @@ export function parseOptions(
     );
   }
 
-  const botIdValue =
-    values.get("--bot-id") ?? env.BOT_ID;
+  const botIdValue = values.get("--bot-id") ?? env.BOT_ID;
   const botId = botIdValue ? telegramBotId(botIdValue) : "";
   if (apply && modelConfigPath && botId === "") {
     throw new CliConfigError(
@@ -153,22 +145,19 @@ export function parseOptions(
     botId,
     modelConfigPath,
     maxInputChars: integerOption(
-      values.get("--max-input-chars") ??
-        env.BOT_DIGEST_MAX_INPUT_CHARS,
+      values.get("--max-input-chars") ?? env.BOT_DIGEST_MAX_INPUT_CHARS,
       "max input characters",
       1_000,
       2_000_000,
     ),
     maxOutputChars: integerOption(
-      values.get("--max-output-chars") ??
-        env.BOT_DIGEST_MAX_OUTPUT_CHARS,
+      values.get("--max-output-chars") ?? env.BOT_DIGEST_MAX_OUTPUT_CHARS,
       "max output characters",
       1_000,
       200_000,
     ),
     itemTimeoutMs: integerOption(
-      values.get("--item-timeout-ms") ??
-        env.BOT_DIGEST_ITEM_TIMEOUT_MS,
+      values.get("--item-timeout-ms") ?? env.BOT_DIGEST_ITEM_TIMEOUT_MS,
       "item timeout",
       1_000,
       15 * 60_000,
@@ -319,10 +308,7 @@ function assertSharedDatabaseIdentity(
         `${name} must resolve to the same canonical pathname as the selected shared database; a different hardlink path is unsafe with SQLite WAL.`,
       );
     }
-    if (
-      selected.dev !== candidate.dev ||
-      selected.ino !== candidate.ino
-    ) {
+    if (selected.dev !== candidate.dev || selected.ino !== candidate.ino) {
       throw new CliConfigError(
         "database_identity_mismatch",
         `${name} does not identify the selected shared database.`,
@@ -350,17 +336,10 @@ function integerOption(
     return undefined;
   }
   if (!/^\d+$/u.test(value.trim())) {
-    throw new CliConfigError(
-      "invalid_integer",
-      `${name} must be an integer.`,
-    );
+    throw new CliConfigError("invalid_integer", `${name} must be an integer.`);
   }
   const parsed = Number(value);
-  if (
-    !Number.isSafeInteger(parsed) ||
-    parsed < minimum ||
-    parsed > maximum
-  ) {
+  if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
     throw new CliConfigError(
       "integer_out_of_range",
       `${name} must be between ${minimum} and ${maximum}.`,
@@ -376,9 +355,7 @@ export function integerFromEnvironment(
   maximum: number,
   fallback: number,
 ): number {
-  return (
-    integerOption(value, name, minimum, maximum) ?? fallback
-  );
+  return integerOption(value, name, minimum, maximum) ?? fallback;
 }
 
 export class CliConfigError extends Error {

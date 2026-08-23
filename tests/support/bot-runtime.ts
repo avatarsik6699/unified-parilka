@@ -13,7 +13,7 @@ export const CHAT_ID = "-1003179772905";
 export const BOT_ID = "700011";
 export const BOT_USERNAME = "ParilkaBot";
 export const TELEGRAM_OPTIONS = {
-  allowedChatId: CHAT_ID,
+  allowedChatIds: [CHAT_ID],
   botId: BOT_ID,
   botUsername: BOT_USERNAME,
 } as const;
@@ -24,7 +24,9 @@ export function processorFor(
 ): BotUpdateProcessor {
   return new BotUpdateProcessor({
     store,
-    coordinator: new TurnCoordinator({ maxActiveTurns: 3 }),
+    coordinators: new Map([
+      [CHAT_ID, new TurnCoordinator({ maxActiveTurns: 3 })],
+    ]),
     workNotifier: { notify() {} },
     telegram: TELEGRAM_OPTIONS,
     triggerCooldownMs: 5_000,
@@ -51,10 +53,7 @@ export function pollingApi(
   };
 }
 
-export function addressedUpdate(
-  updateId: number,
-  messageId: number,
-) {
+export function addressedUpdate(updateId: number, messageId: number) {
   return messageUpdate(updateId, messageId, {
     text: "@ParilkaBot вопрос",
     entities: [
@@ -78,10 +77,7 @@ export function messageUpdate(
   };
 }
 
-export function message(
-  messageId: number,
-  overrides: Record<string, unknown>,
-) {
+export function message(messageId: number, overrides: Record<string, unknown>) {
   return {
     message_id: messageId,
     date: 1_700_000_000,
@@ -101,12 +97,8 @@ export function message(
 }
 
 export function makeStore(t: TestContext): MessageStore {
-  const directory = mkdtempSync(
-    join(tmpdir(), "parilka-bot-runtime-"),
-  );
-  const store = new MessageStore(
-    join(directory, "cache.sqlite"),
-  );
+  const directory = mkdtempSync(join(tmpdir(), "parilka-bot-runtime-"));
+  const store = new MessageStore(join(directory, "cache.sqlite"));
   t.after(() => {
     store.close();
     rmSync(directory, { recursive: true, force: true });

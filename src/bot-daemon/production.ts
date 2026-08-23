@@ -17,6 +17,10 @@ import type {
   ProductionBotDaemon,
   ProductionBotDaemonFactories,
 } from "./contracts.js";
+import {
+  loadAssistantChatsFromEnv,
+  type AssistantChatConfig,
+} from "./multi-chat-config.js";
 import { safeDaemonLog } from "./trace.js";
 
 /**
@@ -42,15 +46,18 @@ export function createProductionBotDaemon(
   // feature-scoped env-read precedent as BOT_HUMAN_PERSONA_* (see
   // src/human-persona-trigger/config.ts) -- persona-agnostic base config
   // stays generic, persona content is supplied separately per deployment.
-  const personaPrompt = env.BOT_PERSONA_PROMPT?.trim();
-  if (!personaPrompt) {
-    throw new Error(
-      "BOT_PERSONA_PROMPT is required: this base has no built-in persona, " +
-        "every deployed bot must supply its own persona-identity/tone/" +
-        "content-policy prose explicitly.",
-    );
-  }
-  assertBotDaemonConfiguration(config, appConfig);
+  const chats = loadAssistantChatsFromEnv(env);
+  // Read here (not later, alongside the rest of the human-persona wiring)
+  // so assertBotDaemonConfiguration can reject an approval chat id that
+  // collides with one of the assistant chats before anything else starts.
+  const humanPersonaApprovalChatId =
+    env.BOT_HUMAN_PERSONA_APPROVAL_CHAT_ID?.trim();
+  assertBotDaemonConfiguration(
+    config,
+    appConfig,
+    chats,
+    humanPersonaApprovalChatId,
+  );
   const factories: ProductionBotDaemonFactories = {
     ...DEFAULT_PRODUCTION_FACTORIES,
     ...options.factories,
@@ -70,16 +77,25 @@ export function createProductionBotDaemon(
   const store = factories.createStore(config.dbPath);
   store.reconcileActiveSendsOnStartup();
 
-  // Evidence-log stuck sending turns from a previous crash.
+  const chatIds = chats.map((chat) => chat.allowedChatId);
+  // Self-heals after an allowlist reconfiguration (a chat that was removed
+  // from BOT_MULTI_CHAT_CONFIG_PATH still had queued/failed turns). Called
+  // once with the full allowlist, at startup only -- never per-claim, which
+  // would wrongly quarantine every *other* still-valid chat's turns (Фаза 7).
+  store.quarantineBotTurnsOutsideAllowlist(chatIds);
+
+  // Evidence-log stuck sending turns from a previous crash, per chat.
   // Oracle: НЕ переводить автоматически в lost_ack — allowedChatId не доказывает
   // ownership процесса; другой MCP-процесс может владеть отправкой.
-  const stuckSending = store.countStuckSendingTurns(config.allowedChatId);
-  if (stuckSending > 0) {
-    safeDaemonLog(options.logger, "warn", {
-      event: "bot.startup.stuck_sending",
-      count: stuckSending,
-      chatId: config.allowedChatId,
-    });
+  for (const chatId of chatIds) {
+    const stuckSending = store.countStuckSendingTurns(chatId);
+    if (stuckSending > 0) {
+      safeDaemonLog(options.logger, "warn", {
+        event: "bot.startup.stuck_sending",
+        count: stuckSending,
+        chatId,
+      });
+    }
   }
 
   let composition: BotDaemonComposition | undefined;
@@ -109,11 +125,9 @@ export function createProductionBotDaemon(
     // src/human-persona-trigger/config.ts): an optional feature that stays
     // off, no behavior change, when it isn't set.
     const humanPersonaId = env.BOT_HUMAN_PERSONA_ID?.trim();
-    const humanPersonaApprovalChatId =
-      env.BOT_HUMAN_PERSONA_APPROVAL_CHAT_ID?.trim();
     composition = composeBotDaemon({
       config,
-      personaPrompt,
+      chats,
       store,
       api,
       router,
@@ -151,6 +165,8 @@ export function createProductionBotDaemon(
 export function assertBotDaemonConfiguration(
   bot: Readonly<BotRuntimeConfig>,
   app: Readonly<AppConfig>,
+  chats: readonly AssistantChatConfig[],
+  humanPersonaApprovalChatId?: string,
 ): void {
   if (!sameConfiguredFile(bot.dbPath, app.storage.dbPath)) {
     throw new Error(
@@ -158,10 +174,28 @@ export function assertBotDaemonConfiguration(
     );
   }
   const allowed = new Set(app.telegram.allowedChatIds.map(normalizeTelegramId));
-  if (!allowed.has(normalizeTelegramId(bot.allowedChatId))) {
-    throw new Error(
-      "BOT_CHAT_ID must be present in TELEGRAM_ALLOWED_CHAT_IDS.",
+  for (const chat of chats) {
+    if (!allowed.has(normalizeTelegramId(chat.allowedChatId))) {
+      throw new Error(
+        `BOT_MULTI_CHAT_CONFIG_PATH chat ${chat.allowedChatId} must be present in TELEGRAM_ALLOWED_CHAT_IDS.`,
+      );
+    }
+  }
+  if (humanPersonaApprovalChatId !== undefined) {
+    const normalizedApprovalChatId = normalizeTelegramId(
+      humanPersonaApprovalChatId,
     );
+    const collidingChat = chats.find(
+      (chat) =>
+        normalizeTelegramId(chat.allowedChatId) === normalizedApprovalChatId,
+    );
+    if (collidingChat !== undefined) {
+      throw new Error(
+        "BOT_HUMAN_PERSONA_APPROVAL_CHAT_ID must not be one of the " +
+          "assistant chats in BOT_MULTI_CHAT_CONFIG_PATH: the approval chat " +
+          "must stay structurally outside the assistant role's fold/turn state.",
+      );
+    }
   }
 }
 

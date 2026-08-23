@@ -13,6 +13,7 @@ import type { BotUpdateIngestResult } from "../src/store.js";
 import {
   BOT_ID,
   BOT_USERNAME,
+  CHAT_ID,
   TELEGRAM_OPTIONS,
   addressedUpdate,
   makeStore,
@@ -26,7 +27,7 @@ test("long poll offset advances only after durable processing and is confirmed o
   const coordinator = new TurnCoordinator({ maxActiveTurns: 3 });
   const processor = new BotUpdateProcessor({
     store,
-    coordinator,
+    coordinators: new Map([[CHAT_ID, coordinator]]),
     workNotifier: { notify() {} },
     telegram: TELEGRAM_OPTIONS,
     now: () => 1_000,
@@ -106,7 +107,7 @@ test("migration offset skips only legacy-confirmed updates on the first poll", a
         return undefined;
       },
     },
-    coordinator: new TurnCoordinator({ maxActiveTurns: 1 }),
+    coordinators: new Map([[CHAT_ID, new TurnCoordinator({ maxActiveTurns: 1 })]]),
     workNotifier: { notify() {} },
     telegram: TELEGRAM_OPTIONS,
   });
@@ -168,7 +169,7 @@ test("pinned bot identity is verified before any queued worker can run", async (
         return undefined;
       },
     },
-    coordinator: new TurnCoordinator({ maxActiveTurns: 1 }),
+    coordinators: new Map([[CHAT_ID, new TurnCoordinator({ maxActiveTurns: 1 })]]),
     workNotifier: { notify() {} },
     telegram: TELEGRAM_OPTIONS,
   });
@@ -244,7 +245,7 @@ test("runtime stops polling first and waits for an in-flight worker probe", asyn
         return undefined;
       },
     },
-    coordinator: new TurnCoordinator({ maxActiveTurns: 1 }),
+    coordinators: new Map([[CHAT_ID, new TurnCoordinator({ maxActiveTurns: 1 })]]),
     workNotifier: { notify() {} },
     telegram: TELEGRAM_OPTIONS,
   });
@@ -314,7 +315,7 @@ test("fatal polling conflict waits in-flight work but does not drain new queued 
         return undefined;
       },
     },
-    coordinator: new TurnCoordinator({ maxActiveTurns: 1 }),
+    coordinators: new Map([[CHAT_ID, new TurnCoordinator({ maxActiveTurns: 1 })]]),
     workNotifier: { notify() {} },
     telegram: TELEGRAM_OPTIONS,
   });
@@ -401,7 +402,7 @@ test("a storage failure is retried without sending a larger offset", async () =>
   };
   const processor = new BotUpdateProcessor({
     store: fakeStore,
-    coordinator: new TurnCoordinator({ maxActiveTurns: 3 }),
+    coordinators: new Map([[CHAT_ID, new TurnCoordinator({ maxActiveTurns: 3 })]]),
     workNotifier: { notify() {} },
     telegram: TELEGRAM_OPTIONS,
   });

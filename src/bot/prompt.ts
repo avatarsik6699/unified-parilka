@@ -438,7 +438,7 @@ const PERSONA_PROMPT_MAX_CHARS = 12_000;
  * Unlike `inlineConfig`, this keeps internal newlines: the persona block is
  * multi-paragraph markdown, not a single-line label.
  */
-function boundedPersonaPrompt(value: string): string {
+export function boundedPersonaPrompt(value: string): string {
   const trimmed = value.trim();
   if (trimmed.length === 0 || trimmed.length > PERSONA_PROMPT_MAX_CHARS) {
     throw new Error(

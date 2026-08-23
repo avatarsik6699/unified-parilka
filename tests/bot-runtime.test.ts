@@ -15,6 +15,7 @@ import {
   processorFor,
   BOT_ID,
   BOT_USERNAME,
+  CHAT_ID,
 } from "./support/bot-runtime.js";
 
 test("processor commits/reserves before ACK, routes messages, and keeps edits out of folds", (t) => {
@@ -24,7 +25,7 @@ test("processor commits/reserves before ACK, routes messages, and keeps edits ou
   let nowMs = 1_000;
   const processor = new BotUpdateProcessor({
     store,
-    coordinator,
+    coordinators: new Map([[CHAT_ID, coordinator]]),
     workNotifier: {
       notify() {
         notifications += 1;
@@ -83,7 +84,7 @@ test("processor commits/reserves before ACK, routes messages, and keeps edits ou
   assert.equal(store.getBotUpdate(102)?.status, "skipped");
   assert.equal(
     store.getMessagesByIds({
-      chatId: TELEGRAM_OPTIONS.allowedChatId,
+      chatId: TELEGRAM_OPTIONS.allowedChatIds[0],
       messageIds: [501],
     })[0]?.text,
     "@ParilkaBot отредактировано",
@@ -99,7 +100,7 @@ test("redelivered committed update wakes durable work without routing a duplicat
   let notifications = 0;
   const processor = new BotUpdateProcessor({
     store,
-    coordinator,
+    coordinators: new Map([[CHAT_ID, coordinator]]),
     workNotifier: {
       notify() {
         notifications += 1;
@@ -126,9 +127,7 @@ test("redelivered committed update wakes durable work without routing a duplicat
 });
 
 test("five-second per-sender trigger debounce survives process restart", () => {
-  const directory = mkdtempSync(
-    join(tmpdir(), "parilka-runtime-cooldown-"),
-  );
+  const directory = mkdtempSync(join(tmpdir(), "parilka-runtime-cooldown-"));
   const dbPath = join(directory, "cache.sqlite");
   try {
     let store = new MessageStore(dbPath);
@@ -137,9 +136,7 @@ test("five-second per-sender trigger debounce survives process restart", () => {
 
     const first = processor.process(addressedUpdate(200, 600));
     nowMs = 12_000;
-    const throttled = processor.process(
-      addressedUpdate(201, 601),
-    );
+    const throttled = processor.process(addressedUpdate(201, 601));
 
     assert.equal(first.acknowledged && first.turnReserved, true);
     assert.equal(throttled.acknowledged && throttled.turnReserved, false);
@@ -152,9 +149,7 @@ test("five-second per-sender trigger debounce survives process restart", () => {
     store = new MessageStore(dbPath);
     nowMs = 15_000;
     processor = processorFor(store, () => nowMs);
-    const afterRestart = processor.process(
-      addressedUpdate(202, 602),
-    );
+    const afterRestart = processor.process(addressedUpdate(202, 602));
 
     assert.equal(afterRestart.acknowledged && afterRestart.turnReserved, true);
     assert.equal(store.queryBotTurns().length, 2);
@@ -169,7 +164,7 @@ test("owner reply-to-bot routes as owner_follow_up, reply to another stays ambie
   const coordinator = new TurnCoordinator({ maxActiveTurns: 1 });
   const processor = new BotUpdateProcessor({
     store,
-    coordinator,
+    coordinators: new Map([[CHAT_ID, coordinator]]),
     workNotifier: { notify() {} },
     telegram: TELEGRAM_OPTIONS,
     now: () => 1_000,
@@ -236,7 +231,7 @@ test("owner next message without reply-to-bot stays ambient, does not hijack tas
   const coordinator = new TurnCoordinator({ maxActiveTurns: 1 });
   const processor = new BotUpdateProcessor({
     store,
-    coordinator,
+    coordinators: new Map([[CHAT_ID, coordinator]]),
     workNotifier: { notify() {} },
     telegram: TELEGRAM_OPTIONS,
     now: () => 1_000,
@@ -266,5 +261,8 @@ test("owner next message without reply-to-bot stays ambient, does not hijack tas
   assert.equal(fold.ownerFollowUps.length, 0);
   // Ambient is preserved, not dropped
   assert.equal(fold.ambient.length, 1);
-  assert.equal(fold.ambient[0]?.text, "кстати, совсем забыл спросить про другое");
+  assert.equal(
+    fold.ambient[0]?.text,
+    "кстати, совсем забыл спросить про другое",
+  );
 });

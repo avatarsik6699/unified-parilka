@@ -17,8 +17,7 @@ export interface BotWebSearchVertexRuntimeConfig {
 }
 
 export type BotWebSearchRuntimeConfig =
-  | BotWebSearchHttpRuntimeConfig
-  | BotWebSearchVertexRuntimeConfig;
+  BotWebSearchHttpRuntimeConfig | BotWebSearchVertexRuntimeConfig;
 
 export interface BotResearchGatewayRuntimeConfig {
   socketPath: string;
@@ -36,13 +35,15 @@ export interface BotAudioTranscribeRuntimeConfig {
 export interface BotRuntimeConfig {
   token: string;
   exclusivePollerConfirmed: true;
-  allowedChatId: string;
   botId: string;
   botUsername: string;
   botDisplayName: string;
-  chatTitle: string;
+  /**
+   * Shared across every chat this process serves -- per-chat identity
+   * (allowed chat id, title, persona) lives in `AssistantChatConfig`
+   * (`src/bot-daemon/multi-chat-config.ts`), not here.
+   */
   historyDescription: string;
-  approximateMemberCount?: number;
   /** Private allowlist of immutable Telegram user IDs permitted to write chat memory. */
   memoryWriteAuthorizerIds: readonly string[];
   dbPath: string;

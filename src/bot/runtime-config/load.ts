@@ -35,11 +35,6 @@ export function parseBotRuntimeConfig(
   assertBotTokenShape(token);
   assertExclusivePoller(env);
 
-  const allowedChatId = telegramId(
-    requiredPlain(env, "BOT_CHAT_ID"),
-    "BOT_CHAT_ID",
-    "negative",
-  );
   const botId = telegramId(requiredPlain(env, "BOT_ID"), "BOT_ID", "positive");
   const botUsername = normalizeBotUsername(requiredPlain(env, "BOT_USERNAME"));
   const sharedDbPath = absolutePath(
@@ -65,7 +60,6 @@ export function parseBotRuntimeConfig(
   const config: BotRuntimeConfig = {
     token,
     exclusivePollerConfirmed: true,
-    allowedChatId,
     botId,
     botUsername,
     botDisplayName: boundedPlain(
@@ -73,27 +67,11 @@ export function parseBotRuntimeConfig(
       "BOT_DISPLAY_NAME",
       128,
     ),
-    chatTitle: boundedPlain(
-      requiredPlain(env, "BOT_CHAT_TITLE"),
-      "BOT_CHAT_TITLE",
-      160,
-    ),
     historyDescription: boundedPlain(
       env.BOT_HISTORY_DESCRIPTION ?? "вся доступная локальная история чата",
       "BOT_HISTORY_DESCRIPTION",
       200,
     ),
-    ...(env.BOT_APPROXIMATE_MEMBER_COUNT === undefined
-      ? {}
-      : {
-          approximateMemberCount: integer(
-            env.BOT_APPROXIMATE_MEMBER_COUNT,
-            "BOT_APPROXIMATE_MEMBER_COUNT",
-            1,
-            1,
-            10_000_000,
-          ),
-        }),
     memoryWriteAuthorizerIds: telegramIdList(
       env.BOT_MEMORY_WRITE_SENDER_IDS,
       "BOT_MEMORY_WRITE_SENDER_IDS",

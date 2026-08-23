@@ -69,7 +69,14 @@ export type BotUpdateProcessingResult =
 
 export interface BotUpdateProcessorOptions {
   store: BotRuntimeStore;
-  coordinator: TurnCoordinator;
+  /**
+   * One `TurnCoordinator` per assistant-role chat (Фаза 7, native multi-
+   * chat) -- coordinators must not be shared across chats: `routeMessage`
+   * folds an incoming message into every active turn with no chat filter,
+   * so sharing one instance would leak chat B's messages into chat A's
+   * in-flight turn. Keyed by the chat's normalized Telegram id.
+   */
+  coordinators: ReadonlyMap<string, TurnCoordinator>;
   workNotifier: BotWorkNotifier;
   telegram: TelegramUpdateOptions;
   triggerCooldownMs?: number;

@@ -6,7 +6,7 @@ const CHAT_ID = -100_123_456_789;
 const APPROVAL_CHAT_ID = -100_987_654_321;
 const BOT_ID = 7_700_011;
 const OPTIONS = {
-  allowedChatId: String(CHAT_ID),
+  allowedChatIds: [String(CHAT_ID)],
   humanPersonaApprovalChatId: String(APPROVAL_CHAT_ID),
   botId: String(BOT_ID),
   botUsername: "@ParilkaBot",
@@ -45,7 +45,7 @@ test("a reply in the approval chat bypasses the single-chat allowlist", () => {
 
 test("without humanPersonaApprovalChatId configured, the same chat is rejected as usual", () => {
   const result = normalizeTelegramUpdate(approvalUpdate(), {
-    allowedChatId: String(CHAT_ID),
+    allowedChatIds: [String(CHAT_ID)],
     botId: String(BOT_ID),
     botUsername: "@ParilkaBot",
   });

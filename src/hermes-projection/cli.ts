@@ -1,7 +1,4 @@
-import {
-  realpathSync,
-  statSync,
-} from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { homedir } from "node:os";
 import { MessageStore } from "../store.js";
@@ -134,21 +131,24 @@ function resolveChatId(
   cliValue: string | undefined,
   env: Readonly<Record<string, string | undefined>>,
 ): string {
-  const raw =
-    cliValue ??
-    env.BOT_DIGEST_CHAT_ID ??
-    env.BOT_CHAT_ID;
+  const raw = cliValue ?? env.BOT_DIGEST_CHAT_ID;
   if (raw) {
     const trimmed = raw.trim();
     if (!/^-\d{5,20}$/u.test(trimmed)) {
-      throw new CliConfigError("invalid_chat", "Chat id must be a negative Telegram chat id.");
+      throw new CliConfigError(
+        "invalid_chat",
+        "Chat id must be a negative Telegram chat id.",
+      );
     }
     return trimmed;
   }
   // Fallback to single allowed chat
   const allowed = env.TELEGRAM_ALLOWED_CHAT_IDS?.trim();
   if (allowed) {
-    const chats = allowed.split(",").map((s) => s.trim()).filter(Boolean);
+    const chats = allowed
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
     if (chats.length === 1 && /^-\d{5,20}$/u.test(chats[0]!)) {
       return chats[0]!;
     }
@@ -159,7 +159,7 @@ function resolveChatId(
   }
   throw new CliConfigError(
     "missing_chat",
-    "Set --chat, BOT_DIGEST_CHAT_ID, BOT_CHAT_ID, or TELEGRAM_ALLOWED_CHAT_IDS.",
+    "Set --chat, BOT_DIGEST_CHAT_ID, or TELEGRAM_ALLOWED_CHAT_IDS.",
   );
 }
 
@@ -185,7 +185,10 @@ function parseLockTimeout(raw: string | undefined): number {
 function existingAbsoluteFile(value: string, name: string): string {
   const expanded = expandHome(value.trim());
   if (!isAbsolute(expanded)) {
-    throw new CliConfigError("path_not_absolute", `${name} path must be absolute.`);
+    throw new CliConfigError(
+      "path_not_absolute",
+      `${name} path must be absolute.`,
+    );
   }
   let path: string;
   try {
@@ -195,7 +198,10 @@ function existingAbsoluteFile(value: string, name: string): string {
   }
   const stat = statSync(path);
   if (!stat.isFile()) {
-    throw new CliConfigError("path_not_file", `${name} path must name a regular file.`);
+    throw new CliConfigError(
+      "path_not_file",
+      `${name} path must name a regular file.`,
+    );
   }
   return path;
 }
@@ -203,7 +209,10 @@ function existingAbsoluteFile(value: string, name: string): string {
 function existingAbsoluteDir(value: string, name: string): string {
   const expanded = expandHome(value.trim());
   if (!isAbsolute(expanded)) {
-    throw new CliConfigError("path_not_absolute", `${name} path must be absolute.`);
+    throw new CliConfigError(
+      "path_not_absolute",
+      `${name} path must be absolute.`,
+    );
   }
   let path: string;
   try {
@@ -213,7 +222,10 @@ function existingAbsoluteDir(value: string, name: string): string {
   }
   const stat = statSync(path);
   if (!stat.isDirectory()) {
-    throw new CliConfigError("path_not_dir", `${name} path must name a directory.`);
+    throw new CliConfigError(
+      "path_not_dir",
+      `${name} path must name a directory.`,
+    );
   }
   return path;
 }

@@ -17,7 +17,8 @@ export type TelegramUpdateReason =
   | "human_persona_approval_reply";
 
 export interface TelegramUpdateOptions {
-  allowedChatId: string | number;
+  /** One entry per assistant-role chat this process serves (Фаза 7, native multi-chat). */
+  allowedChatIds: ReadonlySet<string> | readonly (string | number)[];
   botId: string | number;
   botUsername: string;
   /**
@@ -69,7 +70,10 @@ export function normalizeTelegramUpdate(
   input: unknown,
   options: TelegramUpdateOptions,
 ): NormalizedTelegramUpdate {
-  const allowedChatId = configuredId(options.allowedChatId, "allowedChatId");
+  const allowedChatIds = configuredIdSet(
+    options.allowedChatIds,
+    "allowedChatIds",
+  );
   const botId = configuredId(options.botId, "botId");
   const botUsername = normalizeBotUsername(options.botUsername);
   const approvalChatId =
@@ -115,7 +119,7 @@ export function normalizeTelegramUpdate(
 
   const isApprovalChat =
     approvalChatId !== undefined && chatId === approvalChatId;
-  if (chatId !== allowedChatId && !isApprovalChat) {
+  if (!allowedChatIds.has(chatId) && !isApprovalChat) {
     return compactResult({
       ingest: false,
       addressed: false,
@@ -448,6 +452,17 @@ function configuredId(value: string | number, name: string): string {
     throw new TypeError(`${name} must be a Telegram integer id.`);
   }
   return id;
+}
+
+function configuredIdSet(
+  values: ReadonlySet<string> | readonly (string | number)[],
+  name: string,
+): ReadonlySet<string> {
+  const ids = new Set(Array.from(values, (value) => configuredId(value, name)));
+  if (ids.size === 0) {
+    throw new TypeError(`${name} must contain at least one Telegram chat id.`);
+  }
+  return ids;
 }
 
 function normalizeBotUsername(value: string): string {

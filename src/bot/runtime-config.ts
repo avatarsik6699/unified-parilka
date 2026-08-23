@@ -1,5 +1,6 @@
 export type {
   BotRuntimeConfig,
+  BotRuntimeEnvironment,
   BotRuntimeMode,
   BotWebSearchRuntimeConfig,
   BotResearchGatewayRuntimeConfig,

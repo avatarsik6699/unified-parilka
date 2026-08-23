@@ -9,19 +9,16 @@ import {
 const VALID_ENV = {
   BOT_TOKEN: "123456789:abcdefghijklmnopqrstuvwxyz_ABCD",
   BOT_EXCLUSIVE_POLLER: "true",
-  BOT_CHAT_ID: "-1003179772905",
   BOT_ID: "123456789",
   BOT_USERNAME: "@ParilkaBot",
   BOT_DB_PATH: "/tmp/parilka-runtime.sqlite",
   TELEGRAM_DB_PATH: "/tmp/parilka-runtime.sqlite",
   BOT_MODEL_CONFIG_PATH: resolve("package.json"),
-  BOT_CHAT_TITLE: "Test Chat",
 } as const;
 
 test("bot runtime config is strict, bounded, and defaults to safe shadow mode", () => {
   const config = parseBotRuntimeConfig(VALID_ENV);
 
-  assert.equal(config.allowedChatId, "-1003179772905");
   assert.equal(config.botId, "123456789");
   assert.equal(config.botUsername, "ParilkaBot");
   assert.equal(config.mode, "shadow");
@@ -363,15 +360,7 @@ test("secret validation errors never interpolate the rejected token", () => {
   );
 });
 
-test("one negative chat, pinned bot identity, and at most three workers are enforced", () => {
-  assert.throws(
-    () =>
-      parseBotRuntimeConfig({
-        ...VALID_ENV,
-        BOT_CHAT_ID: "123",
-      }),
-    /negative Telegram id/u,
-  );
+test("pinned bot identity and at most three workers are enforced", () => {
   assert.throws(
     () =>
       parseBotRuntimeConfig({

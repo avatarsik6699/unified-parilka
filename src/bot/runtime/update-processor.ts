@@ -32,7 +32,7 @@ const HUMAN_PERSONA_CALLBACK_PATTERN =
 
 export class BotUpdateProcessor {
   readonly #store: BotRuntimeStore;
-  readonly #coordinator: TurnCoordinator;
+  readonly #coordinators: ReadonlyMap<string, TurnCoordinator>;
   readonly #workNotifier: BotWorkNotifier;
   readonly #telegram: TelegramUpdateOptions;
   readonly #triggerCooldownMs: number;
@@ -42,7 +42,7 @@ export class BotUpdateProcessor {
 
   constructor(options: BotUpdateProcessorOptions) {
     this.#store = options.store;
-    this.#coordinator = options.coordinator;
+    this.#coordinators = options.coordinators;
     this.#workNotifier = options.workNotifier;
     this.#telegram = options.telegram;
     this.#triggerCooldownMs = boundedInteger(
@@ -156,7 +156,16 @@ export class BotUpdateProcessor {
       normalized.reason !== "bot_message" &&
       normalized.reason !== "human_persona_approval_reply"
     ) {
-      this.#coordinator.routeMessage({
+      const coordinator = this.#coordinators.get(normalized.chat.chatId);
+      if (coordinator === undefined) {
+        // Invariant violation, not a runtime input error: normalizeTelegramUpdate
+        // already validated chat.chatId against the same allowedChatIds this
+        // map was built from (Фаза 7).
+        throw new Error(
+          `No TurnCoordinator configured for chat ${normalized.chat.chatId}.`,
+        );
+      }
+      coordinator.routeMessage({
         messageId: durableMessageId(normalized.message),
         senderId:
           normalized.message.senderId ??

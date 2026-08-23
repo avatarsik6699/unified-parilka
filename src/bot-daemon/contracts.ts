@@ -28,6 +28,7 @@ import type { TurnCoordinator } from "../bot/turn-coordinator.js";
 import type { BotTurnWorker, JsonEventLogger } from "../bot/worker.js";
 import type { ApprovalPosterLoop } from "../human-persona-approval-poster.js";
 import type { MessageStore } from "../store.js";
+import type { AssistantChatConfig } from "./multi-chat-config.js";
 
 export type BotDaemonApi = Pick<
   Api,
@@ -45,11 +46,12 @@ export type BotDaemonApi = Pick<
 export interface ComposeBotDaemonOptions {
   config: Readonly<BotRuntimeConfig>;
   /**
-   * Persona-specific identity/tone/content-policy prose (`BotSystemPromptOptions.
-   * personaPrompt`). No default: this base is persona-agnostic, every deployed
-   * bot must supply its own persona explicitly.
+   * One entry per assistant-role chat this process serves (Фаза 7, native
+   * multi-chat) -- 1 to `MAX_ASSISTANT_CHATS`. Each carries its own
+   * `personaPrompt`: this base is persona-agnostic, every chat must supply
+   * its own persona explicitly, there is no shared fallback character.
    */
-  personaPrompt: string;
+  chats: readonly AssistantChatConfig[];
   store: MessageStore;
   api: BotDaemonApi;
   router: TurnModelRouter;
@@ -69,18 +71,30 @@ export interface ComposeBotDaemonOptions {
   humanPersonaApprovalChatId?: string;
 }
 
+/**
+ * One graph per assistant-role chat (Фаза 7): the coordinator must not be
+ * shared across chats (its fold/routing has no chat filter), so neither can
+ * the agent/readTools/workers built against it.
+ */
+export interface BotDaemonChatComposition {
+  coordinator: TurnCoordinator;
+  readTools: BotReadTools;
+  agent: AiSdkBotTurnAgent;
+  workers: readonly BotTurnWorker[];
+}
+
 export interface BotDaemonComposition {
   runtime: BotApiRuntime;
   poller: BotApiLongPoller;
   workerPump: BotWorkerPump;
+  /** Flat union of every chat's `workers`, fed to `workerPump`/drain accounting. */
   workers: readonly BotTurnWorker[];
   processor: BotUpdateProcessor;
-  coordinator: TurnCoordinator;
+  /** Keyed by the chat's normalized Telegram id. */
+  chats: ReadonlyMap<string, BotDaemonChatComposition>;
   cache: CanonicalBotReadCache;
-  readTools: BotReadTools;
   mediaTools: BotMediaTools;
   memoryTools: BotMemoryTools;
-  agent: AiSdkBotTurnAgent;
   approvalPoster?: ApprovalPosterLoop;
 }
 

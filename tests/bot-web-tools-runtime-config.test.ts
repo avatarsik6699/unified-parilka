@@ -11,13 +11,11 @@ import {
 const VALID_ENV = {
   BOT_TOKEN: "123456789:abcdefghijklmnopqrstuvwxyz_ABCD",
   BOT_EXCLUSIVE_POLLER: "true",
-  BOT_CHAT_ID: "-1003179772905",
   BOT_ID: "123456789",
   BOT_USERNAME: "@ParilkaBot",
   BOT_DB_PATH: "/tmp/parilka-runtime.sqlite",
   TELEGRAM_DB_PATH: "/tmp/parilka-runtime.sqlite",
   BOT_MODEL_CONFIG_PATH: resolve("package.json"),
-  BOT_CHAT_TITLE: "Test Chat",
 } as const;
 
 test("bot runtime config defaults the web tool endpoints", () => {

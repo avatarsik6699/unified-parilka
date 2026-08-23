@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { test, type TestContext } from "node:test";
 import type { AppConfig } from "../src/config.js";
 import {
@@ -48,7 +48,13 @@ test("composition wires all worker slots without performing external I/O", async
   const records: Readonly<Record<string, unknown>>[] = [];
   const composition = composeBotDaemon({
     config,
-    personaPrompt: "# Кто ты\nТестовая персона для юнит-тестов.",
+    chats: [
+      {
+        allowedChatId: CHAT_ID,
+        chatTitle: "Test Chat",
+        personaPrompt: "# Кто ты\nТестовая персона для юнит-тестов.",
+      },
+    ],
     store,
     api: noNetworkApi(() => {
       apiCalls += 1;
@@ -59,12 +65,13 @@ test("composition wires all worker slots without performing external I/O", async
     workerIdPrefix: "test-bot",
     logger: memoryLogger((record) => records.push(record)),
   });
+  const chat = composition.chats.get(CHAT_ID)!;
 
   assert.equal(composition.workers.length, 2);
-  assert.equal(composition.coordinator.availableTurnSlots, 2);
+  assert.equal(chat.coordinator.availableTurnSlots, 2);
   assert.equal(composition.poller.running, false);
   assert.equal(apiCalls, 0);
-  composition.coordinator.startTurn({
+  chat.coordinator.startTurn({
     turnId: "traceable-turn",
     ownerSenderId: "42",
   });
@@ -75,7 +82,7 @@ test("composition wires all worker slots without performing external I/O", async
     startWatermark: 0,
   });
   assert.deepEqual(
-    await composition.readTools.callTool("web_search", {
+    await chat.readTools.callTool("web_search", {
       query: "provider swap",
     }),
     {
@@ -182,19 +189,44 @@ test("custom bot env cannot be mixed with app config from global process.env", (
 test("combined configuration enforces the shared DB and chat allowlist", (t) => {
   const { dbPath } = fixtureStore(t);
   const config = botConfig(dbPath);
+  const chats = [
+    {
+      allowedChatId: CHAT_ID,
+      chatTitle: "Test Chat",
+      personaPrompt: "persona",
+    },
+  ];
 
   assert.doesNotThrow(() =>
-    assertBotDaemonConfiguration(config, minimalAppConfig(dbPath)),
+    assertBotDaemonConfiguration(config, minimalAppConfig(dbPath), chats),
   );
   assert.throws(
     () =>
-      assertBotDaemonConfiguration(config, minimalAppConfig(`${dbPath}.other`)),
+      assertBotDaemonConfiguration(
+        config,
+        minimalAppConfig(`${dbPath}.other`),
+        chats,
+      ),
     /same SQLite database/u,
   );
   assert.throws(
     () =>
-      assertBotDaemonConfiguration(config, minimalAppConfig(dbPath, "-100999")),
+      assertBotDaemonConfiguration(
+        config,
+        minimalAppConfig(dbPath, "-100999"),
+        chats,
+      ),
     /TELEGRAM_ALLOWED_CHAT_IDS/u,
+  );
+  assert.throws(
+    () =>
+      assertBotDaemonConfiguration(
+        config,
+        minimalAppConfig(dbPath),
+        chats,
+        CHAT_ID,
+      ),
+    /must not be one of the assistant chats/u,
   );
 });
 
@@ -345,17 +377,28 @@ function botConfig(
 }
 
 function botEnv(dbPath: string): Readonly<Record<string, string>> {
+  const directory = dirname(dbPath);
+  const personaPromptPath = join(directory, "persona.md");
+  writeFileSync(
+    personaPromptPath,
+    "# Кто ты\nТестовая персона для юнит-тестов.",
+  );
+  const multiChatConfigPath = join(directory, "multi-chat.json");
+  writeFileSync(
+    multiChatConfigPath,
+    JSON.stringify([
+      { chatId: CHAT_ID, chatTitle: "Test Chat", personaPromptPath },
+    ]),
+  );
   return {
     BOT_TOKEN: "123456789:abcdefghijklmnopqrstuvwxyz_ABCD",
     BOT_EXCLUSIVE_POLLER: "true",
-    BOT_CHAT_ID: CHAT_ID,
     BOT_ID: "123456789",
     BOT_USERNAME: "ParilkaBot",
     BOT_DB_PATH: dbPath,
     TELEGRAM_DB_PATH: dbPath,
     BOT_MODEL_CONFIG_PATH: resolve("package.json"),
-    BOT_CHAT_TITLE: "Test Chat",
-    BOT_PERSONA_PROMPT: "# Кто ты\nТестовая персона для юнит-тестов.",
+    BOT_MULTI_CHAT_CONFIG_PATH: multiChatConfigPath,
   };
 }
 
