@@ -143,24 +143,16 @@ test("contextWindowTokens is declared per exact model reference and validated", 
   }
 });
 
-test("production router config targets GPT-5.6 Luna first, DeepSeek V4 Flash as fallback", () => {
+test("production router config targets DeepSeek V4 Flash only, no OpenAI fallback", () => {
   const path = fileURLToPath(
     new URL("../config/model-router.production.json", import.meta.url),
   );
   const env = {
-    BOT_OPENAI_API_KEY: "test-placeholder",
     BOT_DEEPSEEK_API_KEY: "test-placeholder",
   };
   const parsed = loadModelRouterConfigFile(path, { env });
 
   assert.deepEqual(parsed.providers, [
-    {
-      id: "openai",
-      protocol: "openai",
-      baseUrl: "https://api.openai.com/v1",
-      apiKeyEnv: "BOT_OPENAI_API_KEY",
-      reasoningEffort: "none",
-    },
     {
       id: "deepseek",
       protocol: "deepseek",
@@ -170,32 +162,20 @@ test("production router config targets GPT-5.6 Luna first, DeepSeek V4 Flash as 
     },
   ]);
   assert.deepEqual(parsed.roles, {
-    turn: ["openai:gpt-5.6-luna", "deepseek:deepseek-v4-flash"],
-    summary: ["openai:gpt-5.6-luna", "deepseek:deepseek-v4-flash"],
+    turn: ["deepseek:deepseek-v4-flash"],
+    summary: ["deepseek:deepseek-v4-flash"],
   });
   assert.deepEqual(parsed.modelCapabilities, {
-    "openai:gpt-5.6-luna": {
-      vision: true,
-      contextWindowTokens: 1_050_000,
-    },
     "deepseek:deepseek-v4-flash": {
       vision: false,
       contextWindowTokens: 1_000_000,
     },
   });
   assert.doesNotMatch(JSON.stringify(parsed), /qwen/i);
+  assert.doesNotMatch(JSON.stringify(parsed), /openai|gpt-5\.6-luna/i);
 
   const router = new ModelRouter(parsed, { env });
-  assert.equal(router.inspectConfig().providers[0]?.reasoningEffort, "none");
-  assert.equal(router.inspectConfig().providers[1]?.thinkingMode, "enabled");
-  assert.deepEqual(
-    router.resolveCandidate("openai:gpt-5.6-luna").providerOptions,
-    {
-      openai: {
-        reasoningEffort: "none",
-      },
-    },
-  );
+  assert.equal(router.inspectConfig().providers[0]?.thinkingMode, "enabled");
   assert.deepEqual(
     router.resolveCandidate("deepseek:deepseek-v4-flash").providerOptions,
     {
@@ -208,11 +188,11 @@ test("production router config targets GPT-5.6 Luna first, DeepSeek V4 Flash as 
   );
   assert.deepEqual(
     router.resolveRole("turn").map(({ reference }) => reference),
-    ["openai:gpt-5.6-luna", "deepseek:deepseek-v4-flash"],
+    ["deepseek:deepseek-v4-flash"],
   );
   assert.deepEqual(
     router.resolveRole("summary").map(({ reference }) => reference),
-    ["openai:gpt-5.6-luna", "deepseek:deepseek-v4-flash"],
+    ["deepseek:deepseek-v4-flash"],
   );
 });
 

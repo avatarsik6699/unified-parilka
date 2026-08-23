@@ -2,13 +2,6 @@
   "allowInsecureLocal": false,
   "providers": [
     {
-      "id": "openai",
-      "protocol": "openai",
-      "baseUrl": "https://api.openai.com/v1",
-      "apiKeyEnv": "BOT_OPENAI_API_KEY",
-      "reasoningEffort": "none"
-    },
-    {
       "id": "deepseek",
       "protocol": "deepseek",
       "baseUrl": "https://api.deepseek.com",
@@ -17,10 +10,6 @@
     }
   ],
   "modelCapabilities": {
-    "openai:gpt-5.6-luna": {
-      "vision": true,
-      "contextWindowTokens": 1050000
-    },
     "deepseek:deepseek-v4-flash": {
       "vision": false,
       "contextWindowTokens": 1000000
@@ -28,11 +17,9 @@
   },
   "roles": {
     "turn": [
-      "openai:gpt-5.6-luna",
       "deepseek:deepseek-v4-flash"
     ],
     "summary": [
-      "openai:gpt-5.6-luna",
       "deepseek:deepseek-v4-flash"
     ]
   }
