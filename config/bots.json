@@ -3,6 +3,6 @@
     "role": "assistant",
     "chatId": "-1002501807882",
     "chatTitle": "Ирбячье логово",
-    "personaPromptPath": "/home/niquetamerewsl/projects/bot_agi/config/irbyachye-logovo-persona.md"
+    "personaPromptPath": "/root/repos/parilka-unified/config/irbyachye-logovo-persona.md"
   }
 ]
