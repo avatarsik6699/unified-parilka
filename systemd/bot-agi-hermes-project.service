@@ -1,6 +1,6 @@
 [Unit]
 Description=Bot Agi Hermes profile projection (memory and skills)
-Documentation=file:%h/repos/parilka-unified/operations/HERMES.md
+Documentation=file:%h/projects/bot_agi/operations/HERMES.md
 # Runs after the maintenance oneshot completes, even when maintenance failed:
 # a partial digest failure must not block the projection pass. Started via the
 # weak Wants dependency of bot-agi-maintain.service, so a failed projection
@@ -9,15 +9,15 @@ After=bot-agi-maintain.service
 
 [Service]
 Type=oneshot
-WorkingDirectory=%h/repos/parilka-unified
+WorkingDirectory=%h/projects/bot_agi
 EnvironmentFile=-%h/.config/telegram-mcp/.env
 EnvironmentFile=-%h/.config/bot-agi/bot-agi.env
 Environment=NODE_ENV=production
-Environment=TELEGRAM_PROJECT_DIR=%h/repos/parilka-unified
+Environment=TELEGRAM_PROJECT_DIR=%h/projects/bot_agi
 # Kill switch: set BOT_HERMES_PROJECTION_ENABLED=true (e.g. in the
 # bot-agi.env above) only after the Hermes profile is installed. Missing or
 # false skips the pass before any DB or profile access.
-ExecStart=%h/repos/parilka-unified/bin/bot-agi-hermes-project --apply
+ExecStart=%h/projects/bot_agi/bin/bot-agi-hermes-project --apply
 TimeoutStartSec=45min
 UMask=0077
 NoNewPrivileges=true

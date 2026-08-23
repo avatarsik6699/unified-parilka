@@ -1,6 +1,6 @@
 [Unit]
 Description=Bot Agi MTProto sync owner and loopback MCP
-Documentation=file:%h/repos/parilka-unified/README.md
+Documentation=file:%h/projects/bot_agi/README.md
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=10min
@@ -8,13 +8,13 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-WorkingDirectory=%h/repos/parilka-unified
+WorkingDirectory=%h/projects/bot_agi
 EnvironmentFile=-%h/.config/telegram-mcp/.env
 EnvironmentFile=-%h/.config/bot-agi/bot-agi.env
 Environment=NODE_ENV=production
-Environment=TELEGRAM_PROJECT_DIR=%h/repos/parilka-unified
-ExecStartPre=%h/repos/parilka-unified/bin/telegram-bot-agi-mcp-check-build %h/repos/parilka-unified %h/repos/parilka-unified/dist/sync-daemon.js
-ExecStart=%h/repos/parilka-unified/bin/telegram-bot-agi-mcp-sync-daemon
+Environment=TELEGRAM_PROJECT_DIR=%h/projects/bot_agi
+ExecStartPre=%h/projects/bot_agi/bin/telegram-bot-agi-mcp-check-build %h/projects/bot_agi %h/projects/bot_agi/dist/sync-daemon.js
+ExecStart=%h/projects/bot_agi/bin/telegram-bot-agi-mcp-sync-daemon
 Restart=on-failure
 RestartSec=10s
 TimeoutStopSec=3min

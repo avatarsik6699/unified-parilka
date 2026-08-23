@@ -1,7 +1,7 @@
 [Unit]
 Description=Bot Agi bounded SQLite maintenance and digest generation
-Documentation=file:%h/repos/parilka-unified/README.md
-Documentation=file:%h/repos/parilka-unified/src/maintenance/README.md
+Documentation=file:%h/projects/bot_agi/README.md
+Documentation=file:%h/projects/bot_agi/src/maintenance/README.md
 After=bot-agi-sync.service bot-agi-bot.service
 # Weak dependency: the Hermes projection oneshot runs after this unit finishes,
 # even when maintenance itself failed (e.g. a partial digest failure). A failed
@@ -10,13 +10,13 @@ Wants=bot-agi-hermes-project.service
 
 [Service]
 Type=oneshot
-WorkingDirectory=%h/repos/parilka-unified
+WorkingDirectory=%h/projects/bot_agi
 EnvironmentFile=-%h/.config/telegram-mcp/.env
 EnvironmentFile=-%h/.config/bot-agi/bot-agi.env
 Environment=NODE_ENV=production
-Environment=TELEGRAM_PROJECT_DIR=%h/repos/parilka-unified
-ExecStart=%h/repos/parilka-unified/bin/bot-agi-maintain --apply
-ExecStart=%h/repos/parilka-unified/bin/bot-agi-digests --apply --summary-only
+Environment=TELEGRAM_PROJECT_DIR=%h/projects/bot_agi
+ExecStart=%h/projects/bot_agi/bin/bot-agi-maintain --apply
+ExecStart=%h/projects/bot_agi/bin/bot-agi-digests --apply --summary-only
 TimeoutStartSec=45min
 UMask=0077
 NoNewPrivileges=true
