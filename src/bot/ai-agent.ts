@@ -44,18 +44,20 @@ import { sanitizeFinalText } from "./agent/final-sanitizer.js";
 import { ThinkingProgressTracker } from "./agent/thinking-progress.js";
 import { createBotToolExecutionObserver } from "./agent/tool-observer.js";
 import {
-  compactModelContextIfNeeded,
-  MODEL_CONTEXT_FINALIZATION_TOKENS,
-} from "./agent/model-context.js";
-import {
   createBotToolSet,
   researchContinuationInstructions,
 } from "./agent/tool-set.js";
 import {
   AudioTranscriptionExecution,
   isDirectAudioTranscriptionRequest,
-  renderDirectAudioTranscription,
 } from "./agent/media-execution.js";
+import { runDirectAudioTranscriptionBranch } from "./agent/direct-audio.js";
+import {
+  createPrepareStepHandler,
+  type PrepareStepCompactionState,
+  type PrepareStepFinalizationState,
+  type PrepareStepImageState,
+} from "./agent/prepare-step.js";
 import { type BotMediaToolsPort } from "./media-tools.js";
 import {
   boundedInteger,
@@ -66,8 +68,11 @@ import {
   throwIfTurnAborted,
 } from "./agent/runtime-helpers.js";
 import type { ReadToolEvidence } from "./read-tools/contracts.js";
-import { appendFreshWebImages, createTurnImageTracker } from "./agent/web-images.js";
-import { createWebToolPort, type WebToolPort } from "./web-tools/tool-definitions.js";
+import { createTurnImageTracker } from "./agent/web-images.js";
+import {
+  createWebToolPort,
+  type WebToolPort,
+} from "./web-tools/tool-definitions.js";
 const DEFAULT_CONTEXT_CHARS = 48_000;
 const DEFAULT_MAX_OUTPUT_TOKENS = 16_384;
 const DEFAULT_STEP_TIMEOUT_MS = 180_000;
@@ -103,9 +108,7 @@ export interface AiSdkBotTurnAgentOptions {
   webToolPort?: WebToolPort;
 }
 
-export type BotAgentProtocolErrorCode =
-  | "empty_final"
-  | "incomplete_finish";
+export type BotAgentProtocolErrorCode = "empty_final" | "incomplete_finish";
 
 export class BotAgentProtocolError extends Error {
   readonly name = "BotAgentProtocolError";
@@ -221,8 +224,9 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
     let deniedExecutions = 0;
     let requestedExecutions = 0;
     let researchQualityRetries = 0;
-    let contextCompactions = 0;
-    const imageTracker = this.#webToolPort?.imageTracker ?? createTurnImageTracker();
+    const compactionState: PrepareStepCompactionState = { count: 0 };
+    const imageTracker =
+      this.#webToolPort?.imageTracker ?? createTurnImageTracker();
     const thinkingProgress = new ThinkingProgressTracker(
       request.toolProgressPort,
     );
@@ -235,17 +239,23 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
       request.trigger,
       request.replyTarget,
     );
-    let visionAttachmentPromise: ReturnType<BotMediaToolsPort["resolveVision"]> | undefined;
+    let visionAttachmentPromise:
+      ReturnType<BotMediaToolsPort["resolveVision"]> | undefined;
     const audioExecution = new AudioTranscriptionExecution({
       mediaTools,
       target: audioTarget,
       thinkingProgress,
       toolProgressPort: request.toolProgressPort,
       carriedTools,
-      onStarted: () => { startedExecutions += 1; },
-      onCompleted: () => { completedExecutions += 1; },
+      onStarted: () => {
+        startedExecutions += 1;
+      },
+      onCompleted: () => {
+        completedExecutions += 1;
+      },
       getSequence: (callId) =>
-        approvalOrder.get(callId) ?? allowedExecutions + carriedTools.length + 1,
+        approvalOrder.get(callId) ??
+        allowedExecutions + carriedTools.length + 1,
       log: (level, event, fields) => this.#log(level, event, fields),
       traceContext,
     });
@@ -259,44 +269,24 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
 
     if (isDirectAudioTranscriptionRequest(request.trigger.text)) {
       // Explicit local transcription never sends the private transcript to a model.
-      const directAudioCallId = `audio:auto:${request.turn.id}`;
-      if (audioExecution.available) {
-        allowedExecutions += 1;
-        approvalOrder.set(directAudioCallId, allowedExecutions);
-      }
-      const directAudio = await audioExecution.runDirect({
-        callId: directAudioCallId,
-        signal: turnSignal,
-      });
-      usage.setFinalModel("flov", "local");
-      usage.setExecutionStats({
-        toolCalls: startedExecutions,
-        durationMs: Math.max(0, Date.now() - agentStartedAtMs),
-      });
-      const final: BotAgentFinalResult = {
-        kind: "final",
-        text: renderDirectAudioTranscription(directAudio),
-        telemetry: usage.build(),
-        responseOrigin: "local_audio",
-      };
-      this.#log("info", "bot.agent.complete", {
-        ...traceContext,
-        candidate: "local:flov",
-        attempt: 1,
-        fallbackCount: 0,
-        fallbackReasons: [],
-        requestedToolCalls: requestedExecutions,
-        allowedToolCalls: allowedExecutions,
-        startedToolCalls: startedExecutions,
-        startedReadToolCalls: startedReadExecutions,
-        completedToolCalls: completedExecutions,
-        deniedToolCalls: deniedExecutions,
+      return runDirectAudioTranscriptionBranch({
+        turnId: request.turn.id,
+        turnSignal,
+        audioExecution,
+        usage,
+        agentStartedAtMs,
+        traceContext,
+        startedExecutions,
+        startedReadExecutions,
+        completedExecutions,
+        deniedExecutions,
+        requestedExecutions,
         researchMode,
         memoryWriteAllowed,
         researchMinimumToolCalls,
         researchQualityRetries,
+        log: (level, event, fields) => this.#log(level, event, fields),
       });
-      return final;
     }
 
     try {
@@ -305,8 +295,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
         async (candidate, attemptNumber) => {
           throwIfTurnAborted(request.signal);
           let visionAttachment:
-            | Awaited<ReturnType<BotMediaToolsPort["resolveVision"]>>
-            | undefined;
+            Awaited<ReturnType<BotMediaToolsPort["resolveVision"]>> | undefined;
           if (
             photoTarget !== undefined &&
             mediaTools !== undefined &&
@@ -330,15 +319,15 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
               });
             }
           }
-          const candidateBaseMessages = visionAttachment === undefined
-            ? baseMessages
-            : withImageAttachment(baseMessages, visionAttachment);
+          const candidateBaseMessages =
+            visionAttachment === undefined
+              ? baseMessages
+              : withImageAttachment(baseMessages, visionAttachment);
           const instructions = buildBotSystemPrompt({
             ...this.#prompt,
             modelLabel: candidate.reference,
             now,
-            memoryBlock:
-              request.memoryBlock ?? this.#prompt.memoryBlock,
+            memoryBlock: request.memoryBlock ?? this.#prompt.memoryBlock,
             memoryMaxChars: this.#prompt.memoryMaxChars,
             fastMemory: request.fastMemory,
             longTermLessons: request.longTermLessons,
@@ -376,7 +365,6 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
             },
             log: (level, event, fields) => this.#log(level, event, fields),
           });
-          let finalizationRequested = false;
           let lengthFinalizationRetries = 0;
           let emptyFinalRetries = 0;
           const { tools, toolOrder } = createBotToolSet({
@@ -391,13 +379,19 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
             sourceMessageId: request.trigger.messageId,
             senderId: request.trigger.senderId,
             visionAvailable: candidate.capabilities.vision,
-            webToolPort: this.#webToolPort ?? createWebToolPort({
-              searxngEndpoint: this.#searxngEndpoint,
-              firecrawlEndpoint: this.#firecrawlEndpoint,
-              imageTracker, nonce, turnSignal }),
+            webToolPort:
+              this.#webToolPort ??
+              createWebToolPort({
+                searxngEndpoint: this.#searxngEndpoint,
+                firecrawlEndpoint: this.#firecrawlEndpoint,
+                imageTracker,
+                nonce,
+                turnSignal,
+              }),
             onExecutionStarted: toolObserver.onExecutionStarted,
             onExecutionCompleted: toolObserver.onExecutionCompleted,
-            ...(!audioExecution.available || audioExecution.hasModelTranscription
+            ...(!audioExecution.available ||
+            audioExecution.hasModelTranscription
               ? {}
               : {
                   runAudioTranscription: ({ callId, signal }) =>
@@ -411,17 +405,20 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
           });
 
           try {
-            let injectedImageCount = 0;
+            const imageState: PrepareStepImageState = { injectedImageCount: 0 };
+            const finalizationState: PrepareStepFinalizationState = {
+              requested: false,
+            };
             while (true) {
               throwIfTurnAborted(request.signal);
-              let foldCursor = folds.length;
-              const activeInstructions = researchQualityRetries === 0
-                ? instructions
-                : researchContinuationInstructions(
-                    instructions,
-                    researchMinimumToolCalls,
-                    startedReadExecutions,
-                  );
+              const activeInstructions =
+                researchQualityRetries === 0
+                  ? instructions
+                  : researchContinuationInstructions(
+                      instructions,
+                      researchMinimumToolCalls,
+                      startedReadExecutions,
+                    );
               const attemptMessages = [
                 ...candidateBaseMessages,
                 ...folds.map(userMessage),
@@ -444,68 +441,24 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
                   approvalOrder.set(toolCall.toolCallId, allowedExecutions);
                   return "not-applicable";
                 },
-                prepareStep: async ({ messages }) => {
-                  throwIfTurnAborted(request.signal);
-                  rememberFold("model");
-                  const newFolds = folds.slice(foldCursor);
-                  foldCursor = folds.length;
-                  // Inject fresh web images before the next model step.
-                  const withFolds = newFolds.length === 0
-                    ? messages
-                    : [...messages, ...newFolds.map(userMessage)];
-                  const injected = appendFreshWebImages(withFolds,
-                    imageTracker, injectedImageCount, candidate.capabilities.vision, nonce);
-                  injectedImageCount = injected.injectedCount;
-                  const nextMessages = injected.messages;
-                  const compacted = await compactModelContextIfNeeded({
-                    model: candidate.model, providerOptions: candidate.providerOptions,
-                    messages: nextMessages, signal: turnSignal,
-                    contextCompactions, remainingMs: Number.MAX_SAFE_INTEGER,
-                    toolLimitReached: false,
-                  });
-                  const compactedMessages = compacted.messages;
-                  const contextChars = compacted.contextChars;
-                  const contextTokens = compacted.contextTokens;
-                  contextCompactions = compacted.compactionNumber ?? contextCompactions;
-                  if (compacted.compactionNumber !== undefined)
-                    this.#log("info", "bot.agent.context_compacted", { ...traceContext, candidate: candidate.reference, attempt: attemptNumber, compaction: contextCompactions, beforeChars: compacted.beforeChars, afterChars: contextChars, beforeTokens: compacted.beforeTokens, afterTokens: contextTokens });
-                  if (compacted.error !== undefined)
-                    this.#log("warn", "bot.agent.context_compaction_failed", { ...traceContext, candidate: candidate.reference, attempt: attemptNumber, code: safeErrorCode(compacted.error) });
-                  const contextGuard = contextTokens >= MODEL_CONTEXT_FINALIZATION_TOKENS;
-                  const forceFinal =
-                    finalizationRequested || contextGuard;
-                  if (forceFinal && !finalizationRequested) {
-                    finalizationRequested = true;
-                    this.#log("warn", "bot.agent.finalization_guard", {
-                      ...traceContext,
-                      candidate: candidate.reference,
-                      attempt: attemptNumber,
-                      reason: "context",
-                      estimatedContextChars: contextChars,
-                      estimatedContextTokens: contextTokens,
-                    });
-                  }
-                  const finalizationInstructions =
-                    `${activeInstructions}\n\n` +
-                    "Сейчас обязательно верни полный финальный ответ по уже " +
-                    "собранным данным. Новые инструменты не вызывай. Если " +
-                    "каких-то данных не хватило, честно обозначь ограничение " +
-                    "в самом ответе.";
-                  return {
-                    messages: compactedMessages,
-                    ...(forceFinal
-                      ? {
-                          activeTools: [],
-                          toolChoice: "none" as const,
-                          instructions: finalizationInstructions,
-                          maxOutputTokens: this.#maxOutputTokens,
-                        }
-                      : {
-                          toolChoice: "auto" as const,
-                          maxOutputTokens: this.#maxOutputTokens,
-                        }),
-                  };
-                },
+                prepareStep: createPrepareStepHandler({
+                  requestSignal: request.signal,
+                  turnSignal,
+                  rememberFold,
+                  folds,
+                  imageTracker,
+                  nonce,
+                  candidate,
+                  attemptNumber,
+                  activeInstructions,
+                  maxOutputTokens: this.#maxOutputTokens,
+                  traceContext,
+                  imageState,
+                  finalizationState,
+                  compactionState,
+                  log: (level, event, fields) =>
+                    this.#log(level, event, fields),
+                }),
                 // There is no whole-turn or model/tool-step count ceiling.
                 // Each provider and tool operation remains independently bounded.
                 stopWhen: () => false,
@@ -573,7 +526,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
                 lengthFinalizationRetries < MAX_LENGTH_FINALIZATION_RETRIES
               ) {
                 lengthFinalizationRetries += 1;
-                finalizationRequested = true;
+                finalizationState.requested = true;
                 this.#log("warn", "bot.agent.finalization_retry", {
                   ...traceContext,
                   candidate: candidate.reference,
@@ -595,7 +548,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
               if (result.text.trim().length === 0) {
                 if (emptyFinalRetries < MAX_EMPTY_FINAL_RETRIES) {
                   emptyFinalRetries += 1;
-                  finalizationRequested = true;
+                  finalizationState.requested = true;
                   this.#log("warn", "bot.agent.empty_final_retry", {
                     ...traceContext,
                     candidate: candidate.reference,
@@ -617,7 +570,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
               if (sanitizedText.length === 0) {
                 if (emptyFinalRetries < MAX_EMPTY_FINAL_RETRIES) {
                   emptyFinalRetries += 1;
-                  finalizationRequested = true;
+                  finalizationState.requested = true;
                   this.#log("warn", "bot.agent.empty_final_retry", {
                     ...traceContext,
                     candidate: candidate.reference,
@@ -632,7 +585,8 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
               }
               if (
                 researchMinimumToolCalls > startedReadExecutions &&
-                researchQualityRetries < BOT_AGENT_CONTRACT.researchQualityRetries
+                researchQualityRetries <
+                  BOT_AGENT_CONTRACT.researchQualityRetries
               ) {
                 researchQualityRetries += 1;
                 this.#log("info", "bot.agent.research_depth_retry", {
@@ -679,9 +633,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
         candidate: routed.candidate.reference,
         attempt: routed.attempt,
         fallbackCount: routed.failures.length,
-        fallbackReasons: routed.failures.map(
-          ({ decision }) => decision.reason,
-        ),
+        fallbackReasons: routed.failures.map(({ decision }) => decision.reason),
         requestedToolCalls: requestedExecutions,
         allowedToolCalls: allowedExecutions,
         startedToolCalls: startedExecutions,
@@ -700,9 +652,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
           ? error.attempts.map((a) => a.decision.reason)
           : undefined;
       const routingCode =
-        error instanceof ModelRoutingError
-          ? error.code
-          : undefined;
+        error instanceof ModelRoutingError ? error.code : undefined;
       const leafCode =
         error instanceof ModelRoutingError && error.cause != null
           ? safeErrorCode(error.cause)
