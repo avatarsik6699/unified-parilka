@@ -5,7 +5,10 @@ import {
   evaluateHeuristicGate,
   windowStart,
 } from "../src/human-persona-trigger/heuristics.js";
-import { runHumanPersonaTriggerTick } from "../src/human-persona-trigger/tick.js";
+import {
+  runHumanPersonaRegenerate,
+  runHumanPersonaTriggerTick,
+} from "../src/human-persona-trigger/tick.js";
 import type {
   HumanPersonaTriggerDecisionRequest,
   HumanPersonaTriggerDecisionResult,
@@ -374,4 +377,66 @@ test("tick: a port failure is reported as 'failed' without throwing", async () =
 
   assert.equal(report.status, "failed");
   assert.equal(report.error?.name, "Error");
+});
+
+test("regenerate bypasses the heuristic gate (outside active hours would otherwise block)", async () => {
+  const store = new FakeTriggerStore();
+  store.history = [message(1, "недавно", "2026-01-15T01:59:30.000Z")];
+  const port = new FakeDecisionPort({
+    shouldSend: true,
+    text: "го, но повежливее",
+    model: "m",
+    providerId: "p",
+  });
+
+  const report = await runHumanPersonaRegenerate({
+    store,
+    config: BASE_CONFIG,
+    port,
+    now: () => NIGHT_NOW,
+  });
+
+  assert.equal(report.status, "proposed");
+  assert.equal(store.proposals.length, 1);
+  assert.equal(store.proposals[0]?.proposedText, "го, но повежливее");
+});
+
+test("regenerate never records an initiation (a correction is not a new autonomous send)", async () => {
+  const store = new FakeTriggerStore();
+  store.history = [message(1, "недавно", "2026-01-15T09:59:30.000Z")];
+  const port = new FakeDecisionPort({
+    shouldSend: true,
+    text: "го, но повежливее",
+    model: "m",
+    providerId: "p",
+  });
+
+  await runHumanPersonaRegenerate({
+    store,
+    config: BASE_CONFIG,
+    port,
+    now: () => ACTIVE_NOW,
+  });
+
+  assert.equal(store.initiations.length, 0);
+  assert.equal(store.checks.length, 0);
+});
+
+test("regenerate on an empty chat reports no_history without calling the port", async () => {
+  const store = new FakeTriggerStore();
+  const port = new FakeDecisionPort({
+    shouldSend: false,
+    model: "m",
+    providerId: "p",
+  });
+
+  const report = await runHumanPersonaRegenerate({
+    store,
+    config: BASE_CONFIG,
+    port,
+    now: () => ACTIVE_NOW,
+  });
+
+  assert.equal(report.status, "no_history");
+  assert.equal(port.calls, 0);
 });

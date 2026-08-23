@@ -3,6 +3,9 @@ import { buildHumanPersonaSystemPrompt } from "../bot/human-persona-prompt.js";
 import { evaluateHeuristicGate, windowStart } from "./heuristics.js";
 import { lastMessageTimestampMs, renderRecentMessages } from "./render.js";
 import type {
+  HumanPersonaTriggerPort,
+  HumanPersonaTriggerRuntimeConfig,
+  HumanPersonaTriggerStore,
   HumanPersonaTriggerTickOptions,
   HumanPersonaTriggerTickReport,
 } from "./types.js";
@@ -60,7 +63,70 @@ export async function runHumanPersonaTriggerTick(
     return { status: "gated", reason: gate.reason };
   }
 
+  return generateAndPropose({
+    store,
+    config,
+    port: options.port,
+    now,
+    historyLimit,
+    itemTimeoutMs: options.itemTimeoutMs,
+    maxOutputChars: options.maxOutputChars,
+    recordInitiation: true,
+  });
+}
+
+/**
+ * Regenerates a proposal on explicit human request (plan 4d/5 Шаг 6: a
+ * "regenerate" button click). Deliberately skips the heuristic gate (a
+ * human already asked for this, right now) and does not count against the
+ * rate limit (`recordHumanPersonaInitiation`) -- a supervised correction is
+ * not a new autonomous initiation.
+ */
+export async function runHumanPersonaRegenerate(
+  options: HumanPersonaTriggerTickOptions,
+): Promise<HumanPersonaTriggerTickReport> {
+  const now = (options.now ?? (() => new Date()))();
+  const { store, config } = options;
+  const historyLimit = options.historyLimit ?? DEFAULT_HISTORY_LIMIT;
+
+  const recent = store.getHistory({
+    chatId: config.chatId,
+    limit: historyLimit,
+    order: "desc",
+  });
+  if (recent.length === 0) {
+    return { status: "no_history" };
+  }
+
+  return generateAndPropose({
+    store,
+    config,
+    port: options.port,
+    now,
+    historyLimit,
+    itemTimeoutMs: options.itemTimeoutMs,
+    maxOutputChars: options.maxOutputChars,
+    recordInitiation: false,
+  });
+}
+
+async function generateAndPropose(params: {
+  store: HumanPersonaTriggerStore;
+  config: HumanPersonaTriggerRuntimeConfig;
+  port: HumanPersonaTriggerPort;
+  now: Date;
+  historyLimit: number;
+  itemTimeoutMs?: number;
+  maxOutputChars?: number;
+  recordInitiation: boolean;
+}): Promise<HumanPersonaTriggerTickReport> {
+  const { store, config, now } = params;
   try {
+    const recent = store.getHistory({
+      chatId: config.chatId,
+      limit: params.historyLimit,
+      order: "desc",
+    });
     const styleProfile = store.getHumanPersonaStyleProfile(
       config.personaId,
       config.targetUserKey,
@@ -77,14 +143,14 @@ export async function runHumanPersonaTriggerTick(
       DEFAULT_RECENT_SOURCE_CHARS,
     );
     const signal = AbortSignal.timeout(
-      options.itemTimeoutMs ?? DEFAULT_ITEM_TIMEOUT_MS,
+      params.itemTimeoutMs ?? DEFAULT_ITEM_TIMEOUT_MS,
     );
-    const decision = await options.port.decide({
+    const decision = await params.port.decide({
       personaId: config.personaId,
       chatId: config.chatId,
       systemPrompt,
       recentMessagesText,
-      maxOutputChars: options.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS,
+      maxOutputChars: params.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS,
       signal,
     });
 
@@ -101,12 +167,14 @@ export async function runHumanPersonaTriggerTick(
       autonomyMode: config.autonomyMode,
       nowMs: now.getTime(),
     });
-    store.recordHumanPersonaInitiation(
-      config.personaId,
-      config.chatId,
-      windowStart(now.getTime(), config.heuristics.windowMs),
-      now.getTime(),
-    );
+    if (params.recordInitiation) {
+      store.recordHumanPersonaInitiation(
+        config.personaId,
+        config.chatId,
+        windowStart(now.getTime(), config.heuristics.windowMs),
+        now.getTime(),
+      );
+    }
     return { status: "proposed", proposalId };
   } catch (error) {
     return { status: "failed", error: safeErrorIdentity(error) };

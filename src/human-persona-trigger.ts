@@ -13,7 +13,10 @@ export {
   lastMessageTimestampMs,
   renderRecentMessages,
 } from "./human-persona-trigger/render.js";
-export { runHumanPersonaTriggerTick } from "./human-persona-trigger/tick.js";
+export {
+  runHumanPersonaRegenerate,
+  runHumanPersonaTriggerTick,
+} from "./human-persona-trigger/tick.js";
 export type {
   HumanPersonaTriggerDecisionRequest,
   HumanPersonaTriggerDecisionResult,

@@ -256,6 +256,87 @@ export abstract class HumanPersonaMethods extends StoreCore {
     );
   }
 
+  /**
+   * Claims the oldest pending `auto`-autonomy proposal so `bot-agi-sync`
+   * can send it directly (plan 4d/5 Шаг 6) -- the mirror of
+   * `claimNextPendingHumanPersonaProposal`'s `approval` filter. The caller
+   * still runs it through the normal decision transition
+   * (`recordHumanPersonaProposalDecision(id, "approved", ...)`) before
+   * sending, so auto-mode reuses the same state machine rather than a
+   * separate one.
+   */
+  claimNextPendingAutoHumanPersonaProposal(
+    personaId: string,
+    claimedBy: string,
+    nowMs = Date.now(),
+  ): StoredHumanPersonaProposal | undefined {
+    return this.immediateTransaction(
+      "claimNextPendingAutoHumanPersonaProposal",
+      () => {
+        const row = this.db
+          .prepare(
+            `SELECT id FROM human_persona_pending_proposal
+           WHERE persona_id = ? AND status = 'pending' AND autonomy_mode = 'auto'
+           ORDER BY created_at_ms ASC
+           LIMIT 1`,
+          )
+          .get(personaId) as Record<string, unknown> | undefined;
+        if (row == null) {
+          return undefined;
+        }
+        this.db
+          .prepare(
+            `UPDATE human_persona_pending_proposal
+           SET status = 'claimed', claimed_by = ?, claimed_at_ms = ?, updated_at_ms = ?
+           WHERE id = ? AND status = 'pending'`,
+          )
+          .run(claimedBy, nowMs, nowMs, String(row.id));
+        return this.getHumanPersonaProposalLocked(String(row.id));
+      },
+    );
+  }
+
+  /**
+   * The oldest proposal a human has already decided on and that still
+   * needs `bot-agi-sync` to act on it: send (approved/edited) or
+   * regenerate (regenerate_requested). `rejected` is terminal and never
+   * returned here -- there is nothing left to do with it.
+   */
+  getNextDecidedHumanPersonaProposal(
+    personaId: string,
+  ): StoredHumanPersonaProposal | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM human_persona_pending_proposal
+         WHERE persona_id = ? AND status IN ('approved', 'edited', 'regenerate_requested')
+         ORDER BY decided_at_ms ASC
+         LIMIT 1`,
+      )
+      .get(personaId) as Record<string, unknown> | undefined;
+    return row == null ? undefined : rowToHumanPersonaProposal(row);
+  }
+
+  /**
+   * Marks a `regenerate_requested` proposal as superseded once
+   * `runHumanPersonaRegenerate` has produced (or failed to produce) a
+   * fresh one. Reuses the existing terminal `expired` status rather than
+   * adding a new one -- the distinction ("timed out" vs "superseded") has
+   * no operator-facing meaning here, and adding a status would require a
+   * schema migration for a purely internal bookkeeping value.
+   */
+  markHumanPersonaProposalExpired(id: string, nowMs = Date.now()): boolean {
+    return this.writeWithRetry("markHumanPersonaProposalExpired", () => {
+      const result = this.db
+        .prepare(
+          `UPDATE human_persona_pending_proposal
+           SET status = 'expired', updated_at_ms = ?
+           WHERE id = ? AND status = 'regenerate_requested'`,
+        )
+        .run(nowMs, id);
+      return result.changes > 0;
+    });
+  }
+
   recordHumanPersonaApprovalPosted(
     id: string,
     approvalChatId: string,
@@ -352,6 +433,9 @@ export type HumanPersonaApi = Pick<
   | "recordHumanPersonaInitiation"
   | "createHumanPersonaProposal"
   | "claimNextPendingHumanPersonaProposal"
+  | "claimNextPendingAutoHumanPersonaProposal"
+  | "getNextDecidedHumanPersonaProposal"
+  | "markHumanPersonaProposalExpired"
   | "recordHumanPersonaApprovalPosted"
   | "recordHumanPersonaProposalDecision"
   | "markHumanPersonaProposalSent"

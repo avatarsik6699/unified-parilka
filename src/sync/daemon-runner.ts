@@ -3,9 +3,14 @@ import { normalizeError, type NormalizedError } from "../errors.js";
 import {
   AiSdkTriggerDecisionPort,
   loadHumanPersonaTriggerConfigFromEnv,
+  runHumanPersonaRegenerate,
   runHumanPersonaTriggerTick,
   type HumanPersonaTriggerTickReport,
 } from "../human-persona-trigger.js";
+import {
+  runHumanPersonaSendTick,
+  type HumanPersonaSendTickReport,
+} from "../human-persona-send.js";
 import { stringify } from "../json.js";
 import { LoopbackMcpServer } from "../mcp-loopback.js";
 import { createLogger } from "../observability/logger.js";
@@ -96,10 +101,8 @@ export async function runSyncDaemon(): Promise<void> {
       });
     },
   });
-  const humanPersonaTrigger = buildHumanPersonaTriggerRunner(
-    store,
-    process.env,
-  );
+  const { trigger: humanPersonaTrigger, send: humanPersonaSend } =
+    buildHumanPersonaRunners(store, telegram, process.env);
   const intervalMs = Math.max(5_000, config.sync.intervalMs);
   const requestShutdown = (signal: NodeJS.Signals): void => {
     logger.info({ event: "sync.shutdown_requested", signal });
@@ -128,6 +131,7 @@ export async function runSyncDaemon(): Promise<void> {
       tick: () => syncer.syncOnce(),
       embeddings: embeddingCadence,
       humanPersonaTrigger,
+      humanPersonaSend,
     });
   } finally {
     const shutdownStartedAtMs = Date.now();
@@ -201,6 +205,10 @@ export interface SyncDaemonLoopOptions {
   humanPersonaTrigger?: {
     run: () => Promise<HumanPersonaTriggerTickReport>;
   };
+  /** Plan Фаза 4c/4d/5 Шаг 6: same best-effort isolation as `humanPersonaTrigger`. */
+  humanPersonaSend?: {
+    run: () => Promise<HumanPersonaSendTickReport>;
+  };
 }
 
 /**
@@ -243,6 +251,29 @@ export async function runSyncDaemonLoop(
       } catch (error) {
         logger.warn({
           event: "human_persona_trigger.tick_failed",
+          failure: safeError(error),
+        });
+      }
+    }
+
+    // Unlike the trigger, sending an already-decided proposal needs
+    // nothing from this tick's sync result, so it runs even after a
+    // failed tick.
+    if (options.humanPersonaSend) {
+      try {
+        const report = await options.humanPersonaSend.run();
+        logger[
+          report.status === "send_failed" ||
+          report.status === "regenerate_failed"
+            ? "warn"
+            : "info"
+        ]({
+          event: "human_persona_send.tick_completed",
+          report,
+        });
+      } catch (error) {
+        logger.warn({
+          event: "human_persona_send.tick_failed",
           failure: safeError(error),
         });
       }
@@ -379,19 +410,26 @@ function throwIfDaemonAborted(signal: AbortSignal): void {
 }
 
 /**
- * Builds the optional trigger runner passed to `runSyncDaemonLoop`. Returns
- * undefined whenever no persona is configured or no model router path is
- * set — this is an opt-in feature (see `human-persona-trigger/config.ts`),
- * so a missing/broken model config disables it rather than failing sync
- * startup.
+ * Builds the optional trigger and send runners passed to
+ * `runSyncDaemonLoop` (plan Фаза 4e/4d/5 Шаг 4/6). Both return undefined
+ * whenever no persona is configured or no model router path is set — this
+ * is an opt-in feature (see `human-persona-trigger/config.ts`), so a
+ * missing/broken model config disables it rather than failing sync
+ * startup. They share one config/port: the send-tick's "regenerate" path
+ * is the same LLM decision call the trigger-engine itself uses, just
+ * ungated (see `runHumanPersonaRegenerate`).
  */
-function buildHumanPersonaTriggerRunner(
+function buildHumanPersonaRunners(
   store: MessageStore,
+  telegram: TelegramGateway,
   env: Readonly<Record<string, string | undefined>>,
-): SyncDaemonLoopOptions["humanPersonaTrigger"] {
+): {
+  trigger: SyncDaemonLoopOptions["humanPersonaTrigger"];
+  send: SyncDaemonLoopOptions["humanPersonaSend"];
+} {
   const config = loadHumanPersonaTriggerConfigFromEnv(env);
   if (!config) {
-    return undefined;
+    return { trigger: undefined, send: undefined };
   }
   const modelConfigPath = env.BOT_MODEL_CONFIG_PATH;
   if (!modelConfigPath) {
@@ -399,13 +437,29 @@ function buildHumanPersonaTriggerRunner(
       event: "human_persona_trigger.disabled",
       reason: "missing_model_config_path",
     });
-    return undefined;
+    return { trigger: undefined, send: undefined };
   }
   try {
     const router = ModelRouter.fromFile(modelConfigPath, { env });
     const port = new AiSdkTriggerDecisionPort(router);
+    const claimedBy = `sync:${process.pid}`;
     return {
-      run: () => runHumanPersonaTriggerTick({ store, config, port }),
+      trigger: {
+        run: () => runHumanPersonaTriggerTick({ store, config, port }),
+      },
+      send: {
+        run: () =>
+          runHumanPersonaSendTick({
+            store,
+            telegram: { sendMessage: (params) => telegram.sendMessage(params) },
+            regenerate: {
+              regenerate: () =>
+                runHumanPersonaRegenerate({ store, config, port }),
+            },
+            personaId: config.personaId,
+            claimedBy,
+          }),
+      },
     };
   } catch (error) {
     logger.warn({
@@ -413,6 +467,6 @@ function buildHumanPersonaTriggerRunner(
       reason: "model_router_construction_failed",
       failure: safeError(error),
     });
-    return undefined;
+    return { trigger: undefined, send: undefined };
   }
 }
