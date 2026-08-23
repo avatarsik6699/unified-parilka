@@ -27,6 +27,9 @@
 - `src/vector/`, `src/embeddings.ts`: opt-in embedding index/search.
 - `src/maintenance/`, `src/maintenance-cli.ts`: bounded retention, deferred FTS,
   WAL checkpoint и schema integrity; `bot-agi-maintain`.
+- `src/human-persona-*`: opt-in "human" persona role (ADR 0005) — style-profile
+  pipeline, trigger-engine/send-tick (bot-agi-sync), approval poster/callback
+  handling (bot-agi-bot). Off unless `BOT_HUMAN_PERSONA_*` is set.
 
 ## Agent workflow
 

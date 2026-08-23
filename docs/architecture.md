@@ -17,9 +17,14 @@ MCP harness ──stdio──► thin proxy─┘
 ```
 
 - `bot-agi-sync` — единственный штатный MTProto owner, history sync owner и
-  loopback MCP owner.
+  loopback MCP owner; опционально также владеет human-persona trigger-engine и
+  прямой отправкой через ту же MTProto-сессию (ADR 0005), когда персона
+  сконфигурирована через `BOT_HUMAN_PERSONA_*`.
 - `bot-agi-bot` — единственный Bot API long poller для данного token; model
-  work выполняется durable workers после committed ingest.
+  work выполняется durable workers после committed ingest; опционально также
+  постит human-persona approval-запросы и обрабатывает их `callback_query`/
+  edit-ответы на том же поллере (ADR 0005) — второй poller с тем же token
+  технически невозможен.
 - Оба процесса используют один canonical SQLite file, но не общий process.
 - Общий Telegram MCP rulesync service на `127.0.0.1:8765` — отдельная система
   машины и не является частью Parilka.
@@ -38,6 +43,7 @@ MCP harness ──stdio──► thin proxy─┘
 | Vector | `src/vector/`, `src/embeddings.ts` | opt-in index, atomic source recheck, dense + learned sparse search/fusion, bounded ColBERT rerank; backend `external_openai` (legacy) или операторский loopback BGE-M3 (`services/bge-m3`) |
 | Maintenance | `src/maintenance/`, `src/maintenance-cli.ts` | bounded retention, deferred FTS, WAL checkpoint, schema integrity; `bot-agi-maintain` |
 | Operational CLI | `src/{python-import,digest-cli}/` | offline migration, digest and dream command implementations compiled into `dist` |
+| Human persona | `src/human-persona-*`, `src/bot/human-persona-prompt.ts`, `src/storage/human-persona.ts` | opt-in "human" role (ADR 0005): style-profile pipeline (`bot-agi-human-persona-style`), trigger-engine + send-tick (`bot-agi-sync`), approval poster + callback/edit capture (`bot-agi-bot`) |
 | Operations | `operations/`, `systemd/`, `bin/` | human-reviewed install, migration, retention и rollback procedures |
 | Long-lived handoff | `loop-develop/` | один active goal; closed/retired evidence в history |
 

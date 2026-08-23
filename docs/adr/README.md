@@ -19,3 +19,7 @@ ADR, небольшое уточнение — датированным addendum
 - [ADR 0004](0004-local-bge-m3-retrieval.md): локальный BGE-M3 как целевой
   retrieval backend (dense + learned sparse одним encode, bounded ColBERT
   rerank top-K), внешний dense provider — backward-compatible опция.
+- [ADR 0005](0005-human-persona-role.md): opt-in роль «человек» расширяет
+  владение `bot-agi-sync` (trigger-engine, отправка через ту же MTProto-
+  сессию) и `bot-agi-bot` (approval poster, `callback_query`/edit capture),
+  а не добавляет третий процесс.

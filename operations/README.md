@@ -10,6 +10,9 @@ Operator documentation находится вне архитектурного `d
   rename, что переименовано в коде и что оператор переносит на хосте вручную.
 - [Hermes Agent Profile](HERMES.md): профиль и trusted plugin bridge для
   Парилка228, установка, cutover, rollback и контракт безопасности.
+- [Human-persona role](HUMAN-PERSONA.md): opt-in роль «человек» (ADR 0005) —
+  включение, approval/auto режим, диагностика, действия при подозрении на
+  бан аккаунта.
 - [../README.md](../README.md): local build, config keys, CLI и systemd install.
 
 ## Safety summary

@@ -26,7 +26,16 @@
   доказанной failure mode.
 - Два long-lived процесса остаются явными: `bot-agi-sync` владеет одной
   MTProto session и loopback MCP, `bot-agi-bot` владеет одним Bot API poller.
-  Они разделяют один versioned SQLite, но не общий процесс.
+  Они разделяют один versioned SQLite, но не общий процесс. Роль «человек»
+  (`src/human-persona-*`, `docs/adr/0005-human-persona-role.md`) расширяет
+  владение обоих процессов, а не добавляет третий: `bot-agi-sync`
+  дополнительно решает, когда инициировать сообщение (`human-persona-trigger`),
+  и отправляет его через ту же MTProto-сессию (`human-persona-send`, минуя
+  MCP approval-token gate); `bot-agi-bot` дополнительно постит
+  approval-запросы с inline-кнопками в отдельный approval-чат и обрабатывает
+  `callback_query`/ответы-правки на том же единственном Bot API `getUpdates`
+  offset — второй поллер с тем же токеном технически невозможен
+  (`409 Conflict`).
 - Storage domains используют один `DatabaseSync` и общий transaction kernel.
   Нельзя открывать соединение на repository, вкладывать транзакции или
   разрывать атомарные bot/outbox/digest/embedding transitions.
