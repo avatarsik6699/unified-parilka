@@ -1,9 +1,16 @@
 import { loadConfig } from "../config.js";
 import { normalizeError, type NormalizedError } from "../errors.js";
+import {
+  AiSdkTriggerDecisionPort,
+  loadHumanPersonaTriggerConfigFromEnv,
+  runHumanPersonaTriggerTick,
+  type HumanPersonaTriggerTickReport,
+} from "../human-persona-trigger.js";
 import { stringify } from "../json.js";
 import { LoopbackMcpServer } from "../mcp-loopback.js";
 import { createLogger } from "../observability/logger.js";
 import { safeError } from "../observability/redaction.js";
+import { ModelRouter } from "../providers/model-router.js";
 import { MessageStore } from "../store.js";
 import { assertExclusiveMtprotoOwner } from "../telegram/exclusive-owner.js";
 import { createTelegramGateway } from "../telegram/gateway-factory.js";
@@ -63,39 +70,25 @@ export async function runSyncDaemon(): Promise<void> {
 
   const shutdown = new AbortController();
   const syncer = new SerializedHistorySyncer(
-    new HistorySyncer(
-      config,
-      telegram,
-      store,
-      undefined,
-      shutdown.signal,
-    ),
+    new HistorySyncer(config, telegram, store, undefined, shutdown.signal),
   );
   const vectorRag = new VectorRag(config, store);
-  const embeddingCadence = new EmbeddingCadenceRunner(
-    vectorRag,
-    {
-      intervalMs: config.embeddings.tickIntervalMs,
-      budgetMs: config.embeddings.tickBudgetMs,
-      retryMaxMs: config.embeddings.retryMaxMs,
-      shutdownSignal: shutdown.signal,
-      onReport(report) {
-        logger[report?.failure ? "warn" : "info"]({
-          event: report?.failure
-            ? "embeddings.tick_degraded"
-            : "embeddings.tick_completed",
-          report,
-        });
-      },
+  const embeddingCadence = new EmbeddingCadenceRunner(vectorRag, {
+    intervalMs: config.embeddings.tickIntervalMs,
+    budgetMs: config.embeddings.tickBudgetMs,
+    retryMaxMs: config.embeddings.retryMaxMs,
+    shutdownSignal: shutdown.signal,
+    onReport(report) {
+      logger[report?.failure ? "warn" : "info"]({
+        event: report?.failure
+          ? "embeddings.tick_degraded"
+          : "embeddings.tick_completed",
+        report,
+      });
     },
-  );
+  });
   const mcp = new LoopbackMcpServer({
-    registry: new TelegramTools(
-      config,
-      telegram,
-      store,
-      syncer,
-    ),
+    registry: new TelegramTools(config, telegram, store, syncer),
     onError(error) {
       logger.error({
         event: "mcp.loopback.request_failed",
@@ -103,6 +96,10 @@ export async function runSyncDaemon(): Promise<void> {
       });
     },
   });
+  const humanPersonaTrigger = buildHumanPersonaTriggerRunner(
+    store,
+    process.env,
+  );
   const intervalMs = Math.max(5_000, config.sync.intervalMs);
   const requestShutdown = (signal: NodeJS.Signals): void => {
     logger.info({ event: "sync.shutdown_requested", signal });
@@ -130,6 +127,7 @@ export async function runSyncDaemon(): Promise<void> {
       retryAfterMaxMs: config.sync.transientBackoffMaxMs,
       tick: () => syncer.syncOnce(),
       embeddings: embeddingCadence,
+      humanPersonaTrigger,
     });
   } finally {
     const shutdownStartedAtMs = Date.now();
@@ -145,11 +143,7 @@ export async function runSyncDaemon(): Promise<void> {
         failure: safeError(error),
       });
     });
-    logShutdownStage(
-      "embeddings",
-      stageStartedAtMs,
-      shutdownStartedAtMs,
-    );
+    logShutdownStage("embeddings", stageStartedAtMs, shutdownStartedAtMs);
     stageStartedAtMs = Date.now();
     try {
       await mcp.close();
@@ -162,21 +156,12 @@ export async function runSyncDaemon(): Promise<void> {
     }
     logShutdownStage("mcp", stageStartedAtMs, shutdownStartedAtMs);
     stageStartedAtMs = Date.now();
-    const telegramFailure =
-      await destroyTelegramBestEffort(telegram);
+    const telegramFailure = await destroyTelegramBestEffort(telegram);
     shutdownDegraded ||= telegramFailure !== undefined;
-    logShutdownStage(
-      "telegram",
-      stageStartedAtMs,
-      shutdownStartedAtMs,
-    );
+    logShutdownStage("telegram", stageStartedAtMs, shutdownStartedAtMs);
     stageStartedAtMs = Date.now();
     store.close();
-    logShutdownStage(
-      "storage",
-      stageStartedAtMs,
-      shutdownStartedAtMs,
-    );
+    logShutdownStage("storage", stageStartedAtMs, shutdownStartedAtMs);
     logger[shutdownDegraded ? "warn" : "info"]({
       event: "sync.shutdown_completed",
       status: shutdownDegraded ? "degraded" : "ok",
@@ -196,8 +181,7 @@ export interface DaemonEmbeddingPort {
 }
 
 export type SyncDaemonLoopExit =
-  | { reason: "shutdown" }
-  | { reason: "cache_only"; failure: NormalizedError };
+  { reason: "shutdown" } | { reason: "cache_only"; failure: NormalizedError };
 
 export interface SyncDaemonLoopOptions {
   signal: AbortSignal;
@@ -208,6 +192,15 @@ export interface SyncDaemonLoopOptions {
   retryAfterMaxMs: number;
   tick: () => Promise<SyncOnceResult>;
   embeddings: DaemonEmbeddingPort;
+  /**
+   * Optional human-persona trigger evaluation (plan Фаза 4e/5 Шаг 4),
+   * undefined when no persona is configured. Runs best-effort after a
+   * successful sync tick: a failure here is logged and never affects sync
+   * backoff/exit, the same isolation `DaemonEmbeddingPort` already has.
+   */
+  humanPersonaTrigger?: {
+    run: () => Promise<HumanPersonaTriggerTickReport>;
+  };
 }
 
 /**
@@ -240,12 +233,23 @@ export async function runSyncDaemonLoop(
       coreErrors = [tickError];
     }
 
-    const embeddingFailure =
-      options.embeddings.healthFailure();
-    const errorPolicy = classifyDaemonErrors(
-      coreErrors,
-      embeddingFailure,
-    );
+    if (options.humanPersonaTrigger && !tickError) {
+      try {
+        const report = await options.humanPersonaTrigger.run();
+        logger[report.status === "failed" ? "warn" : "info"]({
+          event: "human_persona_trigger.tick_completed",
+          report,
+        });
+      } catch (error) {
+        logger.warn({
+          event: "human_persona_trigger.tick_failed",
+          failure: safeError(error),
+        });
+      }
+    }
+
+    const embeddingFailure = options.embeddings.healthFailure();
+    const errorPolicy = classifyDaemonErrors(coreErrors, embeddingFailure);
     recordDaemonOutcome(options.store, errorPolicy.healthErrors);
     logTick({
       started,
@@ -263,9 +267,7 @@ export async function runSyncDaemonLoop(
     // sync attempts, but the process must survive in cache-only mode: cached
     // SQLite reads remain available, while explicit MCP-triggered sync calls
     // may still fail independently until the session is repaired.
-    const permanentError = findPermanentDaemonError(
-      errorPolicy.stopErrors,
-    );
+    const permanentError = findPermanentDaemonError(errorPolicy.stopErrors);
     if (permanentError) {
       logger.error({
         event: "sync.cache_only_started",
@@ -309,10 +311,7 @@ function logShutdownStage(
     event: "sync.shutdown_stage_completed",
     stage,
     durationMs: Math.max(0, Date.now() - startedAtMs),
-    totalDurationMs: Math.max(
-      0,
-      Date.now() - shutdownStartedAtMs,
-    ),
+    totalDurationMs: Math.max(0, Date.now() - shutdownStartedAtMs),
   });
 }
 
@@ -330,14 +329,9 @@ function logTick(params: {
     recent: summarizeSyncResult(params.result?.recent),
     backfill: summarizeSyncResult(params.result?.backfill),
     embeddings: params.embeddings,
-    coreErrors:
-      params.coreErrors.length > 0
-        ? params.coreErrors
-        : undefined,
+    coreErrors: params.coreErrors.length > 0 ? params.coreErrors : undefined,
     healthErrors:
-      params.healthErrors.length > 0
-        ? params.healthErrors
-        : undefined,
+      params.healthErrors.length > 0 ? params.healthErrors : undefined,
     daemonStatus: params.store.getDaemonStatus(),
   };
   if (params.tickError) {
@@ -381,5 +375,44 @@ function throwIfDaemonAborted(signal: AbortSignal): void {
     throw signal.reason instanceof Error
       ? signal.reason
       : new DOMException("Sync daemon was aborted.", "AbortError");
+  }
+}
+
+/**
+ * Builds the optional trigger runner passed to `runSyncDaemonLoop`. Returns
+ * undefined whenever no persona is configured or no model router path is
+ * set — this is an opt-in feature (see `human-persona-trigger/config.ts`),
+ * so a missing/broken model config disables it rather than failing sync
+ * startup.
+ */
+function buildHumanPersonaTriggerRunner(
+  store: MessageStore,
+  env: Readonly<Record<string, string | undefined>>,
+): SyncDaemonLoopOptions["humanPersonaTrigger"] {
+  const config = loadHumanPersonaTriggerConfigFromEnv(env);
+  if (!config) {
+    return undefined;
+  }
+  const modelConfigPath = env.BOT_MODEL_CONFIG_PATH;
+  if (!modelConfigPath) {
+    logger.warn({
+      event: "human_persona_trigger.disabled",
+      reason: "missing_model_config_path",
+    });
+    return undefined;
+  }
+  try {
+    const router = ModelRouter.fromFile(modelConfigPath, { env });
+    const port = new AiSdkTriggerDecisionPort(router);
+    return {
+      run: () => runHumanPersonaTriggerTick({ store, config, port }),
+    };
+  } catch (error) {
+    logger.warn({
+      event: "human_persona_trigger.disabled",
+      reason: "model_router_construction_failed",
+      failure: safeError(error),
+    });
+    return undefined;
   }
 }
