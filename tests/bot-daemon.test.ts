@@ -48,6 +48,7 @@ test("composition wires all worker slots without performing external I/O", async
   const records: Readonly<Record<string, unknown>>[] = [];
   const composition = composeBotDaemon({
     config,
+    personaPrompt: "# Кто ты\nТестовая персона для юнит-тестов.",
     store,
     api: noNetworkApi(() => {
       apiCalls += 1;
@@ -354,6 +355,7 @@ function botEnv(dbPath: string): Readonly<Record<string, string>> {
     TELEGRAM_DB_PATH: dbPath,
     BOT_MODEL_CONFIG_PATH: resolve("package.json"),
     BOT_CHAT_TITLE: "Test Chat",
+    BOT_PERSONA_PROMPT: "# Кто ты\nТестовая персона для юнит-тестов.",
   };
 }
 

@@ -23,7 +23,7 @@
     "check:systemd": "systemd-analyze --user verify systemd/bot-agi-*.service systemd/bot-agi-*.timer",
     "test": "node --test --import tsx tests/*.test.ts",
     "test:service-contract": "python3 -m unittest discover -s services/bge-m3 -p 'test_*.py' -v",
-    "test:hermes": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'hermes_plugin_*.py' -v && node --test --import tsx tests/hermes-tool-schemas.test.ts",
+    "test:hermes": "node --test --import tsx tests/hermes-tool-schemas.test.ts",
     "test:coverage": "node --experimental-test-coverage --test --import tsx tests/*.test.ts",
     "smoke:mcp": "tsx scripts/smoke-mcp.ts",
     "smoke:mcp:direct": "tsx scripts/smoke-mcp.ts --direct",

@@ -8,8 +8,6 @@ Operator documentation находится вне архитектурного `d
   final target, cutover gates и rollback.
 - [Rename runbook: Parilka → bot-agi](RENAME-BOT-AGI.md): env/bin/systemd
   rename, что переименовано в коде и что оператор переносит на хосте вручную.
-- [Hermes Agent Profile](HERMES.md): профиль и trusted plugin bridge для
-  Парилка228, установка, cutover, rollback и контракт безопасности.
 - [Human-persona role](HUMAN-PERSONA.md): opt-in роль «человек» (ADR 0005) —
   включение, approval/auto режим, диагностика, действия при подозрении на
   бан аккаунта.
@@ -138,8 +136,9 @@ trust boundary, loopback имеет defensive admission limits: до 32 sessions
 Cache-only read tools (`rag_bm25_search`, `keyword_search`,
 `read_chat_slice`, `day_digest`, `thread_context`) принимают raw MCP
 `source_message_id` как служебное поле исключительно от trusted bridge —
-это не model-facing аргумент. Hermes model-facing plugin скрывает
-его от модели и подставляет свой `HERMES_SESSION_MESSAGE_ID`. Не выводите
+это не model-facing аргумент. Trusted bridge (например, Hermes model-facing
+plugin, если такой подключён) обязан скрывать его от модели и подставлять
+свой session-scoped идентификатор вместо него. Не выводите
 bound клампом к `MAX(message_id)`: в оживлённом чате максимальный id может
 быть новее trigger, и такой кламп утечёт trigger и более новые сообщения.
 Операционные typed-отказы этих пяти инструментов (`cache_error`,

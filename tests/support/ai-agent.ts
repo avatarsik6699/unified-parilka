@@ -21,10 +21,7 @@ import type {
   FoldBatch,
   TurnBoundary,
 } from "../../src/bot/turn-coordinator.js";
-import type {
-  BotAgentRequest,
-  JsonEventLogger,
-} from "../../src/bot/worker.js";
+import type { BotAgentRequest, JsonEventLogger } from "../../src/bot/worker.js";
 import {
   classifyModelFallback,
   ModelRoutingError,
@@ -34,10 +31,7 @@ import {
   type ResolvedModelCandidate,
 } from "../../src/providers/model-router.js";
 import { abortErrorFrom } from "../../src/providers/model-router/fallback.js";
-import type {
-  StoredBotTurn,
-  StoredMessage,
-} from "../../src/store.js";
+import type { StoredBotTurn, StoredMessage } from "../../src/store.js";
 import { emptyTranscript } from "./bot-read-tools.js";
 
 export const CHAT_ID = "-1004242";
@@ -113,6 +107,7 @@ export function makeAgent(
         botUsername: "parilka_bot",
         botName: "Парилка",
         chatTitle: "Тестовая парилка",
+        personaPrompt: "# Кто ты\nТестовая персона для юнит-тестов.",
         ...(options.botSenderId === undefined
           ? {}
           : { botSenderId: options.botSenderId }),
@@ -130,9 +125,7 @@ export function makeAgent(
 }
 
 class FakeRouter implements TurnModelRouter {
-  constructor(
-    private readonly candidates: readonly ResolvedModelCandidate[],
-  ) {}
+  constructor(private readonly candidates: readonly ResolvedModelCandidate[]) {}
 
   async executeWithFallback<T>(
     role: ModelRole,
@@ -166,10 +159,7 @@ class FakeRouter implements TurnModelRouter {
         if (decision.reason === "abort") {
           throw abortErrorFrom(error);
         }
-        if (
-          decision.fallback &&
-          index < this.candidates.length - 1
-        ) {
+        if (decision.fallback && index < this.candidates.length - 1) {
           continue;
         }
         throw new ModelRoutingError(
@@ -222,8 +212,7 @@ export function mockModel(
 
 export function response(
   content: LanguageModelV4GenerateResult["content"],
-  finishReason:
-    LanguageModelV4GenerateResult["finishReason"]["unified"],
+  finishReason: LanguageModelV4GenerateResult["finishReason"]["unified"],
 ): LanguageModelV4GenerateResult {
   return {
     content,
@@ -267,8 +256,7 @@ export function request(
   } = {},
 ): BotAgentRequest {
   const trigger =
-    overrides.trigger ??
-    storedMessage(100, "что там было?", "42", "Коля");
+    overrides.trigger ?? storedMessage(100, "что там было?", "42", "Коля");
   const turn: StoredBotTurn = {
     id: 1,
     updateId: 2,
@@ -286,17 +274,12 @@ export function request(
     ...(overrides.replyTarget === undefined
       ? {}
       : { replyTarget: overrides.replyTarget }),
-    context:
-      overrides.context ??
-      [
-        storedMessage(99, "старый контекст", "77", "Лена"),
-        trigger,
-      ],
-    signal:
-      overrides.signal ?? new AbortController().signal,
-    drainFold:
-      overrides.drainFold ??
-      ((boundary) => emptyFold(boundary)),
+    context: overrides.context ?? [
+      storedMessage(99, "старый контекст", "77", "Лена"),
+      trigger,
+    ],
+    signal: overrides.signal ?? new AbortController().signal,
+    drainFold: overrides.drainFold ?? ((boundary) => emptyFold(boundary)),
     ...(overrides.toolProgressPort === undefined
       ? {}
       : { toolProgressPort: overrides.toolProgressPort }),

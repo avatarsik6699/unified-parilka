@@ -91,6 +91,7 @@ export function composeBotDaemon(
       botUsername: config.botUsername,
       botName: config.botDisplayName,
       chatTitle: config.chatTitle,
+      personaPrompt: options.personaPrompt,
       historyDescription: config.historyDescription,
       memoryMaxChars: options.appConfig?.memory?.memoryMaxChars ?? 2_000,
       botSenderId: config.botId,

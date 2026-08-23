@@ -6,17 +6,20 @@ systemd-юниты, npm-пакет). **Боевой `.env`, systemd `Environment
 это единственное, что нужно сделать вручную по этому runbook, прежде чем
 деплоить обновлённый код поверх текущего production.
 
-Не входит в это переименование (сознательно оставлено как есть, подробности —
-в [HERMES.md](HERMES.md) и в отчёте аудита):
+Не входит в это переименование (сознательно оставлено как есть на момент
+этого коммита):
 
 - Hermes-профиль `integrations/hermes/parilka-profile/` и его установленное
   имя `parilka` (`~/.hermes/profiles/parilka`, `hermes -p parilka ...`,
   `profile_name == "parilka"` guard, plugin `parilka_chat`, managed-маркеры
-  `parilka-lessons`/`parilka-skill-*`/`parilka-managed`) — это персона
-  конкретного чата, не инфраструктура репозитория.
-- `env`-переменная `PARILKA_TELEGRAM_CHAT_ID` и всё, что использует
-  Hermes-плагин `parilka_chat` — отдельное пространство имён того же
-  профиля.
+  `parilka-lessons`/`parilka-skill-*`/`parilka-managed`) — это была персона
+  конкретного чата, не инфраструктура репозитория; впоследствии этот профиль
+  и плагин целиком удалены из репозитория (снос персоны «Джони»), operator-
+  каталог `~/.hermes/profiles/parilka` на хосте это не затрагивает
+  автоматически.
+- `env`-переменная `PARILKA_TELEGRAM_CHAT_ID` и всё, что использовало
+  Hermes-плагин `parilka_chat` — отдельное пространство имён того же,
+  теперь удалённого профиля.
 - Путь к БД `~/.telegram-parilka-mcp/` — реальный боевой путь на диске,
   переименование каталога не выполняется автоматически (см. ниже).
 - Каталог checkout `%h/repos/parilka-unified` в systemd-юнитах — тоже не
@@ -173,9 +176,11 @@ systemctl --user enable --now bot-agi-bot.service
 systemctl --user enable --now bot-agi-maintain.timer
 ```
 
-Если используете Hermes gateway как primary (см. HERMES.md) — `bot-agi-bot.service`
-остаётся установленным, но выключенным как rollback path, как и раньше под
-старым именем.
+Если на хосте всё ещё используется Hermes gateway с ранее установленным
+профилем `parilka` как primary — `bot-agi-bot.service` остаётся
+установленным, но выключенным как rollback path, как и раньше под старым
+именем. Сам профиль/плагин `parilka` в этом репозитории больше не
+поддерживается (снос персоны «Джони»).
 
 ### 7. Проверить
 

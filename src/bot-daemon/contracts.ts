@@ -44,6 +44,12 @@ export type BotDaemonApi = Pick<
 
 export interface ComposeBotDaemonOptions {
   config: Readonly<BotRuntimeConfig>;
+  /**
+   * Persona-specific identity/tone/content-policy prose (`BotSystemPromptOptions.
+   * personaPrompt`). No default: this base is persona-agnostic, every deployed
+   * bot must supply its own persona explicitly.
+   */
+  personaPrompt: string;
   store: MessageStore;
   api: BotDaemonApi;
   router: TurnModelRouter;

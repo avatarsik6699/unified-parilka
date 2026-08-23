@@ -38,6 +38,18 @@ export function createProductionBotDaemon(
   const env = options.env ?? process.env;
   const config = parseBotRuntimeConfig(env);
   const appConfig = options.appConfig ?? loadConfig();
+  // Kept outside BotRuntimeConfig's strict parser deliberately: same
+  // feature-scoped env-read precedent as BOT_HUMAN_PERSONA_* (see
+  // src/human-persona-trigger/config.ts) -- persona-agnostic base config
+  // stays generic, persona content is supplied separately per deployment.
+  const personaPrompt = env.BOT_PERSONA_PROMPT?.trim();
+  if (!personaPrompt) {
+    throw new Error(
+      "BOT_PERSONA_PROMPT is required: this base has no built-in persona, " +
+        "every deployed bot must supply its own persona-identity/tone/" +
+        "content-policy prose explicitly.",
+    );
+  }
   assertBotDaemonConfiguration(config, appConfig);
   const factories: ProductionBotDaemonFactories = {
     ...DEFAULT_PRODUCTION_FACTORIES,
@@ -101,6 +113,7 @@ export function createProductionBotDaemon(
       env.BOT_HUMAN_PERSONA_APPROVAL_CHAT_ID?.trim();
     composition = composeBotDaemon({
       config,
+      personaPrompt,
       store,
       api,
       router,
