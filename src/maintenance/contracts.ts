@@ -1,8 +1,7 @@
 export const MIN_SUPPORTED_SCHEMA_VERSION = 11;
-export const MAX_SUPPORTED_SCHEMA_VERSION = 22;
+export const MAX_SUPPORTED_SCHEMA_VERSION = 23;
 export const FTS_REBUILD_JOB = "messages_fts_rebuild";
-export const EMBEDDING_MEMBERSHIP_JOB =
-  "embedding_chunk_membership_backfill";
+export const EMBEDDING_MEMBERSHIP_JOB = "embedding_chunk_membership_backfill";
 
 export interface MaintenanceOptions {
   dbPath: string;
@@ -17,10 +16,7 @@ export interface MaintenanceOptions {
   deferredMaxBatches: number;
 }
 
-export type DeferredMaintenanceStatus =
-  | "not_pending"
-  | "pending"
-  | "completed";
+export type DeferredMaintenanceStatus = "not_pending" | "pending" | "completed";
 
 export interface DeferredMaintenanceJobReport {
   name: typeof FTS_REBUILD_JOB | typeof EMBEDDING_MEMBERSHIP_JOB;

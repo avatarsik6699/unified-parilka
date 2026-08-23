@@ -6,11 +6,21 @@ import {
 } from "./storage/chat-knowledge.js";
 import { StoreCore } from "./storage/core.js";
 import { DigestMethods, type DigestApi } from "./storage/digests.js";
-import { DreamCommitMethods, type DreamCommitApi } from "./storage/dream-commit.js";
+import {
+  DreamCommitMethods,
+  type DreamCommitApi,
+} from "./storage/dream-commit.js";
 import { DreamDaysMethods, type DreamDaysApi } from "./storage/dream-days.js";
-import { DreamAuditMethods, type DreamAuditApi } from "./storage/dream-audit.js";
+import {
+  DreamAuditMethods,
+  type DreamAuditApi,
+} from "./storage/dream-audit.js";
 import { MemoryMethods, type MemoryApi } from "./storage/memory.js";
 import { EmbeddingMethods, type EmbeddingApi } from "./storage/embeddings.js";
+import {
+  HumanPersonaMethods,
+  type HumanPersonaApi,
+} from "./storage/human-persona.js";
 import { installStoreDomain } from "./storage/install-domain.js";
 import { MessageMethods, type MessageApi } from "./storage/messages.js";
 import { SchemaDefinitionMethods } from "./storage/schema/definitions.js";
@@ -35,7 +45,6 @@ import {
   type TranscriptApi,
 } from "./storage/transcript.js";
 import type { MessageStoreOptions } from "./storage/types.js";
-
 export * from "./storage/message-adapter.js";
 export type * from "./storage/types.js";
 export {
@@ -69,9 +78,9 @@ export {
   type StoredDreamAudit,
 } from "./storage/dream-audit-types.js";
 export type { SparseChunkHit } from "./storage/sparse-postings.js";
-
 export interface MessageStore
-  extends MessageApi,
+  extends
+    MessageApi,
     BotUpdateApi,
     BotTurnApi,
     DigestApi,
@@ -85,7 +94,8 @@ export interface MessageStore
     SendOutboxApi,
     SyncOpsApi,
     StatusApi,
-    TranscriptApi {}
+    TranscriptApi,
+    HumanPersonaApi {}
 
 /**
  * Stable compatibility facade over domain-focused SQLite method modules.
@@ -128,6 +138,7 @@ const domains = [
   SyncOpsMethods,
   StatusMethods,
   TranscriptMethods,
+  HumanPersonaMethods,
 ] as const;
 
 for (const domain of domains) {

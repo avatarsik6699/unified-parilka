@@ -18,7 +18,7 @@ import type { MaintenanceJobName } from "../types.js";
  * DatabaseSync owned by MessageStore.
  */
 export abstract class SchemaMigrationMethods extends StoreCore {
-declare protected applyMaintenanceSchema: () => void;
+  declare protected applyMaintenanceSchema: () => void;
   declare protected countRows: (table: string) => number;
   declare protected ensureColumn: (
     table: string,
@@ -57,7 +57,10 @@ declare protected applyMaintenanceSchema: () => void;
       CREATE INDEX IF NOT EXISTS idx_chat_aliases_chat_id
         ON chat_aliases(chat_id);
     `);
-    const chats = this.db.prepare("SELECT * FROM chats").all() as Record<string, unknown>[];
+    const chats = this.db.prepare("SELECT * FROM chats").all() as Record<
+      string,
+      unknown
+    >[];
     for (const row of chats) {
       this.upsertChatLocked(rowToChatInfo(row));
     }
@@ -121,7 +124,8 @@ declare protected applyMaintenanceSchema: () => void;
           processedChunks: 0,
           sourceSnapshotAt: String(snapshot.captured_at),
           inlineLimit: EMBEDDING_MEMBERSHIP_INLINE_CHUNK_LIMIT,
-          remediation: "Keep vector search disabled or run a bounded maintenance backfill before relying on vector chunk membership coverage.",
+          remediation:
+            "Keep vector search disabled or run a bounded maintenance backfill before relying on vector chunk membership coverage.",
         },
       );
       return;
@@ -380,11 +384,7 @@ declare protected applyMaintenanceSchema: () => void;
   }
 
   protected applyBotRetryBackoffMigration(): void {
-    this.ensureColumn(
-      "bot_turns",
-      "retry_not_before_ms",
-      "INTEGER",
-    );
+    this.ensureColumn("bot_turns", "retry_not_before_ms", "INTEGER");
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_bot_turns_due
         ON bot_turns(
@@ -555,6 +555,71 @@ declare protected applyMaintenanceSchema: () => void;
         CHECK(length(trim(audit_json)) > 0),
         CHECK(length(CAST(audit_json AS BLOB)) <= ${MAX_AUDIT_JSON_BYTES})
       );
+    `);
+  }
+
+  /**
+   * Storage for the "human" persona role (see plan Фаза 4a-4f/5): style
+   * profile documents, per-(persona, chat) trigger/rate-limit state, and the
+   * approval-workflow proposal queue. `consent_basis` is NOT NULL so a style
+   * profile row cannot exist without recording why the target's history was
+   * analyzed.
+   */
+  protected applyHumanPersonaMigration(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS human_persona_style_profile (
+        persona_id TEXT NOT NULL,
+        target_user_key TEXT NOT NULL,
+        profile_text TEXT NOT NULL DEFAULT '',
+        example_messages_json TEXT NOT NULL DEFAULT '[]',
+        source_hash TEXT,
+        consent_basis TEXT NOT NULL CHECK(consent_basis IN ('confirmed_by_owner', 'self')),
+        model TEXT,
+        provider TEXT,
+        created_at_ms INTEGER NOT NULL,
+        updated_at_ms INTEGER NOT NULL,
+        PRIMARY KEY(persona_id, target_user_key)
+      );
+
+      CREATE TABLE IF NOT EXISTS human_persona_trigger_state (
+        persona_id TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        last_initiated_at_ms INTEGER,
+        last_checked_at_ms INTEGER,
+        window_start_ms INTEGER,
+        initiated_count_in_window INTEGER NOT NULL DEFAULT 0,
+        updated_at_ms INTEGER NOT NULL,
+        PRIMARY KEY(persona_id, chat_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS human_persona_pending_proposal (
+        id TEXT PRIMARY KEY,
+        persona_id TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        proposed_text TEXT NOT NULL,
+        final_text TEXT,
+        status TEXT NOT NULL CHECK(status IN (
+          'pending', 'claimed', 'approved', 'rejected',
+          'regenerate_requested', 'edited', 'sent', 'expired'
+        )),
+        autonomy_mode TEXT NOT NULL CHECK(autonomy_mode IN ('auto', 'approval')),
+        approval_chat_id TEXT,
+        approval_message_id INTEGER,
+        claimed_by TEXT,
+        claimed_at_ms INTEGER,
+        decided_at_ms INTEGER,
+        error TEXT,
+        created_at_ms INTEGER NOT NULL,
+        updated_at_ms INTEGER NOT NULL,
+        CHECK(length(trim(proposed_text)) > 0),
+        CHECK(
+          (status = 'claimed' AND claimed_by IS NOT NULL AND claimed_at_ms IS NOT NULL)
+          OR (status != 'claimed')
+        )
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_human_persona_pending_proposal_status
+        ON human_persona_pending_proposal(persona_id, chat_id, status, created_at_ms);
     `);
   }
 }

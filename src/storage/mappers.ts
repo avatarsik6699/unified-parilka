@@ -4,6 +4,9 @@ import type {
   BotDurableStatus,
   BotTurnProgressState,
   DaemonStatus,
+  HumanPersonaAutonomyMode,
+  HumanPersonaConsentBasis,
+  HumanPersonaProposalStatus,
   MaintenanceJob,
   MaintenanceJobStatus,
   SendOutboxStatus,
@@ -12,12 +15,17 @@ import type {
   StoredDayDigest,
   StoredDigestRollup,
   StoredEmbeddingChunk,
+  StoredHumanPersonaProposal,
+  StoredHumanPersonaStyleProfile,
+  StoredHumanPersonaTriggerState,
   StoredMessage,
   StoredSendOutboxItem,
   SyncState,
 } from "./types.js";
 
-export function rowToStoredMessage(row: Record<string, unknown>): StoredMessage {
+export function rowToStoredMessage(
+  row: Record<string, unknown>,
+): StoredMessage {
   return {
     id: Number(row.id),
     chatId: String(row.chat_id),
@@ -26,7 +34,10 @@ export function rowToStoredMessage(row: Record<string, unknown>): StoredMessage 
     senderId: row.sender_id == null ? undefined : String(row.sender_id),
     senderName: row.sender_name == null ? undefined : String(row.sender_name),
     text: String(row.text ?? ""),
-    replyToMessageId: row.reply_to_message_id == null ? undefined : Number(row.reply_to_message_id),
+    replyToMessageId:
+      row.reply_to_message_id == null
+        ? undefined
+        : Number(row.reply_to_message_id),
     topicId: row.topic_id == null ? undefined : Number(row.topic_id),
     rawJson: row.raw_json == null ? undefined : String(row.raw_json),
     deletedAt: row.deleted_at == null ? undefined : String(row.deleted_at),
@@ -45,7 +56,10 @@ export function rowToChatInfo(row: Record<string, unknown>): ChatInfo {
 }
 
 export function chatAliases(chat: ChatInfo): string[] {
-  const aliases = new Set<string>([normalizeChatAlias(chat.chatId), normalizeChatAlias(chat.requested)]);
+  const aliases = new Set<string>([
+    normalizeChatAlias(chat.chatId),
+    normalizeChatAlias(chat.requested),
+  ]);
   if (chat.username) {
     aliases.add(normalizeChatAlias(chat.username));
     aliases.add(normalizeChatAlias(`@${chat.username}`));
@@ -71,17 +85,37 @@ export function optionalNumber(value: unknown): number | undefined {
 export function rowToSyncState(row: Record<string, unknown>): SyncState {
   return {
     chatId: String(row.chat_id),
-    oldestMessageId: row.oldest_message_id == null ? undefined : Number(row.oldest_message_id),
-    newestMessageId: row.newest_message_id == null ? undefined : Number(row.newest_message_id),
-    nextBackfillOffsetId: row.next_backfill_offset_id == null ? undefined : Number(row.next_backfill_offset_id),
-    recentCatchupMinId: row.recent_catchup_min_id == null ? undefined : Number(row.recent_catchup_min_id),
+    oldestMessageId:
+      row.oldest_message_id == null ? undefined : Number(row.oldest_message_id),
+    newestMessageId:
+      row.newest_message_id == null ? undefined : Number(row.newest_message_id),
+    nextBackfillOffsetId:
+      row.next_backfill_offset_id == null
+        ? undefined
+        : Number(row.next_backfill_offset_id),
+    recentCatchupMinId:
+      row.recent_catchup_min_id == null
+        ? undefined
+        : Number(row.recent_catchup_min_id),
     recentCatchupNextOffsetId:
-      row.recent_catchup_next_offset_id == null ? undefined : Number(row.recent_catchup_next_offset_id),
-    recentCatchupNewestId: row.recent_catchup_newest_id == null ? undefined : Number(row.recent_catchup_newest_id),
+      row.recent_catchup_next_offset_id == null
+        ? undefined
+        : Number(row.recent_catchup_next_offset_id),
+    recentCatchupNewestId:
+      row.recent_catchup_newest_id == null
+        ? undefined
+        : Number(row.recent_catchup_newest_id),
     syncedCount: Number(row.synced_count ?? 0),
-    lastRecentSyncAt: row.last_recent_sync_at == null ? undefined : String(row.last_recent_sync_at),
-    lastBackfillAt: row.last_backfill_at == null ? undefined : String(row.last_backfill_at),
-    backfillExhaustedAt: row.backfill_exhausted_at == null ? undefined : String(row.backfill_exhausted_at),
+    lastRecentSyncAt:
+      row.last_recent_sync_at == null
+        ? undefined
+        : String(row.last_recent_sync_at),
+    lastBackfillAt:
+      row.last_backfill_at == null ? undefined : String(row.last_backfill_at),
+    backfillExhaustedAt:
+      row.backfill_exhausted_at == null
+        ? undefined
+        : String(row.backfill_exhausted_at),
     lastError: row.last_error == null ? undefined : String(row.last_error),
     updatedAt: row.updated_at == null ? undefined : String(row.updated_at),
   };
@@ -90,21 +124,30 @@ export function rowToSyncState(row: Record<string, unknown>): SyncState {
 export function rowToDaemonStatus(row: Record<string, unknown>): DaemonStatus {
   return {
     service: String(row.service),
-    lastStartedAt: row.last_started_at == null ? undefined : String(row.last_started_at),
-    lastSuccessAt: row.last_success_at == null ? undefined : String(row.last_success_at),
-    lastFailureAt: row.last_failure_at == null ? undefined : String(row.last_failure_at),
+    lastStartedAt:
+      row.last_started_at == null ? undefined : String(row.last_started_at),
+    lastSuccessAt:
+      row.last_success_at == null ? undefined : String(row.last_success_at),
+    lastFailureAt:
+      row.last_failure_at == null ? undefined : String(row.last_failure_at),
     lastError: row.last_error == null ? undefined : String(row.last_error),
     consecutiveFailures: Number(row.consecutive_failures ?? 0),
     updatedAt: row.updated_at == null ? undefined : String(row.updated_at),
   };
 }
 
-export function rowToMaintenanceJob(row: Record<string, unknown>): MaintenanceJob {
+export function rowToMaintenanceJob(
+  row: Record<string, unknown>,
+): MaintenanceJob {
   let details: Record<string, unknown> | undefined;
   if (typeof row.details_json === "string" && row.details_json.trim() !== "") {
     try {
       const parsed = JSON.parse(row.details_json) as unknown;
-      if (parsed != null && typeof parsed === "object" && !Array.isArray(parsed)) {
+      if (
+        parsed != null &&
+        typeof parsed === "object" &&
+        !Array.isArray(parsed)
+      ) {
         details = parsed as Record<string, unknown>;
       }
     } catch {
@@ -117,11 +160,14 @@ export function rowToMaintenanceJob(row: Record<string, unknown>): MaintenanceJo
     reason: row.reason == null ? undefined : String(row.reason),
     details,
     updatedAt: row.updated_at == null ? undefined : String(row.updated_at),
-    completedAt: row.completed_at == null ? undefined : String(row.completed_at),
+    completedAt:
+      row.completed_at == null ? undefined : String(row.completed_at),
   };
 }
 
-export function rowToEmbeddingChunk(row: Record<string, unknown>): StoredEmbeddingChunk {
+export function rowToEmbeddingChunk(
+  row: Record<string, unknown>,
+): StoredEmbeddingChunk {
   const dimensions = Number(row.embedding_dimensions);
   const embedding = embeddingBlobFromRow(row.embedding, dimensions);
   return {
@@ -142,12 +188,11 @@ export function rowToEmbeddingChunk(row: Record<string, unknown>): StoredEmbeddi
   };
 }
 
-function embeddingBlobFromRow(
-  value: unknown,
-  dimensions: number,
-): Uint8Array {
+function embeddingBlobFromRow(value: unknown, dimensions: number): Uint8Array {
   if (!Number.isSafeInteger(dimensions) || dimensions < 1) {
-    throw new Error("Embedding row dimensions must be a positive safe integer.");
+    throw new Error(
+      "Embedding row dimensions must be a positive safe integer.",
+    );
   }
   if (!(value instanceof Uint8Array)) {
     throw new Error("Embedding row BLOB must be a Uint8Array.");
@@ -155,8 +200,7 @@ function embeddingBlobFromRow(
   if (value.byteLength % Float32Array.BYTES_PER_ELEMENT !== 0) {
     throw new Error("Embedding row BLOB byte length must be divisible by 4.");
   }
-  const actualDimensions =
-    value.byteLength / Float32Array.BYTES_PER_ELEMENT;
+  const actualDimensions = value.byteLength / Float32Array.BYTES_PER_ELEMENT;
   if (actualDimensions !== dimensions) {
     throw new Error(
       `Embedding BLOB has ${actualDimensions} dimensions but row declares ${dimensions}.`,
@@ -165,44 +209,61 @@ function embeddingBlobFromRow(
   return value;
 }
 
-export function rowToSendOutboxItem(row: Record<string, unknown>): StoredSendOutboxItem {
+export function rowToSendOutboxItem(
+  row: Record<string, unknown>,
+): StoredSendOutboxItem {
   return {
     id: String(row.id),
     dedupeKey: row.dedupe_key == null ? undefined : String(row.dedupe_key),
     payloadHash: String(row.payload_hash),
     chatId: String(row.chat_id),
-    replyToMessageId: row.reply_to_message_id == null ? undefined : Number(row.reply_to_message_id),
+    replyToMessageId:
+      row.reply_to_message_id == null
+        ? undefined
+        : Number(row.reply_to_message_id),
     userKey: String(row.user_key),
     status: String(row.status) as SendOutboxStatus,
-    telegramMessageId: row.telegram_message_id == null ? undefined : Number(row.telegram_message_id),
+    telegramMessageId:
+      row.telegram_message_id == null
+        ? undefined
+        : Number(row.telegram_message_id),
     error: row.error == null ? undefined : String(row.error),
     createdAtMs: Number(row.created_at_ms),
     updatedAtMs: Number(row.updated_at_ms),
     queuedAtMs: row.queued_at_ms == null ? undefined : Number(row.queued_at_ms),
-    sendingAtMs: row.sending_at_ms == null ? undefined : Number(row.sending_at_ms),
+    sendingAtMs:
+      row.sending_at_ms == null ? undefined : Number(row.sending_at_ms),
     sentAtMs: row.sent_at_ms == null ? undefined : Number(row.sent_at_ms),
     expiresAtMs: Number(row.expires_at_ms),
   };
 }
 
-export function rowToStoredBotUpdate(row: Record<string, unknown>): StoredBotUpdate {
+export function rowToStoredBotUpdate(
+  row: Record<string, unknown>,
+): StoredBotUpdate {
   return {
     updateId: Number(row.update_id),
     rawJson: String(row.raw_json),
     status: String(row.status) as BotDurableStatus,
     addressed: Number(row.addressed) === 1,
     chatId: row.chat_id == null ? undefined : String(row.chat_id),
-    triggerMessageId: row.trigger_message_id == null ? undefined : Number(row.trigger_message_id),
+    triggerMessageId:
+      row.trigger_message_id == null
+        ? undefined
+        : Number(row.trigger_message_id),
     attempts: Number(row.attempts),
     maxAttempts: Number(row.max_attempts),
     error: row.error == null ? undefined : String(row.error),
     receivedAtMs: Number(row.received_at_ms),
     updatedAtMs: Number(row.updated_at_ms),
-    completedAtMs: row.completed_at_ms == null ? undefined : Number(row.completed_at_ms),
+    completedAtMs:
+      row.completed_at_ms == null ? undefined : Number(row.completed_at_ms),
   };
 }
 
-export function rowToStoredBotTurn(row: Record<string, unknown>): StoredBotTurn {
+export function rowToStoredBotTurn(
+  row: Record<string, unknown>,
+): StoredBotTurn {
   return {
     id: Number(row.id),
     updateId: Number(row.update_id),
@@ -212,22 +273,34 @@ export function rowToStoredBotTurn(row: Record<string, unknown>): StoredBotTurn 
     attempts: Number(row.attempts),
     maxAttempts: Number(row.max_attempts),
     leaseOwner: row.lease_owner == null ? undefined : String(row.lease_owner),
-    leaseExpiresAtMs: row.lease_expires_at_ms == null ? undefined : Number(row.lease_expires_at_ms),
+    leaseExpiresAtMs:
+      row.lease_expires_at_ms == null
+        ? undefined
+        : Number(row.lease_expires_at_ms),
     retryNotBeforeMs:
       row.retry_not_before_ms == null
         ? undefined
         : Number(row.retry_not_before_ms),
     draftText: row.draft_text == null ? undefined : String(row.draft_text),
-    telegramMessageId: row.telegram_message_id == null ? undefined : Number(row.telegram_message_id),
-    progressMessageId: row.progress_message_id == null ? undefined : Number(row.progress_message_id),
-    progressState: row.progress_state == null
-      ? undefined
-      : String(row.progress_state) as BotTurnProgressState,
+    telegramMessageId:
+      row.telegram_message_id == null
+        ? undefined
+        : Number(row.telegram_message_id),
+    progressMessageId:
+      row.progress_message_id == null
+        ? undefined
+        : Number(row.progress_message_id),
+    progressState:
+      row.progress_state == null
+        ? undefined
+        : (String(row.progress_state) as BotTurnProgressState),
     error: row.error == null ? undefined : String(row.error),
     createdAtMs: Number(row.created_at_ms),
     updatedAtMs: Number(row.updated_at_ms),
-    startedAtMs: row.started_at_ms == null ? undefined : Number(row.started_at_ms),
-    completedAtMs: row.completed_at_ms == null ? undefined : Number(row.completed_at_ms),
+    startedAtMs:
+      row.started_at_ms == null ? undefined : Number(row.started_at_ms),
+    completedAtMs:
+      row.completed_at_ms == null ? undefined : Number(row.completed_at_ms),
   };
 }
 
@@ -247,8 +320,7 @@ export function rowToStoredDayDigest(
       row.input_tokens == null ? undefined : Number(row.input_tokens),
     outputTokens:
       row.output_tokens == null ? undefined : Number(row.output_tokens),
-    sourceHash:
-      row.source_hash == null ? undefined : String(row.source_hash),
+    sourceHash: row.source_hash == null ? undefined : String(row.source_hash),
     createdAtMs: Number(row.created_at_ms),
     updatedAtMs: Number(row.updated_at_ms),
   };
@@ -271,8 +343,67 @@ export function rowToStoredDigestRollup(
       row.input_tokens == null ? undefined : Number(row.input_tokens),
     outputTokens:
       row.output_tokens == null ? undefined : Number(row.output_tokens),
-    sourceHash:
-      row.source_hash == null ? undefined : String(row.source_hash),
+    sourceHash: row.source_hash == null ? undefined : String(row.source_hash),
+    createdAtMs: Number(row.created_at_ms),
+    updatedAtMs: Number(row.updated_at_ms),
+  };
+}
+
+export function rowToHumanPersonaStyleProfile(
+  row: Record<string, unknown>,
+): StoredHumanPersonaStyleProfile {
+  return {
+    personaId: String(row.persona_id),
+    targetUserKey: String(row.target_user_key),
+    profileText: String(row.profile_text ?? ""),
+    exampleMessages: JSON.parse(String(row.example_messages_json ?? "[]")),
+    sourceHash: row.source_hash == null ? null : String(row.source_hash),
+    consentBasis: String(row.consent_basis) as HumanPersonaConsentBasis,
+    model: row.model == null ? null : String(row.model),
+    provider: row.provider == null ? null : String(row.provider),
+    createdAtMs: Number(row.created_at_ms),
+    updatedAtMs: Number(row.updated_at_ms),
+  };
+}
+
+export function rowToHumanPersonaTriggerState(
+  row: Record<string, unknown>,
+): StoredHumanPersonaTriggerState {
+  return {
+    personaId: String(row.persona_id),
+    chatId: String(row.chat_id),
+    lastInitiatedAtMs:
+      row.last_initiated_at_ms == null
+        ? null
+        : Number(row.last_initiated_at_ms),
+    lastCheckedAtMs:
+      row.last_checked_at_ms == null ? null : Number(row.last_checked_at_ms),
+    windowStartMs:
+      row.window_start_ms == null ? null : Number(row.window_start_ms),
+    initiatedCountInWindow: Number(row.initiated_count_in_window ?? 0),
+    updatedAtMs: Number(row.updated_at_ms),
+  };
+}
+
+export function rowToHumanPersonaProposal(
+  row: Record<string, unknown>,
+): StoredHumanPersonaProposal {
+  return {
+    id: String(row.id),
+    personaId: String(row.persona_id),
+    chatId: String(row.chat_id),
+    proposedText: String(row.proposed_text ?? ""),
+    finalText: row.final_text == null ? null : String(row.final_text),
+    status: String(row.status) as HumanPersonaProposalStatus,
+    autonomyMode: String(row.autonomy_mode) as HumanPersonaAutonomyMode,
+    approvalChatId:
+      row.approval_chat_id == null ? null : String(row.approval_chat_id),
+    approvalMessageId:
+      row.approval_message_id == null ? null : Number(row.approval_message_id),
+    claimedBy: row.claimed_by == null ? null : String(row.claimed_by),
+    claimedAtMs: row.claimed_at_ms == null ? null : Number(row.claimed_at_ms),
+    decidedAtMs: row.decided_at_ms == null ? null : Number(row.decided_at_ms),
+    error: row.error == null ? null : String(row.error),
     createdAtMs: Number(row.created_at_ms),
     updatedAtMs: Number(row.updated_at_ms),
   };

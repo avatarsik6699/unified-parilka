@@ -45,6 +45,7 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
   declare protected applyDreamAuditMigration: () => void;
   declare protected applyEmbeddingChunkMembershipMigration: () => void;
   declare protected applyEmbeddingNamespaceMigration: () => void;
+  declare protected applyHumanPersonaMigration: () => void;
   declare protected applyLearnedSparsePostingsMigration: () => void;
   declare protected applyManagedSqlObjectVersionMigration: () => void;
   declare protected applyMessageReconciliationMigration: () => void;
@@ -61,7 +62,9 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
     this.immediateTransaction("migrate", () => {
       const currentVersion = this.getSchemaVersion();
       if (currentVersion > SCHEMA_VERSION) {
-        throw new Error(`Database schema version ${currentVersion} is newer than supported version ${SCHEMA_VERSION}.`);
+        throw new Error(
+          `Database schema version ${currentVersion} is newer than supported version ${SCHEMA_VERSION}.`,
+        );
       }
       if (currentVersion < 1) {
         this.applyBaseSchema();
@@ -144,6 +147,10 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
         this.applyDreamAuditMigration();
         this.db.exec("PRAGMA user_version = 22");
       }
+      if (currentVersion < 23) {
+        this.applyHumanPersonaMigration();
+        this.db.exec("PRAGMA user_version = 23");
+      }
       // This is a backwards-compatible performance index, not a data-model
       // change. Reconcile it for every writable compatible open so databases
       // created by an earlier build do not make one full corpus scan per day.
@@ -172,6 +179,9 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
       "bot_chat_dream_audits",
       "chat_day_digests",
       "chat_digest_rollups",
+      "human_persona_style_profile",
+      "human_persona_trigger_state",
+      "human_persona_pending_proposal",
       "schema_object_versions",
       "maintenance_jobs",
       "message_embedding_chunks",
@@ -204,16 +214,44 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
       "idx_chat_digest_rollups_range",
       "idx_messages_digest_date",
       "idx_bot_turns_due",
+      "idx_human_persona_pending_proposal_status",
     ]) {
       this.assertSqliteObject("index", index);
     }
-    for (const trigger of ["messages_ai", "messages_ad", "messages_au", "embedding_chunks_ad"]) {
+    for (const trigger of [
+      "messages_ai",
+      "messages_ad",
+      "messages_au",
+      "embedding_chunks_ad",
+    ]) {
       this.assertSqliteObject("trigger", trigger);
     }
-    this.assertColumns("messages", ["id", "chat_id", "message_id", "text", "deleted_at", "updated_at"]);
-    this.assertColumns("message_embedding_chunks", ["id", "chat_id", "embedding_namespace", "dirty_at", "updated_at"]);
-    this.assertColumns("message_embedding_chunk_messages", ["chunk_id", "chat_id", "message_id", "position"]);
-    this.assertColumns("message_embedding_sparse_terms", ["chunk_id", "token_id", "weight"]);
+    this.assertColumns("messages", [
+      "id",
+      "chat_id",
+      "message_id",
+      "text",
+      "deleted_at",
+      "updated_at",
+    ]);
+    this.assertColumns("message_embedding_chunks", [
+      "id",
+      "chat_id",
+      "embedding_namespace",
+      "dirty_at",
+      "updated_at",
+    ]);
+    this.assertColumns("message_embedding_chunk_messages", [
+      "chunk_id",
+      "chat_id",
+      "message_id",
+      "position",
+    ]);
+    this.assertColumns("message_embedding_sparse_terms", [
+      "chunk_id",
+      "token_id",
+      "weight",
+    ]);
     this.assertColumns("send_outbox", [
       "id",
       "dedupe_key",
@@ -231,7 +269,12 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
       "sent_at_ms",
       "expires_at_ms",
     ]);
-    this.assertColumns("send_throttle_state", ["chat_id", "user_key", "next_allowed_at_ms", "updated_at_ms"]);
+    this.assertColumns("send_throttle_state", [
+      "chat_id",
+      "user_key",
+      "next_allowed_at_ms",
+      "updated_at_ms",
+    ]);
     this.assertColumns("bot_updates", [
       "update_id",
       "raw_json",
@@ -354,6 +397,44 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
       "input_tokens",
       "output_tokens",
       "source_hash",
+      "created_at_ms",
+      "updated_at_ms",
+    ]);
+    this.assertColumns("human_persona_style_profile", [
+      "persona_id",
+      "target_user_key",
+      "profile_text",
+      "example_messages_json",
+      "source_hash",
+      "consent_basis",
+      "model",
+      "provider",
+      "created_at_ms",
+      "updated_at_ms",
+    ]);
+    this.assertColumns("human_persona_trigger_state", [
+      "persona_id",
+      "chat_id",
+      "last_initiated_at_ms",
+      "last_checked_at_ms",
+      "window_start_ms",
+      "initiated_count_in_window",
+      "updated_at_ms",
+    ]);
+    this.assertColumns("human_persona_pending_proposal", [
+      "id",
+      "persona_id",
+      "chat_id",
+      "proposed_text",
+      "final_text",
+      "status",
+      "autonomy_mode",
+      "approval_chat_id",
+      "approval_message_id",
+      "claimed_by",
+      "claimed_at_ms",
+      "decided_at_ms",
+      "error",
       "created_at_ms",
       "updated_at_ms",
     ]);

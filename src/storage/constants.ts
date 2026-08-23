@@ -4,7 +4,7 @@ export const SQLITE_BUSY_RETRY_ATTEMPTS = 6;
 
 export const SQLITE_BUSY_RETRY_INITIAL_MS = 25;
 
-export const SCHEMA_VERSION = 22;
+export const SCHEMA_VERSION = 23;
 
 export const DEFAULT_BOT_MAX_ATTEMPTS = 3;
 
@@ -82,7 +82,8 @@ export const MANAGED_TRIGGER_DEFINITIONS = [
   },
 ] as const;
 
-export const RESTART_EXPIRED_SEND_ERROR = "Queued send abandoned by process restart before execution.";
+export const RESTART_EXPIRED_SEND_ERROR =
+  "Queued send abandoned by process restart before execution.";
 
 export const LEGACY_UNKNOWN_DELIVERY_AFTER_RESTART_ERROR =
   "Send was in-flight during process restart; Telegram delivery state is unknown and automatic retry is refused.";

@@ -70,22 +70,12 @@ export type MaintenanceJob = {
 };
 
 export type MaintenanceJobName =
-  | "messages_fts_rebuild"
-  | "embedding_chunk_membership_backfill";
+  "messages_fts_rebuild" | "embedding_chunk_membership_backfill";
 
 export type DurableQueueStatus = {
-  botTurns: Record<
-    string,
-    { count: number; oldestUpdatedAtMs?: number }
-  >;
-  botUpdates: Record<
-    string,
-    { count: number; oldestReceivedAtMs?: number }
-  >;
-  sendOutbox: Record<
-    string,
-    { count: number; oldestCreatedAtMs?: number }
-  >;
+  botTurns: Record<string, { count: number; oldestUpdatedAtMs?: number }>;
+  botUpdates: Record<string, { count: number; oldestReceivedAtMs?: number }>;
+  sendOutbox: Record<string, { count: number; oldestCreatedAtMs?: number }>;
 };
 
 export type KeywordSearchHit = {
@@ -218,9 +208,7 @@ export type SparseChunkScore = {
 };
 
 export type StaleEmbeddingChunkReason =
-  | "missing_message"
-  | "deleted_message"
-  | "source_changed";
+  "missing_message" | "deleted_message" | "source_changed";
 
 export type StaleEmbeddingChunkRange = {
   chatId: string;
@@ -244,7 +232,8 @@ export type EmbeddingChunkCommitResult = {
   nextAfterMessageId?: number;
 };
 
-export type SendOutboxStatus = "queued" | "sending" | "sent" | "failed" | "expired";
+export type SendOutboxStatus =
+  "queued" | "sending" | "sent" | "failed" | "expired";
 
 export type SendStartupReconciliation = {
   expiredQueued: number;
@@ -331,10 +320,7 @@ export type StoredBotTurn = {
 };
 
 export type BotTurnProgressState =
-  | "none"
-  | "dispatching"
-  | "active"
-  | "unknown";
+  "none" | "dispatching" | "active" | "unknown";
 
 export type StoredChatMemory = {
   chatId: string;
@@ -528,4 +514,69 @@ export type BotUpdateFailureResult = {
    * budget is exhausted and the durable row reaches dead_letter.
    */
   ackUpdateId?: number;
+};
+
+/**
+ * Basis under which a target person's message history was analyzed to build
+ * a human-persona style profile. A row can only exist with one of these
+ * values set, so the consent basis is durable evidence, not a side note.
+ */
+export type HumanPersonaConsentBasis = "confirmed_by_owner" | "self";
+
+export type StoredHumanPersonaStyleProfile = {
+  personaId: string;
+  targetUserKey: string;
+  profileText: string;
+  exampleMessages: string[];
+  sourceHash: string | null;
+  consentBasis: HumanPersonaConsentBasis;
+  model: string | null;
+  provider: string | null;
+  createdAtMs: number;
+  updatedAtMs: number;
+};
+
+export type UpsertHumanPersonaStyleProfileInput = Omit<
+  StoredHumanPersonaStyleProfile,
+  "createdAtMs" | "updatedAtMs"
+>;
+
+export type StoredHumanPersonaTriggerState = {
+  personaId: string;
+  chatId: string;
+  lastInitiatedAtMs: number | null;
+  lastCheckedAtMs: number | null;
+  windowStartMs: number | null;
+  initiatedCountInWindow: number;
+  updatedAtMs: number;
+};
+
+export type HumanPersonaAutonomyMode = "auto" | "approval";
+
+export type HumanPersonaProposalStatus =
+  | "pending"
+  | "claimed"
+  | "approved"
+  | "rejected"
+  | "regenerate_requested"
+  | "edited"
+  | "sent"
+  | "expired";
+
+export type StoredHumanPersonaProposal = {
+  id: string;
+  personaId: string;
+  chatId: string;
+  proposedText: string;
+  finalText: string | null;
+  status: HumanPersonaProposalStatus;
+  autonomyMode: HumanPersonaAutonomyMode;
+  approvalChatId: string | null;
+  approvalMessageId: number | null;
+  claimedBy: string | null;
+  claimedAtMs: number | null;
+  decidedAtMs: number | null;
+  error: string | null;
+  createdAtMs: number;
+  updatedAtMs: number;
 };
