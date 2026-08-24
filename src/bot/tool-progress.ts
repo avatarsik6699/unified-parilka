@@ -62,11 +62,7 @@ export interface ToolProgressStore {
   clearBotTurnProgress(turnId: number, nowMs?: number): boolean;
 }
 
-export type ToolProgressState =
-  | "none"
-  | "dispatching"
-  | "active"
-  | "unknown";
+export type ToolProgressState = "none" | "dispatching" | "active" | "unknown";
 
 export interface ToolProgressPublisherOptions {
   turnId: number;
@@ -82,14 +78,55 @@ export interface ToolProgressPublisherOptions {
 
 interface ToolCallStatus {
   readonly kind: "thinking" | "tool";
-  readonly toolName: string;
+  readonly label: string;
   readonly state: "running" | "ok" | "error";
-  readonly inputPreview?: string;
 }
 
 const DEFAULT_MAX_TEXT_LENGTH = 3_500;
-const MAX_QUERY_PREVIEW_LINES = 3;
-const MAX_QUERY_PREVIEW_LINE_CHARS = 96;
+
+/**
+ * The visible progress line never names the real tool or echoes any part of
+ * its input -- both can leak the user's query or private context into the
+ * chat timeline. Instead each call gets a random, meaningless label, purely
+ * as a "the bot is doing something" heartbeat.
+ */
+export const PROGRESS_LABELS = [
+  "шаманю",
+  "колдую",
+  "мудрю",
+  "включаю режим детектива",
+  "советуюсь с котом",
+  "трясу магический шар",
+  "прокручиваю извилины",
+  "заряжаю батарейки",
+  "ищу вдохновение",
+  "листаю умную книгу",
+  "разгадываю ребус",
+  "щёлкаю тумблерами",
+  "завариваю чай мудрости",
+  "спрашиваю оракула",
+  "рисую в голове схему",
+  "надеваю очки мудреца",
+  "плету заклинание",
+  "настраиваю частоты",
+  "чешу репу",
+  "втыкаю в монитор",
+  "разговариваю с сервером",
+  "перебираю варианты",
+  "нюхаю провода",
+  "подкручиваю антенну",
+  "торгуюсь с нейросетью",
+  "зову на помощь дух Тьюринга",
+  "проверяю карму",
+  "гуглю по фэншую",
+  "изобретаю велосипед",
+  "ищу смысл жизни",
+] as const;
+
+function randomProgressLabel(): string {
+  const index = Math.floor(Math.random() * PROGRESS_LABELS.length);
+  return PROGRESS_LABELS[index] ?? PROGRESS_LABELS[0];
+}
 
 /**
  * Publishes a single Telegram progress message during model steps and read-tool
@@ -151,7 +188,7 @@ export class ToolProgressPublisher implements ToolProgressPort {
   onThinkingStarted(event: ThinkingProgressEvent): void {
     this.#pending.set(event.callId, {
       kind: "thinking",
-      toolName: "thinking",
+      label: randomProgressLabel(),
       state: "running",
     });
     this.#dispatch();
@@ -172,9 +209,8 @@ export class ToolProgressPublisher implements ToolProgressPort {
   onToolStarted(event: ToolProgressEvent): void {
     this.#pending.set(event.callId, {
       kind: "tool",
-      toolName: event.toolName,
+      label: randomProgressLabel(),
       state: "running",
-      inputPreview: toolInputPreview(event.toolName, event.input),
     });
     this.#dispatch();
   }
@@ -183,10 +219,8 @@ export class ToolProgressPublisher implements ToolProgressPort {
     const previous = this.#pending.get(event.callId);
     this.#pending.set(event.callId, {
       kind: previous?.kind ?? "tool",
-      toolName: event.toolName,
+      label: previous?.label ?? randomProgressLabel(),
       state: ok ? "ok" : "error",
-      inputPreview:
-        previous?.inputPreview ?? toolInputPreview(event.toolName, event.input),
     });
     this.#dispatch();
   }
@@ -269,171 +303,16 @@ export function renderProgressText(
     const icon =
       status.kind === "thinking" && status.state === "running"
         ? "🧠"
-        : status.state === "running" ? "⏳" : status.state === "ok" ? "✓" : "✗";
-    lines.push(`${icon} ${status.toolName}`);
-    if (status.inputPreview) {
-      lines.push(
-        ...status.inputPreview.split("\n").map((line) => `  ${line}`),
-      );
-    }
+        : status.state === "running"
+          ? "⏳"
+          : status.state === "ok"
+            ? "✓"
+            : "✗";
+    lines.push(`${icon} ${status.label}`);
   }
   const text = lines.join("\n");
   if (text.length <= maxLength) {
     return text;
   }
   return text.slice(0, Math.max(1, maxLength - 1)) + "…";
-}
-
-/**
- * Progress is visible to the chat, so expose only a compact allowlist of tool
- * selectors. Never serialize a full tool argument object or a tool result.
- */
-function toolInputPreview(
-  toolName: string,
-  input: Readonly<Record<string, unknown>> | undefined,
-): string | undefined {
-  if (!input) {
-    return undefined;
-  }
-  // The request itself can contain a private person's name or other sensitive
-  // clue. Unlike a public web query, never echo it into the chat timeline.
-  if (toolName === "research_lookup") {
-    return "корпус: обезличенные HH-исследования";
-  }
-  if (toolName === "audio_transcribe") {
-    // The media selector is application-owned. Show its tiny safe projection,
-    // never an attachment name, file id, path, URL, or transcript.
-    return input.source === "reply"
-      ? "аудио: прямой реплай"
-      : "аудио: текущее сообщение";
-  }
-  const query = textField(input, "query");
-  if (query) {
-    if (toolName === "rag_bm25_search") {
-      return `rag: ${queryPreviewText(query)}`;
-    }
-    return queryPreview(query);
-  }
-  if (toolName === "static_page_fetch" || toolName === "firecrawl_crawl") {
-    const url = textField(input, "url");
-    if (url) {
-      return urlPreview(url);
-    }
-  }
-  if (toolName === "inspect_web_images") {
-    // Count only: image URLs never appear in visible progress.
-    const urls = Array.isArray(input.urls)
-      ? input.urls.filter((u): u is string => typeof u === "string")
-      : [];
-    if (urls.length > 0) {
-      return `картинки: ${Math.min(urls.length, 6)}`;
-    }
-  }
-  if (
-    toolName === "remember_fast" ||
-    toolName === "remember_lesson" ||
-    toolName === "save_chat_skill" ||
-    toolName === "load_chat_skill"
-  ) {
-    const title = textField(input, "title") ?? textField(input, "name");
-    if (title) {
-      return `запись: ${queryPreviewText(title)}`;
-    }
-  }
-  if (toolName === "day_digest") {
-    const dayFrom = textField(input, "day_from");
-    const dayTo = textField(input, "day_to");
-    if (dayFrom) {
-      return `период: ${dayFrom}${dayTo ? ` — ${dayTo}` : ""}`;
-    }
-  }
-  if (toolName === "read_chat_slice") {
-    if (textField(input, "cursor")) {
-      return "срез: продолжение по курсору";
-    }
-    if (input.mode === "recent") {
-      const count = integerField(input, "count");
-      if (count !== undefined) {
-        return `срез: последние ${count}`;
-      }
-      return "срез: последние сообщения";
-    }
-    if (input.mode === "period") {
-      const dayFrom = textField(input, "day_from");
-      const dayTo = textField(input, "day_to");
-      if (dayFrom) {
-        return `срез: ${dayFrom}${dayTo ? ` — ${dayTo}` : ""}`;
-      }
-      return "срез: период";
-    }
-  }
-  if (toolName === "thread_context") {
-    const messageId = integerField(input, "message_id");
-    if (messageId !== undefined) {
-      return `сообщение: #${messageId}`;
-    }
-  }
-  return undefined;
-}
-
-function queryPreview(query: string): string {
-  return `запрос: ${queryPreviewText(query)}`;
-}
-
-function urlPreview(value: string): string {
-  try {
-    const url = new URL(value);
-    // Query strings often carry signed or user-specific values. The chat only
-    // needs to see which public page is being opened.
-    return `страница: ${queryPreviewText(`${url.protocol}//${url.host}${url.pathname}`)}`;
-  } catch {
-    return `страница: ${queryPreviewText(value)}`;
-  }
-}
-
-function queryPreviewText(query: string): string {
-  const normalized = query.replace(/\s+/gu, " ").trim();
-  if (normalized.length === 0) {
-    return "";
-  }
-  const characters = Array.from(normalized);
-  const capacity =
-    MAX_QUERY_PREVIEW_LINES * MAX_QUERY_PREVIEW_LINE_CHARS;
-  const truncated = characters.length > capacity;
-  const visible = truncated
-    ? characters.slice(0, capacity - 1)
-    : characters;
-  const rows: string[] = [];
-  for (let index = 0; index < visible.length; index += MAX_QUERY_PREVIEW_LINE_CHARS) {
-    rows.push(
-      visible.slice(index, index + MAX_QUERY_PREVIEW_LINE_CHARS).join(""),
-    );
-  }
-  if (truncated) {
-    const last = rows.length - 1;
-    rows[last] = `${rows[last] ?? ""}…`;
-  }
-  return rows
-    .map((row, index) => index === 0 ? row : `        ${row}`)
-    .join("\n");
-}
-
-function textField(
-  input: Readonly<Record<string, unknown>>,
-  field: string,
-): string | undefined {
-  const value = input[field];
-  return typeof value === "string" && value.trim().length > 0
-    ? value.trim()
-    : undefined;
-}
-
-function integerField(
-  input: Readonly<Record<string, unknown>>,
-  field: string,
-): number | undefined {
-  const value = input[field];
-  return typeof value === "number" && Number.isSafeInteger(value)
-    ? value
-    : undefined;
 }
