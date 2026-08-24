@@ -15,15 +15,13 @@ const IMAGE_DOWNLOAD_TIMEOUT_MS = 30_000;
 /**
  * A conservative allowlist of Runware model AIRs (`creator:family@version`)
  * the tool may request -- the model never picks an arbitrary provider
- * string. SahastraKoti XL (`civitai:139489@154504`, SDXL-based, explicit
- * `nsfw` tag, 6000+ downloads / 5.0 rating on Runware) replaced the earlier
- * FLUX.1 Schnell/Dev default: side-by-side live testing showed FLUX
- * frequently generating content unrelated to the request (especially for
- * explicit prompts), while this checkpoint matched the requested content
- * accurately in every test and costs ~$0.0013/image at 1024x1024 -- cheaper
- * than either FLUX tier was.
+ * string. FLUX.2 [dev] (`runware:400@1`, Black Forest Labs) replaced the
+ * earlier SahastraKoti XL default: the operator's own side-by-side testing
+ * found it fast, reliable, and relatively cheap, unlike the operator's
+ * earlier experience with FLUX.1 [dev] -- FLUX.2 is a materially different
+ * model family, not the same one that previously underperformed.
  */
-export const RUNWARE_MODEL_ALLOWLIST = ["civitai:139489@154504"] as const;
+export const RUNWARE_MODEL_ALLOWLIST = ["runware:400@1"] as const;
 const DEFAULT_MODEL = RUNWARE_MODEL_ALLOWLIST[0];
 
 const SIZE_CHOICES = [512, 768, 1024] as const;
