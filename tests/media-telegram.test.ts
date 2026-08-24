@@ -214,6 +214,7 @@ test("downloader rejects a silently truncated Bot API file before conversion", a
     async fetch() {
       return new Response(new Uint8Array([0, 1, 2, 3]));
     },
+    maxAttempts: 1,
   });
 
   await assert.rejects(
@@ -243,6 +244,7 @@ test("downloader preserves the stored Bot API file size when getFile omits it", 
     async fetch() {
       return new Response(new Uint8Array([0, 1, 2, 3]));
     },
+    maxAttempts: 1,
   });
 
   await assert.rejects(
@@ -304,6 +306,7 @@ test("downloader gives up after exhausting retries on a persistent network failu
       fetchCalls += 1;
       throw new Error("ECONNRESET");
     },
+    maxAttempts: 3,
   });
 
   await assert.rejects(
@@ -315,7 +318,7 @@ test("downloader gives up after exhausting retries on a persistent network failu
     (error: unknown) =>
       error instanceof BotMediaError && error.code === "download_failed",
   );
-  assert.equal(fetchCalls, 2);
+  assert.equal(fetchCalls, 3);
 });
 
 test("downloader never retries a deterministic metadata mismatch", async () => {

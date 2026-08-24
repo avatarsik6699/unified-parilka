@@ -3,8 +3,8 @@ import { BotMediaError } from "./contracts.js";
 
 const DEFAULT_MAX_BYTES = 20 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 45_000;
-const DEFAULT_MAX_ATTEMPTS = 2;
-const RETRY_DELAY_MS = 300;
+const DEFAULT_MAX_ATTEMPTS = 4;
+const RETRY_DELAY_MS = 700;
 
 /**
  * Internal-only marker for a network-layer failure (connect/timeout/stream
