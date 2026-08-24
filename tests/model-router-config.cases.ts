@@ -143,7 +143,7 @@ test("contextWindowTokens is declared per exact model reference and validated", 
   }
 });
 
-test("production router config targets DeepSeek V4 Flash only, no OpenAI fallback", () => {
+test("production router config targets DeepSeek V4 Flash (vision-first), no OpenAI fallback", () => {
   const path = fileURLToPath(
     new URL("../config/model-router.production.json", import.meta.url),
   );
@@ -162,13 +162,20 @@ test("production router config targets DeepSeek V4 Flash only, no OpenAI fallbac
     },
   ]);
   assert.deepEqual(parsed.roles, {
-    turn: ["deepseek:deepseek-v4-flash"],
+    turn: [
+      "deepseek:deepseek-v4-flash-vision-exp",
+      "deepseek:deepseek-v4-flash",
+    ],
     summary: ["deepseek:deepseek-v4-flash"],
   });
   assert.deepEqual(parsed.modelCapabilities, {
     "deepseek:deepseek-v4-flash": {
       vision: false,
       contextWindowTokens: 1_000_000,
+    },
+    "deepseek:deepseek-v4-flash-vision-exp": {
+      vision: true,
+      contextWindowTokens: 1_048_576,
     },
   });
   assert.doesNotMatch(JSON.stringify(parsed), /qwen/i);
@@ -188,7 +195,7 @@ test("production router config targets DeepSeek V4 Flash only, no OpenAI fallbac
   );
   assert.deepEqual(
     router.resolveRole("turn").map(({ reference }) => reference),
-    ["deepseek:deepseek-v4-flash"],
+    ["deepseek:deepseek-v4-flash-vision-exp", "deepseek:deepseek-v4-flash"],
   );
   assert.deepEqual(
     router.resolveRole("summary").map(({ reference }) => reference),
