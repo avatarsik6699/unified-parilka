@@ -30,6 +30,24 @@ export interface AgentWebToolPortOptions {
   turnSignal: AbortSignal;
   turnId: string;
   onImageGenerated: (image: GeneratedImage) => void;
+  /** Raw trigger text and bot username, mention-stripped for generate_image. */
+  triggerText: string;
+  botUsername: string;
+}
+
+/**
+ * `generate_image` never lets the model write its own prompt text -- an LLM
+ * asked to relay an explicit request tends to paraphrase or soften it (seen
+ * live: users and the bot's own replies both noticed DeepSeek "rewriting the
+ * order in its own words"). Using the literal trigger message instead
+ * guarantees the user's own wording reaches Runware unmodified. Only the
+ * bot's own @mention is stripped; everything else in the message is kept
+ * verbatim, including punctuation and casing.
+ */
+export function stripBotMention(text: string, botUsername: string): string {
+  const escaped = botUsername.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const pattern = new RegExp(`@${escaped}\\b`, "giu");
+  return text.replace(pattern, "").trim();
 }
 
 /**
@@ -55,6 +73,10 @@ export function buildAgentWebToolPort(
           imageBudget: options.imageBudget,
           nsfwAllowed: options.nsfwAllowed,
           onImageGenerated: options.onImageGenerated,
+          rawImagePromptSource: stripBotMention(
+            options.triggerText,
+            options.botUsername,
+          ),
         }),
   });
 }

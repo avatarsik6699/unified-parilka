@@ -88,6 +88,7 @@ function configuredPort(
     turnId?: string;
     onImageGenerated?: (image: GeneratedImage) => void;
     fetchImpl?: typeof fetch;
+    rawImagePromptSource?: string;
   } = {},
 ): WebToolPort {
   const nsfwAllowed = overrides.nsfwAllowed ?? false;
@@ -107,6 +108,8 @@ function configuredPort(
       overrides.maxPerDay ?? 20,
     ),
     nsfwAllowed,
+    rawImagePromptSource:
+      overrides.rawImagePromptSource ?? "a golden retriever",
     ...(overrides.onImageGenerated === undefined
       ? {}
       : { onImageGenerated: overrides.onImageGenerated }),
@@ -135,7 +138,7 @@ test("a successful generation attaches the image via onImageGenerated and never 
   });
   const { tools, completed } = makeToolSet(port);
   const output = await tools.generate_image.execute(
-    { prompt: "a golden retriever" },
+    {},
     { toolCallId: "call-1" },
   );
   assert.equal(output.ok, true);
@@ -145,7 +148,7 @@ test("a successful generation attaches the image via onImageGenerated and never 
 
   const modelOutput = await tools.generate_image.toModelOutput({
     toolCallId: "call-1",
-    input: { prompt: "a golden retriever" },
+    input: {},
     output,
   });
   assert.equal(modelOutput.value.includes("1,2,3,4"), false);
@@ -157,12 +160,12 @@ test("a second generation in the same turn is denied once the per-turn cap is sp
   const port = configuredPort({ maxPerTurn: 1, maxPerDay: 20 });
   const { tools } = makeToolSet(port);
   const first = await tools.generate_image.execute(
-    { prompt: "a golden retriever" },
+    {},
     { toolCallId: "call-1" },
   );
   assert.equal(first.ok, true);
   const second = await tools.generate_image.execute(
-    { prompt: "a red fox" },
+    {},
     { toolCallId: "call-2" },
   );
   assert.equal(second.ok, false);
@@ -179,7 +182,7 @@ test("a failed generation releases its budget reservation", async () => {
   });
   const { tools } = makeToolSet(port);
   const first = await tools.generate_image.execute(
-    { prompt: "a golden retriever" },
+    {},
     { toolCallId: "call-1" },
   );
   assert.equal(first.ok, false);
@@ -190,7 +193,7 @@ test("a failed generation releases its budget reservation", async () => {
   // The failed call must have released its reservation: a second attempt in
   // the same turn fails on the provider again, never on the turn cap.
   const second = await tools.generate_image.execute(
-    { prompt: "a red fox" },
+    {},
     { toolCallId: "call-2" },
   );
   assert.equal(second.ok, false);
@@ -211,10 +214,50 @@ test("nsfw input is ignored by the request body when the operator has not enable
     }) as typeof fetch,
   });
   const { tools } = makeToolSet(port);
+  await tools.generate_image.execute({ nsfw: true }, { toolCallId: "call-1" });
+  const parsed = JSON.parse(capturedBody);
+  assert.equal(parsed[0].safety.checkContent, true);
+});
+
+test("the Runware prompt is the port's raw trigger text, not a model-provided one", async () => {
+  let capturedBody = "";
+  const port = configuredPort({
+    rawImagePromptSource: "нарисуй дословно вот это",
+    fetchImpl: (async (input: string | URL, init?: RequestInit) => {
+      if (String(input) === "https://api.runware.ai/v1") {
+        capturedBody = String(init?.body ?? "");
+      }
+      return successFetch()(input as never, init);
+    }) as typeof fetch,
+  });
+  const { tools } = makeToolSet(port);
+  // Even if the model tries to supply its own prompt in the tool input, it
+  // is never read -- only port.rawImagePromptSource reaches Runware.
   await tools.generate_image.execute(
-    { prompt: "a golden retriever", nsfw: true },
+    { prompt: "a completely different, model-rewritten prompt" },
     { toolCallId: "call-1" },
   );
   const parsed = JSON.parse(capturedBody);
-  assert.equal(parsed[0].safety.checkContent, true);
+  assert.equal(parsed[0].positivePrompt, "нарисуй дословно вот это");
+});
+
+test("an empty raw prompt source fails closed without calling Runware", async () => {
+  let called = false;
+  const port = configuredPort({
+    rawImagePromptSource: "",
+    fetchImpl: (async () => {
+      called = true;
+      return new Response("unexpected", { status: 200 });
+    }) as typeof fetch,
+  });
+  const { tools } = makeToolSet(port);
+  const result = await tools.generate_image.execute(
+    {},
+    { toolCallId: "call-1" },
+  );
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.error.code, "invalid_arguments");
+  }
+  assert.equal(called, false);
 });

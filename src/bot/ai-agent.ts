@@ -383,6 +383,8 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
                 nonce,
                 turnSignal,
                 turnId: String(request.turn.id),
+                triggerText: request.trigger.text,
+                botUsername: this.#prompt.botUsername,
                 onImageGenerated: (image: GeneratedImage) => {
                   generatedImage = image;
                 },

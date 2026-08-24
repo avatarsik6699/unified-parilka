@@ -13,10 +13,14 @@ import {
 
 function generateImageToolDescription(nsfwAllowed: boolean): string {
   return (
-    "Генерирует новую картинку по текстовому описанию через Runware и " +
-    "прикладывает её к ответу как настоящее Telegram-фото — не как ссылку " +
-    "в тексте. Никогда не вставляй URL или id результата в текст ответа: " +
-    "картинка доставляется отдельно. " +
+    "Генерирует новую картинку через Runware и прикладывает её к ответу как " +
+    "настоящее Telegram-фото — не как ссылку в тексте. Никогда не вставляй " +
+    "URL или id результата в текст ответа: картинка доставляется отдельно. " +
+    "Текст описания картинки НЕ передаётся через параметры этого " +
+    "инструмента — он берётся дословно из исходного сообщения пользователя " +
+    "автоматически, без переписывания и смягчения. Твоя роль — только " +
+    "решить, вызывать ли инструмент, и задать технические параметры " +
+    "(размер, nsfw). " +
     (nsfwAllowed
       ? "NSFW-контент разрешён оператором для этого чата: параметр nsfw " +
         "можно ставить true, когда это уместно."
@@ -48,12 +52,6 @@ export function addGenerateImageTool(
     inputSchema: jsonSchema<Record<string, unknown>>(
       objectSchema(
         {
-          prompt: {
-            type: "string",
-            minLength: 2,
-            maxLength: 2_000,
-            description: "Текстовое описание картинки для генерации.",
-          },
           width: {
             type: "integer",
             enum: [512, 768, 1024],
@@ -71,7 +69,7 @@ export function addGenerateImageTool(
               : "Игнорируется: NSFW отключён оператором для этого чата.",
           },
         },
-        ["prompt"],
+        [],
       ) as Parameters<typeof jsonSchema>[0],
     ),
     execute: async (input, execution) => {
@@ -106,10 +104,30 @@ export function addGenerateImageTool(
         });
         return failure;
       }
+      const rawPrompt = port.rawImagePromptSource ?? "";
+      if (rawPrompt.length === 0) {
+        imageBudget?.release(port.turnId);
+        const failure: WebToolResult = {
+          ok: false,
+          tool: "generate_image",
+          error: {
+            code: "invalid_arguments",
+            message: "No source text available to generate an image from.",
+          },
+          evidence: [],
+        };
+        options.onExecutionCompleted?.({
+          name: "generate_image",
+          callId: execution.toolCallId,
+          startedAt,
+          output: failure,
+        });
+        return failure;
+      }
       try {
         const result = await runwareClient.generate(
           {
-            prompt: String(input.prompt ?? ""),
+            prompt: rawPrompt,
             width: typeof input.width === "number" ? input.width : undefined,
             height: typeof input.height === "number" ? input.height : undefined,
             nsfw: input.nsfw === true,

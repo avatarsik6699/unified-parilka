@@ -55,6 +55,8 @@ export interface WebToolPort {
   imageBudget?: ImageGenerationBudget;
   nsfwAllowed?: boolean;
   onImageGenerated?: (image: GeneratedImage) => void;
+  /** Raw trigger text, mention-stripped, for generate_image's literal prompt. */
+  rawImagePromptSource?: string;
 }
 
 export interface CreateWebToolPortOptions {
@@ -71,6 +73,8 @@ export interface CreateWebToolPortOptions {
   imageBudget?: ImageGenerationBudget;
   nsfwAllowed?: boolean;
   onImageGenerated?: (image: GeneratedImage) => void;
+  /** Raw trigger text, mention-stripped, for generate_image's literal prompt. */
+  rawImagePromptSource?: string;
 }
 
 export function createWebToolPort(
@@ -106,6 +110,9 @@ export function createWebToolPort(
     ...(options.onImageGenerated === undefined
       ? {}
       : { onImageGenerated: options.onImageGenerated }),
+    ...(options.rawImagePromptSource === undefined
+      ? {}
+      : { rawImagePromptSource: options.rawImagePromptSource }),
   };
 }
 
