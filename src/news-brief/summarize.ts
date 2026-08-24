@@ -11,7 +11,11 @@ import type {
   NewsBriefSummaryResult,
 } from "./types.js";
 
-const DEFAULT_MAX_OUTPUT_TOKENS = 1_024;
+// Reasoning-mode providers (e.g. deepseek with thinkingMode: "enabled")
+// spend part of this budget on hidden reasoning tokens before any visible
+// text -- a tight budget intermittently truncates before finishReason
+// "stop", which this port treats as a fallback-eligible failure.
+const DEFAULT_MAX_OUTPUT_TOKENS = 3_072;
 const DEFAULT_TOTAL_TIMEOUT_MS = 90_000;
 const DEFAULT_CANDIDATE_TIMEOUT_MS = 40_000;
 const MAX_ARTICLE_CHARS_PER_ITEM = 2_000;
