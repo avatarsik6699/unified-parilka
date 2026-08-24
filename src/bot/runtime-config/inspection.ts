@@ -10,6 +10,7 @@ export function safeBotRuntimeConfig(
     audioTranscribe,
     memoryWriteAuthorizerIds,
     imageGeneration,
+    voiceReply,
     ...safe
   } = config;
   return {
@@ -60,6 +61,18 @@ export function safeBotRuntimeConfig(
             nsfwAllowed: imageGeneration.nsfwAllowed,
             maxImagesPerTurn: imageGeneration.maxImagesPerTurn,
             maxImagesPerChatPerDay: imageGeneration.maxImagesPerChatPerDay,
+          },
+        }),
+    ...(voiceReply === undefined
+      ? {}
+      : {
+          voiceReply: {
+            provider: voiceReply.provider,
+            apiKeyConfigured: true,
+            endpoint: voiceReply.endpoint,
+            timeoutMs: voiceReply.timeoutMs,
+            maxRepliesPerTurn: voiceReply.maxRepliesPerTurn,
+            maxRepliesPerChatPerDay: voiceReply.maxRepliesPerChatPerDay,
           },
         }),
   };

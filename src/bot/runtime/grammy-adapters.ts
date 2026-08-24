@@ -58,7 +58,7 @@ export interface DurableGrammyPublisherOptions {
  * an automatic resend.
  */
 export function createDurableGrammyBotTurnPublisher(
-  api: Pick<Api, "sendRichMessage" | "sendMessage" | "sendPhoto">,
+  api: Pick<Api, "sendRichMessage" | "sendMessage" | "sendPhoto" | "sendVoice">,
   options: DurableGrammyPublisherOptions,
 ): GrammyBotTurnPublisher {
   const botId = positiveTelegramId(options.botId, "botId");
@@ -73,6 +73,26 @@ export function createDurableGrammyBotTurnPublisher(
           reply_parameters: input.options.reply_parameters,
         } as unknown as Parameters<Api["sendPhoto"]>[2],
         input.signal as unknown as Parameters<Api["sendPhoto"]>[3],
+      );
+      recordOwnSend(options.store, {
+        response,
+        requestedChatId: input.chatId,
+        text: input.caption,
+        replyToMessageId: input.options.reply_parameters.message_id,
+        botId,
+        botUsername,
+      });
+      return response;
+    },
+    async sendVoice(input) {
+      const response = await api.sendVoice(
+        input.chatId,
+        new InputFile(input.voiceBytes, "voice.ogg"),
+        {
+          caption: input.caption,
+          reply_parameters: input.options.reply_parameters,
+        } as unknown as Parameters<Api["sendVoice"]>[2],
+        input.signal as unknown as Parameters<Api["sendVoice"]>[3],
       );
       recordOwnSend(options.store, {
         response,

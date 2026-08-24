@@ -1,9 +1,15 @@
-import type { BotImageGenerationRuntimeConfig } from "../runtime-config.js";
+import type {
+  BotImageGenerationRuntimeConfig,
+  BotVoiceReplyRuntimeConfig,
+} from "../runtime-config.js";
+export type { BotImageGenerationRuntimeConfig, BotVoiceReplyRuntimeConfig };
 import { RunwareClient } from "../web-tools/runware-client.js";
 import { ImageGenerationBudget } from "./image-generation-budget.js";
 import {
   createWebToolPort,
   type GeneratedImage,
+  type GeneratedSpeech,
+  type ReferenceImage,
   type WebToolPort,
 } from "../web-tools/tool-definitions.js";
 import {
@@ -15,6 +21,11 @@ export interface ImageGenerationRuntime {
   runwareClient: RunwareClient | undefined;
   imageBudget: ImageGenerationBudget | undefined;
   nsfwAllowed: boolean;
+}
+
+export interface VoiceReplyRuntime {
+  ttsClient: RunwareClient | undefined;
+  ttsBudget: ImageGenerationBudget | undefined;
 }
 
 /**
@@ -39,6 +50,11 @@ export interface AgentWebToolPortOptions {
   botUsername: string;
   /** Used to translate the raw prompt to English before Runware sees it. */
   router: PromptTranslationRouter;
+  /** This turn's already-downloaded photo, offered to edit_image as a source. */
+  referenceImage?: ReferenceImage;
+  ttsClient: RunwareClient | undefined;
+  ttsBudget: ImageGenerationBudget | undefined;
+  onSpeechGenerated: (speech: GeneratedSpeech) => void;
 }
 
 /**
@@ -90,6 +106,16 @@ export function buildAgentWebToolPort(
               signal,
             }),
         }),
+    ...(options.referenceImage === undefined
+      ? {}
+      : { referenceImage: options.referenceImage }),
+    ...(options.ttsClient === undefined
+      ? {}
+      : {
+          ttsClient: options.ttsClient,
+          ttsBudget: options.ttsBudget,
+          onSpeechGenerated: options.onSpeechGenerated,
+        }),
   });
 }
 
@@ -115,5 +141,103 @@ export function createImageGenerationRuntime(
       config.maxImagesPerChatPerDay,
     ),
     nsfwAllowed: config.nsfwAllowed,
+  };
+}
+
+/** Offers the vision path's already-downloaded photo to edit_image, if any. */
+export function webToolReferenceImage(
+  visionAttachment: ReferenceImage | undefined,
+): Pick<AgentWebToolPortOptions, "referenceImage"> {
+  return visionAttachment === undefined
+    ? {}
+    : { referenceImage: visionAttachment };
+}
+
+export interface AgentMediaRuntime {
+  image: ImageGenerationRuntime;
+  voice: VoiceReplyRuntime;
+}
+
+export function createAgentMediaRuntime(
+  imageGeneration: BotImageGenerationRuntimeConfig | undefined,
+  voiceReply: BotVoiceReplyRuntimeConfig | undefined,
+): AgentMediaRuntime {
+  return {
+    image: createImageGenerationRuntime(imageGeneration),
+    voice: createVoiceReplyRuntime(voiceReply),
+  };
+}
+
+/**
+ * Bundles every generate_image/edit_image/speak_text port field the agent's
+ * constructor-built runtimes contribute, so `AiSdkBotTurnAgent.run()` only
+ * carries one field and one spread call instead of five.
+ */
+export function agentMediaPortOptions(
+  runtime: AgentMediaRuntime,
+  visionAttachment: ReferenceImage | undefined,
+  onImageGenerated: (image: GeneratedImage) => void,
+  onSpeechGenerated: (speech: GeneratedSpeech) => void,
+): Pick<
+  AgentWebToolPortOptions,
+  | "runwareClient"
+  | "imageBudget"
+  | "nsfwAllowed"
+  | "onImageGenerated"
+  | "referenceImage"
+  | "ttsClient"
+  | "ttsBudget"
+  | "onSpeechGenerated"
+> {
+  return {
+    runwareClient: runtime.image.runwareClient,
+    imageBudget: runtime.image.imageBudget,
+    nsfwAllowed: runtime.image.nsfwAllowed,
+    onImageGenerated,
+    ...webToolReferenceImage(visionAttachment),
+    ttsClient: runtime.voice.ttsClient,
+    ttsBudget: runtime.voice.ttsBudget,
+    onSpeechGenerated,
+  };
+}
+
+/**
+ * A generated image and a generated speech clip both claim the reply's
+ * single-attachment slot; an image (already well-tested) wins a same-turn
+ * collision rather than the two ambiguously overriding each other.
+ */
+export function finalMediaAttachments(
+  generatedImage: GeneratedImage | undefined,
+  generatedSpeech: GeneratedSpeech | undefined,
+): {
+  imageAttachment?: { bytes: Buffer };
+  voiceAttachment?: { bytes: Buffer };
+} {
+  if (generatedImage !== undefined) {
+    return { imageAttachment: { bytes: generatedImage.bytes } };
+  }
+  if (generatedSpeech !== undefined) {
+    return { voiceAttachment: { bytes: generatedSpeech.bytes } };
+  }
+  return {};
+}
+
+export function createVoiceReplyRuntime(
+  config: BotVoiceReplyRuntimeConfig | undefined,
+): VoiceReplyRuntime {
+  if (config === undefined) {
+    return { ttsClient: undefined, ttsBudget: undefined };
+  }
+  return {
+    ttsClient: new RunwareClient({
+      endpoint: config.endpoint,
+      apiKey: config.apiKey,
+      nsfwAllowed: false,
+      timeoutMs: config.timeoutMs,
+    }),
+    ttsBudget: new ImageGenerationBudget(
+      config.maxRepliesPerTurn,
+      config.maxRepliesPerChatPerDay,
+    ),
   };
 }

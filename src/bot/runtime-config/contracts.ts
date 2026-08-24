@@ -48,6 +48,16 @@ export interface BotImageGenerationRuntimeConfig {
   maxImagesPerChatPerDay: number;
 }
 
+/** Runware text-to-speech backend for `speak_text`. Independently opt-in. */
+export interface BotVoiceReplyRuntimeConfig {
+  provider: "runware";
+  apiKey: string;
+  endpoint: string;
+  timeoutMs: number;
+  maxRepliesPerTurn: number;
+  maxRepliesPerChatPerDay: number;
+}
+
 export interface BotRuntimeConfig {
   token: string;
   exclusivePollerConfirmed: true;
@@ -68,6 +78,7 @@ export interface BotRuntimeConfig {
   researchGateway?: BotResearchGatewayRuntimeConfig;
   audioTranscribe: BotAudioTranscribeRuntimeConfig;
   imageGeneration?: BotImageGenerationRuntimeConfig;
+  voiceReply?: BotVoiceReplyRuntimeConfig;
   /** Loopback SearXNG JSON API origin. Default http://127.0.0.1:8080. */
   searxngEndpoint: string;
   /** Loopback Firecrawl v2 API origin. Default http://127.0.0.1:3002. */
@@ -94,6 +105,7 @@ export type SafeBotRuntimeConfig = Omit<
   | "audioTranscribe"
   | "memoryWriteAuthorizerIds"
   | "imageGeneration"
+  | "voiceReply"
 > & {
   tokenConfigured: true;
   memoryWriteAuthorizerCount: number;
@@ -101,6 +113,9 @@ export type SafeBotRuntimeConfig = Omit<
     bearerTokenConfigured: boolean;
   };
   imageGeneration?: Omit<BotImageGenerationRuntimeConfig, "apiKey"> & {
+    apiKeyConfigured: true;
+  };
+  voiceReply?: Omit<BotVoiceReplyRuntimeConfig, "apiKey"> & {
     apiKeyConfigured: true;
   };
   webSearch?:

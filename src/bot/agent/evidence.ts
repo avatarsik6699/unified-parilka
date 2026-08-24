@@ -35,7 +35,11 @@ export function maxCarriedToolResultChars(name: string): number {
   if (name === "firecrawl_crawl") {
     return MAX_FIRECRAWL_CARRY_CHARS;
   }
-  if (name === "generate_image") {
+  if (
+    name === "generate_image" ||
+    name === "edit_image" ||
+    name === "speak_text"
+  ) {
     return MAX_GENERATE_IMAGE_CARRY_CHARS;
   }
   return MAX_TOOL_CARRY_CHARS;

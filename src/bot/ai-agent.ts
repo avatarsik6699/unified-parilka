@@ -71,15 +71,18 @@ import type { ReadToolEvidence } from "./read-tools/contracts.js";
 import { createTurnImageTracker } from "./agent/web-images.js";
 import type {
   GeneratedImage,
+  GeneratedSpeech,
   WebToolPort,
 } from "./web-tools/tool-definitions.js";
-import type { RunwareClient } from "./web-tools/runware-client.js";
-import type { ImageGenerationBudget } from "./agent/image-generation-budget.js";
 import {
+  agentMediaPortOptions,
   buildAgentWebToolPort,
-  createImageGenerationRuntime,
+  createAgentMediaRuntime,
+  finalMediaAttachments,
+  type AgentMediaRuntime,
+  type BotImageGenerationRuntimeConfig,
+  type BotVoiceReplyRuntimeConfig,
 } from "./agent/image-generation-wiring.js";
-import type { BotImageGenerationRuntimeConfig } from "./runtime-config.js";
 const MAX_LENGTH_FINALIZATION_RETRIES = 1;
 const MAX_EMPTY_FINAL_RETRIES = 1;
 export interface TurnModelRouter {
@@ -109,6 +112,7 @@ export interface AiSdkBotTurnAgentOptions {
   firecrawlEndpoint?: string;
   webToolPort?: WebToolPort;
   imageGeneration?: BotImageGenerationRuntimeConfig;
+  voiceReply?: BotVoiceReplyRuntimeConfig;
 }
 
 export type BotAgentProtocolErrorCode = "empty_final" | "incomplete_finish";
@@ -147,9 +151,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
   readonly #searxngEndpoint: string | undefined;
   readonly #firecrawlEndpoint: string | undefined;
   readonly #webToolPort: WebToolPort | undefined;
-  readonly #runwareClient: RunwareClient | undefined;
-  readonly #imageBudget: ImageGenerationBudget | undefined;
-  readonly #imageGenerationNsfwAllowed: boolean;
+  readonly #mediaRuntime: AgentMediaRuntime;
 
   constructor(options: AiSdkBotTurnAgentOptions) {
     this.#router = options.router;
@@ -169,10 +171,10 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
     this.#searxngEndpoint = options.searxngEndpoint;
     this.#firecrawlEndpoint = options.firecrawlEndpoint;
     this.#webToolPort = options.webToolPort;
-    const imageRuntime = createImageGenerationRuntime(options.imageGeneration);
-    this.#runwareClient = imageRuntime.runwareClient;
-    this.#imageBudget = imageRuntime.imageBudget;
-    this.#imageGenerationNsfwAllowed = imageRuntime.nsfwAllowed;
+    this.#mediaRuntime = createAgentMediaRuntime(
+      options.imageGeneration,
+      options.voiceReply,
+    );
   }
 
   async run(request: BotAgentRequest): Promise<BotAgentFinalResult> {
@@ -218,7 +220,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
     const compactionState: PrepareStepCompactionState = { count: 0 };
     const imageTracker =
       this.#webToolPort?.imageTracker ?? createTurnImageTracker();
-    let generatedImage: GeneratedImage | undefined;
+    const media: { image?: GeneratedImage; speech?: GeneratedSpeech } = {};
     const thinkingProgress = new ThinkingProgressTracker(
       request.toolProgressPort,
     );
@@ -376,19 +378,19 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
               buildAgentWebToolPort({
                 searxngEndpoint: this.#searxngEndpoint,
                 firecrawlEndpoint: this.#firecrawlEndpoint,
-                runwareClient: this.#runwareClient,
-                imageBudget: this.#imageBudget,
-                nsfwAllowed: this.#imageGenerationNsfwAllowed,
                 imageTracker,
                 nonce,
                 turnSignal,
                 turnId: String(request.turn.id),
                 triggerText: request.trigger.text,
                 botUsername: this.#prompt.botUsername,
-                onImageGenerated: (image: GeneratedImage) => {
-                  generatedImage = image;
-                },
                 router: this.#router,
+                ...agentMediaPortOptions(
+                  this.#mediaRuntime,
+                  visionAttachment,
+                  (image) => (media.image = image),
+                  (speech) => (media.speech = speech),
+                ),
               }),
             onExecutionStarted: toolObserver.onExecutionStarted,
             onExecutionCompleted: toolObserver.onExecutionCompleted,
@@ -614,9 +616,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
                 kind: "final" as const,
                 text: sanitizedText,
                 telemetry: usage.build(),
-                ...(generatedImage === undefined
-                  ? {}
-                  : { imageAttachment: { bytes: generatedImage.bytes } }),
+                ...finalMediaAttachments(media.image, media.speech),
               };
             }
           } catch (error) {

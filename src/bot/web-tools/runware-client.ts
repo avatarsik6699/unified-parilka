@@ -26,6 +26,22 @@ const DEFAULT_MODEL = RUNWARE_MODEL_ALLOWLIST[0];
 
 const SIZE_CHOICES = [512, 768, 1024] as const;
 const DEFAULT_SIZE = 512;
+const MAX_REFERENCE_IMAGES = 1;
+
+/** `inworld:tts@2` -- picked for broad language coverage including Russian. */
+export const RUNWARE_TTS_MODEL = "inworld:tts@2";
+
+/** The model's curated Russian voice set (see runware.ai/docs/models/inworld-tts-2). */
+export const RUNWARE_TTS_RU_VOICES = [
+  "Svetlana",
+  "Elena",
+  "Dmitry",
+  "Nikolai",
+] as const;
+const DEFAULT_TTS_VOICE = RUNWARE_TTS_RU_VOICES[0];
+const MAX_SPEECH_TEXT_CHARS = 2_000;
+const MIN_SPEECH_TEXT_CHARS = 2;
+const MAX_AUDIO_BYTES = 10_000_000;
 
 export interface RunwareGenerateParams {
   prompt: string;
@@ -33,7 +49,23 @@ export interface RunwareGenerateParams {
   width?: number;
   height?: number;
   nsfw?: boolean;
+  /** Data URI of a source photo to guide image-to-image editing. */
+  referenceImages?: string[];
 }
+
+export interface RunwareSpeechParams {
+  text: string;
+  voice?: string;
+}
+
+export interface RunwareSpeechSuccess {
+  ok: true;
+  audioBytes: Buffer;
+  model: string;
+  voice: string;
+}
+
+export type RunwareSpeechResult = RunwareSpeechSuccess | RunwareGenerateFailure;
 
 export interface RunwareGenerateSuccess {
   ok: true;
@@ -122,6 +154,9 @@ export class RunwareClient {
         outputType: "URL",
         outputFormat: "JPG",
         safety: { checkContent: !(this.#nsfwAllowed && validated.nsfw) },
+        ...(validated.referenceImages === undefined
+          ? {}
+          : { inputs: { referenceImages: validated.referenceImages } }),
       },
     ]);
 
@@ -194,7 +229,11 @@ export class RunwareClient {
     const imageUrl = entry.imageURL as string;
     let imageBytes: Buffer;
     try {
-      imageBytes = await this.#downloadImage(imageUrl, signal);
+      imageBytes = await this.#downloadBinary(
+        imageUrl,
+        signal,
+        MAX_IMAGE_BYTES,
+      );
     } catch (error) {
       return mapTransportError(error, signal);
     }
@@ -208,7 +247,136 @@ export class RunwareClient {
     };
   }
 
-  async #downloadImage(url: string, signal: AbortSignal): Promise<Buffer> {
+  /**
+   * Synthesizes Russian speech via Runware's `audioInference` task. Shares
+   * the same authenticated transport and bounded-download path as
+   * `generate()` -- one provider, one API key, one client.
+   */
+  async synthesizeSpeech(
+    params: RunwareSpeechParams,
+    signal: AbortSignal,
+  ): Promise<RunwareSpeechResult> {
+    const validated = validateSpeechParams(params);
+    if (!validated.ok) {
+      return {
+        ok: false,
+        error: { code: "invalid_arguments", message: validated.message },
+      };
+    }
+    if (signal.aborted) {
+      return {
+        ok: false,
+        error: { code: "aborted", message: "Operation aborted." },
+      };
+    }
+
+    const taskUUID = randomUUID();
+    const body = JSON.stringify([
+      {
+        taskType: "audioInference",
+        taskUUID,
+        model: RUNWARE_TTS_MODEL,
+        // Telegram's sendVoice bubble requires .ogg/OPUS audio, not MP3.
+        outputType: "URL",
+        outputFormat: "OGG",
+        speech: {
+          text: validated.text,
+          voice: validated.voice,
+          language: "ru",
+        },
+      },
+    ]);
+
+    let response;
+    try {
+      response = await this.#json.request({
+        path: "",
+        method: "POST",
+        body,
+        signal,
+      });
+    } catch (error) {
+      return mapTransportError(error, signal);
+    }
+    if (response.status < 200 || response.status >= 300) {
+      return {
+        ok: false,
+        error: {
+          code: "provider_error",
+          message: `Runware returned HTTP ${response.status}.`,
+        },
+      };
+    }
+
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = parseJsonObject(response.text);
+    } catch {
+      return {
+        ok: false,
+        error: {
+          code: "provider_error",
+          message: "Runware response unreadable.",
+        },
+      };
+    }
+
+    const errors = Array.isArray(parsed.errors)
+      ? parsed.errors
+      : parsed.error !== undefined
+        ? [parsed.error]
+        : [];
+    if (errors.length > 0) {
+      return {
+        ok: false,
+        error: {
+          code: "provider_error",
+          message: "Runware rejected the request.",
+        },
+      };
+    }
+
+    const entries = Array.isArray(parsed.data) ? parsed.data : [];
+    const entry = entries.find(
+      (item): item is Record<string, unknown> =>
+        typeof item === "object" &&
+        item !== null &&
+        typeof (item as Record<string, unknown>).audioURL === "string",
+    );
+    if (entry === undefined) {
+      return {
+        ok: false,
+        error: {
+          code: "provider_error",
+          message: "Runware response contained no audio.",
+        },
+      };
+    }
+
+    let audioBytes: Buffer;
+    try {
+      audioBytes = await this.#downloadBinary(
+        entry.audioURL as string,
+        signal,
+        MAX_AUDIO_BYTES,
+      );
+    } catch (error) {
+      return mapTransportError(error, signal);
+    }
+
+    return {
+      ok: true,
+      audioBytes,
+      model: RUNWARE_TTS_MODEL,
+      voice: validated.voice,
+    };
+  }
+
+  async #downloadBinary(
+    url: string,
+    signal: AbortSignal,
+    maxBytes: number,
+  ): Promise<Buffer> {
     let parsedUrl: URL;
     try {
       parsedUrl = new URL(url);
@@ -258,10 +426,10 @@ export class RunwareClient {
           break;
         }
         total += value.length;
-        if (total > MAX_IMAGE_BYTES) {
+        if (total > maxBytes) {
           await reader.cancel("response_too_large");
           throw new ExternalJsonResponseTooLargeError(
-            "Generated image exceeded the byte limit.",
+            "Generated media exceeded the byte limit.",
           );
         }
         chunks.push(value);
@@ -282,6 +450,7 @@ function validateParams(params: RunwareGenerateParams):
       width: number;
       height: number;
       nsfw: boolean;
+      referenceImages?: string[];
     }
   | { ok: false; message: string } {
   const prompt = params.prompt.trim();
@@ -312,7 +481,53 @@ function validateParams(params: RunwareGenerateParams):
       message: `height must be one of: ${SIZE_CHOICES.join(", ")}.`,
     };
   }
-  return { ok: true, prompt, model, width, height, nsfw: params.nsfw === true };
+  if (
+    params.referenceImages !== undefined &&
+    (params.referenceImages.length === 0 ||
+      params.referenceImages.length > MAX_REFERENCE_IMAGES ||
+      params.referenceImages.some(
+        (image) => typeof image !== "string" || image.length === 0,
+      ))
+  ) {
+    return {
+      ok: false,
+      message: `referenceImages must contain 1-${MAX_REFERENCE_IMAGES} non-empty entries.`,
+    };
+  }
+  return {
+    ok: true,
+    prompt,
+    model,
+    width,
+    height,
+    nsfw: params.nsfw === true,
+    ...(params.referenceImages === undefined
+      ? {}
+      : { referenceImages: params.referenceImages }),
+  };
+}
+
+function validateSpeechParams(
+  params: RunwareSpeechParams,
+): { ok: true; text: string; voice: string } | { ok: false; message: string } {
+  const text = params.text.trim();
+  if (
+    text.length < MIN_SPEECH_TEXT_CHARS ||
+    text.length > MAX_SPEECH_TEXT_CHARS
+  ) {
+    return {
+      ok: false,
+      message: `text must be between ${MIN_SPEECH_TEXT_CHARS} and ${MAX_SPEECH_TEXT_CHARS} characters.`,
+    };
+  }
+  const voice = params.voice ?? DEFAULT_TTS_VOICE;
+  if (!RUNWARE_TTS_RU_VOICES.includes(voice as never)) {
+    return {
+      ok: false,
+      message: `voice must be one of: ${RUNWARE_TTS_RU_VOICES.join(", ")}.`,
+    };
+  }
+  return { ok: true, text, voice };
 }
 
 function mapTransportError(

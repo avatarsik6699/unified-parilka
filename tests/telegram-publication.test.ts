@@ -54,6 +54,44 @@ test("an image attachment beyond the caption limit falls back to text-only", () 
   assert.notEqual(publication.mode, "photo");
 });
 
+test("a voice attachment that fits the caption limit becomes a voice publication", () => {
+  const text = "привет из логова";
+  const bytes = Buffer.from([9, 8, 7]);
+  const publication = createTelegramPublication(text, undefined, undefined, {
+    bytes,
+  });
+
+  assert.equal(publication.mode, "voice");
+  if (publication.mode === "voice") {
+    assert.equal(publication.voiceBytes, bytes);
+    assert.equal(publication.caption, text);
+  }
+});
+
+test("a voice attachment beyond the caption limit falls back to text-only", () => {
+  const text = "x".repeat(TELEGRAM_CAPTION_LIMIT_UTF16 + 1);
+  const bytes = Buffer.from([9, 8, 7]);
+  const publication = createTelegramPublication(text, undefined, undefined, {
+    bytes,
+  });
+
+  assert.notEqual(publication.mode, "voice");
+});
+
+test("an image attachment takes priority over a voice attachment", () => {
+  const text = "картинка и голос вместе";
+  const imageBytes = Buffer.from([1, 2, 3]);
+  const voiceBytes = Buffer.from([9, 8, 7]);
+  const publication = createTelegramPublication(
+    text,
+    undefined,
+    { bytes: imageBytes },
+    { bytes: voiceBytes },
+  );
+
+  assert.equal(publication.mode, "photo");
+});
+
 test("production-shaped orphan separator with nine columns becomes multiline record blocks", () => {
   const text = [
     `|${":---|"}${"---|".repeat(8)}`,

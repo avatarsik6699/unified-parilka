@@ -3,6 +3,8 @@ import { test } from "node:test";
 import {
   RunwareClient,
   RUNWARE_MODEL_ALLOWLIST,
+  RUNWARE_TTS_MODEL,
+  RUNWARE_TTS_RU_VOICES,
 } from "../src/bot/web-tools/runware-client.js";
 
 // ─── Fake helpers ───────────────────────────────────────────────────────────
@@ -181,5 +183,110 @@ test("generate() reports aborted when the caller signal is already aborted", asy
   assert.equal(result.ok, false);
   if (!result.ok) {
     assert.equal(result.error.code, "aborted");
+  }
+});
+
+test("generate() forwards a reference image as inputs.referenceImages", async () => {
+  let capturedBody = "";
+  const client = runwareClient((input, init) => {
+    if (input === "https://api.runware.ai/v1") {
+      capturedBody = String(init?.body ?? "");
+    }
+    return successHandler(input);
+  });
+  const result = await client.generate(
+    {
+      prompt: "перекрась это в синий",
+      referenceImages: ["data:image/jpeg;base64,AAAA"],
+    },
+    new AbortController().signal,
+  );
+  assert.equal(result.ok, true);
+  const parsedBody = JSON.parse(capturedBody);
+  assert.deepEqual(parsedBody[0].inputs, {
+    referenceImages: ["data:image/jpeg;base64,AAAA"],
+  });
+});
+
+test("generate() rejects an empty referenceImages array", async () => {
+  const client = runwareClient(successHandler);
+  const result = await client.generate(
+    { prompt: "a golden retriever", referenceImages: [] },
+    new AbortController().signal,
+  );
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.error.code, "invalid_arguments");
+  }
+});
+
+// ─── Runware TTS ────────────────────────────────────────────────────────────
+
+const AUDIO_BYTES = new Uint8Array([9, 8, 7]);
+
+function speechSuccessHandler(input: string): Response {
+  if (input === "https://api.runware.ai/v1") {
+    return new Response(
+      JSON.stringify({
+        data: [
+          {
+            taskType: "audioInference",
+            audioURL: "https://am.runware.ai/audio/os/x.ogg",
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }
+  if (input === "https://am.runware.ai/audio/os/x.ogg") {
+    return new Response(AUDIO_BYTES, { status: 200 });
+  }
+  return new Response("not found", { status: 404 });
+}
+
+test("synthesizeSpeech() sends the Russian voice and returns downloaded bytes", async () => {
+  let capturedBody = "";
+  const client = runwareClient((input, init) => {
+    if (input === "https://api.runware.ai/v1") {
+      capturedBody = String(init?.body ?? "");
+    }
+    return speechSuccessHandler(input);
+  });
+  const result = await client.synthesizeSpeech(
+    { text: "привет" },
+    new AbortController().signal,
+  );
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.model, RUNWARE_TTS_MODEL);
+    assert.equal(result.voice, RUNWARE_TTS_RU_VOICES[0]);
+    assert.deepEqual(Array.from(result.audioBytes), Array.from(AUDIO_BYTES));
+  }
+  const parsedBody = JSON.parse(capturedBody);
+  assert.equal(parsedBody[0].speech.language, "ru");
+  assert.equal(parsedBody[0].outputFormat, "OGG");
+});
+
+test("synthesizeSpeech() rejects a voice outside the Russian allowlist", async () => {
+  const client = runwareClient(speechSuccessHandler);
+  const result = await client.synthesizeSpeech(
+    { text: "привет", voice: "Claire" },
+    new AbortController().signal,
+  );
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.error.code, "invalid_arguments");
+  }
+});
+
+test("synthesizeSpeech() rejects an out-of-range text", async () => {
+  const client = runwareClient(speechSuccessHandler);
+  const result = await client.synthesizeSpeech(
+    { text: "a" },
+    new AbortController().signal,
+  );
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.error.code, "invalid_arguments");
   }
 });

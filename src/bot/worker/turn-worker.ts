@@ -254,6 +254,7 @@ export class BotTurnWorker {
         draftText,
         final.responseOrigin,
         final.imageAttachment,
+        final.voiceAttachment,
       );
 
       if (

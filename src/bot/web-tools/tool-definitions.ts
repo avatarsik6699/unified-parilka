@@ -12,6 +12,8 @@ export const WEB_TOOL_NAMES = [
   "firecrawl_crawl",
   "inspect_web_images",
   "generate_image",
+  "edit_image",
+  "speak_text",
 ] as const;
 
 export interface GeneratedImage {
@@ -19,6 +21,18 @@ export interface GeneratedImage {
   model: string;
   width: number;
   height: number;
+}
+
+export interface GeneratedSpeech {
+  bytes: Buffer;
+  model: string;
+  voice: string;
+}
+
+/** The already-downloaded reply/current-message photo, reused as an edit source. */
+export interface ReferenceImage {
+  data: Uint8Array;
+  mediaType: string;
 }
 
 export type TranslateImagePrompt = (
@@ -64,6 +78,11 @@ export interface WebToolPort {
   rawImagePromptSource?: string;
   /** Best-effort literal translation to English before Runware sees the prompt. */
   translateImagePrompt?: TranslateImagePrompt;
+  /** This turn's already-downloaded photo, offered to edit_image as a source. */
+  referenceImage?: ReferenceImage;
+  ttsClient?: RunwareClient;
+  ttsBudget?: ImageGenerationBudget;
+  onSpeechGenerated?: (speech: GeneratedSpeech) => void;
 }
 
 export interface CreateWebToolPortOptions {
@@ -84,6 +103,10 @@ export interface CreateWebToolPortOptions {
   rawImagePromptSource?: string;
   /** Best-effort literal translation to English before Runware sees the prompt. */
   translateImagePrompt?: TranslateImagePrompt;
+  referenceImage?: ReferenceImage;
+  ttsClient?: RunwareClient;
+  ttsBudget?: ImageGenerationBudget;
+  onSpeechGenerated?: (speech: GeneratedSpeech) => void;
 }
 
 export function createWebToolPort(
@@ -125,6 +148,18 @@ export function createWebToolPort(
     ...(options.translateImagePrompt === undefined
       ? {}
       : { translateImagePrompt: options.translateImagePrompt }),
+    ...(options.referenceImage === undefined
+      ? {}
+      : { referenceImage: options.referenceImage }),
+    ...(options.ttsClient === undefined
+      ? {}
+      : { ttsClient: options.ttsClient }),
+    ...(options.ttsBudget === undefined
+      ? {}
+      : { ttsBudget: options.ttsBudget }),
+    ...(options.onSpeechGenerated === undefined
+      ? {}
+      : { onSpeechGenerated: options.onSpeechGenerated }),
   };
 }
 

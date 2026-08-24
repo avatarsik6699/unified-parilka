@@ -137,6 +137,9 @@ export function composeBotDaemon(
       ...(config.imageGeneration === undefined
         ? {}
         : { imageGeneration: config.imageGeneration }),
+      ...(config.voiceReply === undefined
+        ? {}
+        : { voiceReply: config.voiceReply }),
     });
     const workers = Array.from(
       { length: config.workerConcurrency },

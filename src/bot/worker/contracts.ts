@@ -34,8 +34,10 @@ export interface BotAgentFinalResult {
    * than being sent through the native rich-message endpoint.
    */
   responseOrigin?: "local_audio";
-  /** A generate_image tool result to attach as a native Telegram photo. */
+  /** A generate_image/edit_image tool result to attach as a native Telegram photo. */
   imageAttachment?: { bytes: Buffer };
+  /** A speak_text tool result to attach as a native Telegram voice message. */
+  voiceAttachment?: { bytes: Buffer };
 }
 
 export interface BotAgentRequest {

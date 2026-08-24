@@ -51,6 +51,14 @@ export interface GrammySendPhotoInput {
   signal: AbortSignal;
 }
 
+export interface GrammySendVoiceInput {
+  chatId: string;
+  voiceBytes: Buffer;
+  caption: string;
+  options: GrammyRichMessageOptions;
+  signal: AbortSignal;
+}
+
 /**
  * The publisher only needs a few Bot API operations. Keeping this port
  * narrower than grammY's Api makes delivery behavior straightforward to test.
@@ -64,6 +72,7 @@ export interface GrammyBotApiPort {
     signal: AbortSignal,
   ): Promise<unknown>;
   sendPhoto?(input: GrammySendPhotoInput): Promise<unknown>;
+  sendVoice?(input: GrammySendVoiceInput): Promise<unknown>;
 }
 
 type PublisherFailure = Extract<
@@ -144,6 +153,9 @@ export class GrammyBotTurnPublisher implements BotTurnPublisher {
     if (request.publication.mode === "photo") {
       return this.#publishPhoto(request);
     }
+    if (request.publication.mode === "voice") {
+      return this.#publishVoice(request);
+    }
     return this.#publishRich(request);
   }
 
@@ -172,6 +184,55 @@ export class GrammyBotTurnPublisher implements BotTurnPublisher {
       response = await sendPhoto({
         chatId: request.chatId,
         photoBytes,
+        caption,
+        options: richOptions(request.replyToMessageId),
+        signal: request.signal,
+      });
+    } catch (error) {
+      return classifyThrownFailure(error, request.signal, 0);
+    }
+
+    const rejection = readTelegramRejection(response);
+    if (rejection) {
+      return classifyTelegramRejection(rejection, 0);
+    }
+
+    const messageId = readMessageId(response);
+    if (messageId === undefined) {
+      return ambiguousOrPartialFailure(0, {
+        kind: "unknown",
+        code: "MALFORMED_SUCCESS_RESPONSE",
+      });
+    }
+
+    return { ok: true, chunksSent: 1, telegramMessageId: messageId };
+  }
+
+  async #publishVoice(
+    request: TelegramPublishRequest,
+  ): Promise<TelegramPublisherResult> {
+    if (request.publication.mode !== "voice") {
+      return failure(0, {
+        kind: "unknown",
+        code: "INVALID_PUBLISH_REQUEST",
+      });
+    }
+    const { voiceBytes, caption } = request.publication;
+    if (request.signal.aborted) {
+      return failure(0, { kind: "timeout", code: "ABORTED" });
+    }
+    const sendVoice = this.#api.sendVoice;
+    if (sendVoice === undefined) {
+      // Voice delivery is not wired for this port; degrade to the ordinary
+      // plain-text path rather than silently dropping the reply.
+      return this.#publishPlain(request, caption, TELEGRAM_TEXT_LIMIT_UTF16);
+    }
+
+    let response: unknown;
+    try {
+      response = await sendVoice({
+        chatId: request.chatId,
+        voiceBytes,
         caption,
         options: richOptions(request.replyToMessageId),
         signal: request.signal,
@@ -580,6 +641,7 @@ function isPublication(value: unknown): boolean {
     plainText?: unknown;
     maxChunkUtf16?: unknown;
     photoBytes?: unknown;
+    voiceBytes?: unknown;
     caption?: unknown;
   };
   const hasValidChunkLimit =
@@ -606,6 +668,13 @@ function isPublication(value: unknown): boolean {
     return (
       Buffer.isBuffer(publication.photoBytes) &&
       publication.photoBytes.length > 0 &&
+      typeof publication.caption === "string"
+    );
+  }
+  if (publication.mode === "voice") {
+    return (
+      Buffer.isBuffer(publication.voiceBytes) &&
+      publication.voiceBytes.length > 0 &&
       typeof publication.caption === "string"
     );
   }

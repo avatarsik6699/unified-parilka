@@ -34,22 +34,35 @@ export type TelegramPublication =
       mode: "photo";
       photoBytes: Buffer;
       caption: string;
+    }
+  | {
+      mode: "voice";
+      voiceBytes: Buffer;
+      caption: string;
     };
 
 export interface TelegramImageAttachment {
   bytes: Buffer;
 }
 
+export interface TelegramVoiceAttachment {
+  bytes: Buffer;
+}
+
 /**
- * `imageAttachment` is only honored when the fully rendered text (including
- * the telemetry footer) fits Telegram's sendPhoto caption limit -- a longer
- * reply falls back to the ordinary rich/plain text path without the photo,
- * rather than splitting a caption across messages or dropping content.
+ * `imageAttachment`/`voiceAttachment` are only honored when the fully
+ * rendered text (including the telemetry footer) fits Telegram's caption
+ * limit -- a longer reply falls back to the ordinary rich/plain text path
+ * without the attachment, rather than splitting a caption across messages or
+ * dropping content. The two are mutually exclusive at the call site
+ * (ai-agent.ts drops a same-turn voice result once an image has claimed the
+ * slot), so image takes priority here only as a defensive tie-break.
  */
 export function createTelegramPublication(
   text: string,
   responseOrigin?: "local_audio",
   imageAttachment?: TelegramImageAttachment,
+  voiceAttachment?: TelegramVoiceAttachment,
 ): TelegramPublication {
   const normalized = normalizeTelegramMarkdownTables(text);
   if (
@@ -59,6 +72,16 @@ export function createTelegramPublication(
     return {
       mode: "photo",
       photoBytes: imageAttachment.bytes,
+      caption: normalized,
+    };
+  }
+  if (
+    voiceAttachment !== undefined &&
+    utf16Length(normalized) <= TELEGRAM_CAPTION_LIMIT_UTF16
+  ) {
+    return {
+      mode: "voice",
+      voiceBytes: voiceAttachment.bytes,
       caption: normalized,
     };
   }
