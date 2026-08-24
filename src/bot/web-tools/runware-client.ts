@@ -124,6 +124,7 @@ export class RunwareClient {
         height: validated.height,
         numberResults: 1,
         outputType: "URL",
+        outputFormat: "JPG",
         safety: { checkContent: !(this.#nsfwAllowed && validated.nsfw) },
       },
     ]);

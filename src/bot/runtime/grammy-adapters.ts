@@ -67,7 +67,7 @@ export function createDurableGrammyBotTurnPublisher(
     async sendPhoto(input) {
       const response = await api.sendPhoto(
         input.chatId,
-        new InputFile(input.photoBytes),
+        new InputFile(input.photoBytes, "image.jpg"),
         {
           caption: input.caption,
           reply_parameters: input.options.reply_parameters,
