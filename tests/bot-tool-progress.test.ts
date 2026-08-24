@@ -105,11 +105,11 @@ async function drain(): Promise<void> {
   await Promise.resolve();
 }
 
-/** Matches one rendered progress line: an icon, a space, and a known fun label. */
+/** Matches one rendered thinking line: an icon, a space, and a known fun label. */
 const LABEL_ALTERNATION = PROGRESS_LABELS.map((label) =>
   label.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"),
 ).join("|");
-function lineRegExp(icon: string): RegExp {
+function thinkingLineRegExp(icon: string): RegExp {
   return new RegExp(`^${icon} (?:${LABEL_ALTERNATION})$`, "u");
 }
 
@@ -125,8 +125,7 @@ test("sends a progress message on the first tool start", async () => {
   assert.equal(port.calls.length, 2);
   assert.equal(port.calls[0].kind, "send");
   assert.equal(port.calls[0].chatId, "-1004242");
-  assert.match(port.calls[0].text, lineRegExp("⏳"));
-  assert.doesNotMatch(port.calls[0].text, /rag_bm25_search/u);
+  assert.equal(port.calls[0].text, "⏳ rag_bm25_search");
   assert.ok(port.calls[0].signal instanceof AbortSignal);
   assert.equal(port.calls[1].kind, "delete");
   assert.equal(store.states.length, 3);
@@ -134,7 +133,7 @@ test("sends a progress message on the first tool start", async () => {
   assert.equal(store.states[1]?.progress.state, "active");
 });
 
-test("edits the existing message as tools complete, keeping the same label", async () => {
+test("edits the existing message as tools complete", async () => {
   const port = fakePort();
   const { publisher } = makePublisher({ port });
 
@@ -150,14 +149,10 @@ test("edits the existing message as tools complete, keeping the same label", asy
   const texts = port.calls
     .filter((call) => call.kind === "send" || call.kind === "edit")
     .map((call) => call.text);
-  assert.equal(texts.length, 2);
-  assert.match(texts[0] ?? "", lineRegExp("⏳"));
-  assert.match(texts[1] ?? "", lineRegExp("✓"));
-  // The label picked at start must survive into the completed line.
-  assert.equal(texts[0]?.slice(2), texts[1]?.slice(2));
+  assert.deepEqual(texts, ["⏳ rag_bm25_search", "✓ rag_bm25_search"]);
 });
 
-test("shows thinking as a separate safe status before a tool call, both unlabeled by real name", async () => {
+test("shows thinking as a separate safe status before a tool call, thinking unlabeled by real name", async () => {
   const port = fakePort();
   const { publisher } = makePublisher({ port });
 
@@ -172,12 +167,13 @@ test("shows thinking as a separate safe status before a tool call, both unlabele
     .filter((call) => call.kind === "send" || call.kind === "edit")
     .map((call) => call.text);
   assert.equal(texts.length, 2);
-  assert.match(texts[0] ?? "", lineRegExp("🧠"));
+  assert.match(texts[0] ?? "", thinkingLineRegExp("🧠"));
+  assert.doesNotMatch(String(texts[0]), /thinking/u);
+
   const secondLines = String(texts[1]).split("\n");
   assert.equal(secondLines.length, 2);
-  assert.match(secondLines[0] ?? "", lineRegExp("✓"));
-  assert.match(secondLines[1] ?? "", lineRegExp("⏳"));
-  assert.doesNotMatch(String(texts[1]), /thinking|web_search/u);
+  assert.match(secondLines[0] ?? "", thinkingLineRegExp("✓"));
+  assert.equal(secondLines[1], "⏳ web_search");
 });
 
 test("uses error icon for failed tools", async () => {
@@ -191,10 +187,36 @@ test("uses error icon for failed tools", async () => {
   await publisher.finish(new AbortController().signal);
 
   const edit = port.calls.find((call) => call.kind === "edit");
-  assert.match(edit?.text ?? "", lineRegExp("✗"));
+  assert.equal(edit?.text, "✗ web_search");
 });
 
-test("never leaks tool input into the visible progress text", async () => {
+test("shows an allowlisted query and clamps it to three lines", async () => {
+  const port = fakePort();
+  const { publisher } = makePublisher({ port });
+
+  publisher.onToolStarted({
+    toolName: "web_search",
+    callId: "c1",
+    input: { query: "q".repeat(400) },
+  });
+  await drain();
+  publisher.onToolCompleted({ toolName: "web_search", callId: "c1" }, true);
+  await drain();
+  await publisher.finish(new AbortController().signal);
+
+  const texts = port.calls
+    .filter((call) => call.kind === "send" || call.kind === "edit")
+    .map((call) => call.text);
+  const first = String(texts[0]);
+  const lines = first.split("\n");
+  assert.equal(lines.length, 4);
+  assert.equal(lines[0], "⏳ web_search");
+  assert.match(lines[1] ?? "", /^  запрос: q+/);
+  assert.match(lines[3] ?? "", /…$/);
+  assert.match(String(texts[1]), /^✓ web_search\n {2}запрос:/);
+});
+
+test("shows a static_page_fetch page selector without leaking its query string", async () => {
   const port = fakePort();
   const { publisher } = makePublisher({ port });
 
@@ -207,11 +229,11 @@ test("never leaks tool input into the visible progress text", async () => {
   await publisher.finish(new AbortController().signal);
 
   const sent = port.calls.find((call) => call.kind === "send");
-  assert.match(sent?.text ?? "", lineRegExp("⏳"));
-  assert.doesNotMatch(
-    String(sent?.text),
-    /access_token|do-not-show|example\.com/u,
+  assert.equal(
+    sent?.text,
+    "⏳ static_page_fetch\n  страница: https://example.com/article",
   );
+  assert.doesNotMatch(String(sent?.text), /access_token|do-not-show/u);
 });
 
 test("research lookup hides its raw selector from the visible timeline", async () => {
@@ -227,10 +249,14 @@ test("research lookup hides its raw selector from the visible timeline", async (
   await publisher.finish(new AbortController().signal);
 
   const sent = port.calls.find((call) => call.kind === "send");
+  assert.equal(
+    sent?.text,
+    "⏳ research_lookup\n  корпус: обезличенные HH-исследования",
+  );
   assert.doesNotMatch(String(sent?.text), /Иван|999|123/u);
 });
 
-test("audio transcription shows only the fun label, never file/transcript details", async () => {
+test("audio transcription shows only the safe addressed-media selector", async () => {
   const port = fakePort();
   const { publisher } = makePublisher({ port });
 
@@ -247,6 +273,7 @@ test("audio transcription shows only the fun label, never file/transcript detail
   await publisher.finish(new AbortController().signal);
 
   const sent = port.calls.find((call) => call.kind === "send");
+  assert.equal(sent?.text, "⏳ audio_transcribe\n  аудио: прямой реплай");
   assert.doesNotMatch(
     String(sent?.text),
     /file_id|never-display|тоже никогда/u,
@@ -291,14 +318,21 @@ test("renderProgressText joins statuses and truncates", () => {
   const pending = new Map([
     [
       "a",
-      { kind: "tool" as const, label: "шаманю", state: "running" as const },
+      {
+        kind: "tool" as const,
+        label: "rag_bm25_search",
+        state: "running" as const,
+      },
     ],
-    ["b", { kind: "tool" as const, label: "колдую", state: "ok" as const }],
-    ["c", { kind: "tool" as const, label: "мудрю", state: "error" as const }],
+    ["b", { kind: "tool" as const, label: "web_search", state: "ok" as const }],
+    [
+      "c",
+      { kind: "tool" as const, label: "day_digest", state: "error" as const },
+    ],
   ]);
   assert.equal(
     renderProgressText(pending, 100),
-    "⏳ шаманю\n✓ колдую\n✗ мудрю",
+    "⏳ rag_bm25_search\n✓ web_search\n✗ day_digest",
   );
 
   const long = new Map([
@@ -306,7 +340,7 @@ test("renderProgressText joins statuses and truncates", () => {
       "x",
       {
         kind: "tool" as const,
-        label: "включаю режим детектива",
+        label: "very_long_tool_name",
         state: "running" as const,
       },
     ],

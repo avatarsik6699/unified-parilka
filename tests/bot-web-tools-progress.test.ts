@@ -36,7 +36,7 @@ function progressHarness() {
   return { publisher, sent };
 }
 
-test("progress never echoes tool names, URLs, tokens, or query text into the chat", async () => {
+test("progress preview shows sanitized firecrawl origin/path and image count", async () => {
   const { publisher, sent } = progressHarness();
   publisher.onToolStarted({
     toolName: "firecrawl_crawl",
@@ -56,11 +56,9 @@ test("progress never echoes tool names, URLs, tokens, or query text into the cha
   await settle();
   assert.ok(sent.length >= 1);
   const rendered = sent.join("\n");
-  assert.doesNotMatch(rendered, /example\.com/u);
-  assert.doesNotMatch(rendered, /token=SECRET|sig=SECRET/u);
-  assert.doesNotMatch(rendered, /интересная тема/u);
-  assert.doesNotMatch(
-    rendered,
-    /firecrawl_crawl|inspect_web_images|searxng_search/u,
-  );
+  assert.match(rendered, /страница: https:\/\/example\.com\/docs\/page/u);
+  assert.doesNotMatch(rendered, /token=SECRET/u);
+  assert.match(rendered, /картинки: 1/u);
+  assert.doesNotMatch(rendered, /sig=SECRET/u);
+  assert.match(rendered, /запрос: интересная тема/u);
 });
