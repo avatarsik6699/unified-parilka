@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Bot Agi news-brief daily
+
+[Timer]
+OnCalendar=*-*-* 09:00:00
+Persistent=true
+RandomizedDelaySec=10min
+Unit=bot-agi-news-brief.service
+
+[Install]
+WantedBy=timers.target

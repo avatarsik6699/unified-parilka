@@ -11,12 +11,14 @@ export function safeBotRuntimeConfig(
     memoryWriteAuthorizerIds,
     imageGeneration,
     voiceReply,
+    newsBriefTrigger,
     ...safe
   } = config;
   return {
     ...safe,
     tokenConfigured: true,
     memoryWriteAuthorizerCount: memoryWriteAuthorizerIds.length,
+    newsBriefTriggerConfigured: newsBriefTrigger !== undefined,
     audioTranscribe: {
       endpoint: audioTranscribe.endpoint,
       timeoutMs: audioTranscribe.timeoutMs,

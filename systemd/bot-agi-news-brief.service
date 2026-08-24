@@ -1,0 +1,32 @@
+[Unit]
+Description=Bot Agi daily medicine/biohacking news-brief
+Documentation=file:%h/repos/parilka-unified/README.md
+Documentation=file:%h/repos/parilka-unified/src/news-brief/README.md
+After=bot-agi-sync.service bot-agi-bot.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/repos/parilka-unified
+EnvironmentFile=-%h/.config/telegram-mcp/.env
+EnvironmentFile=-%h/.config/bot-agi/bot-agi.env
+Environment=NODE_ENV=production
+Environment=TELEGRAM_PROJECT_DIR=%h/repos/parilka-unified
+ExecStart=%h/repos/parilka-unified/bin/bot-agi-news-brief --apply
+TimeoutStartSec=15min
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.telegram-parilka-mcp
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectClock=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bot-agi-news-brief

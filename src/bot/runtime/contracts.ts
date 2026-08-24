@@ -52,6 +52,22 @@ export interface BotWorkNotifier {
   notify(): void;
 }
 
+/**
+ * Host-code-enforced privileged trigger for an early news-brief run --
+ * `tryTrigger` decides purely from the already-parsed sender id/text, never
+ * from a model/prompt-level instruction, and never sees an unaddressed
+ * message. Returning `true` means the message was consumed: it must not
+ * also be routed into a normal model turn.
+ */
+export interface NewsBriefTriggerPort {
+  tryTrigger(message: {
+    chatId: string;
+    messageId: number;
+    senderId: string | undefined;
+    text: string;
+  }): boolean;
+}
+
 export type BotUpdateProcessingResult =
   | {
       acknowledged: true;
@@ -83,4 +99,5 @@ export interface BotUpdateProcessorOptions {
   updateMaxAttempts?: number;
   logger?: JsonEventLogger;
   now?: () => number;
+  newsBriefTrigger?: NewsBriefTriggerPort;
 }

@@ -432,6 +432,18 @@ systemctl --user enable --now bot-agi-maintain.timer
 systemctl --user list-timers bot-agi-maintain.timer
 ```
 
+`bot-agi-news-brief.{service,timer}` — отдельная, независимая от maintenance
+опция (см. раздел "Maintenance, digests и импорт Python state" выше для
+переменных и dry-run) и **не** входит в рецепт выше; установите и включите
+её явно, только после отдельной проверки dry-run/первого ручного `--apply`:
+
+```bash
+install -m 0644 systemd/bot-agi-news-brief.service "$HOME/.config/systemd/user/"
+install -m 0644 systemd/bot-agi-news-brief.timer "$HOME/.config/systemd/user/"
+systemctl --user daemon-reload
+systemctl --user enable --now bot-agi-news-brief.timer
+```
+
 Команды выше являются безопасным рецептом новой shadow-установки, а не
 описанием текущего хоста. На текущем хосте live cutover уже подтверждён
 deployment evidence; повторное переключение mode или владельцев требует
@@ -610,6 +622,63 @@ apply после legacy import может пересобрать day rows с п�
 timer.
 `BOT_DIGEST_MODEL_CANDIDATE_TIMEOUT_MS` не может превышать
 `BOT_DIGEST_MODEL_TOTAL_TIMEOUT_MS`. Backup/restore ни один job не создаёт.
+
+News-brief CLI (`bin/bot-agi-news-brief`) не связан с digest выше — он не
+резюмирует историю чата, а раз в день ищет свежие внешние новости по
+медицине/биохакингу (SearXNG `category: news` + best-effort Firecrawl),
+собирает короткий дайджест со ссылками через router role `summary` и
+отправляет его тем же чатом, что и остальные bot-agi CLI. Без `--apply` он
+только собирает и обогащает кандидатов, ничего не суммирует и не отправляет:
+
+```bash
+./bin/bot-agi-news-brief \
+  --db /path/to/bot-agi-shadow.sqlite \
+  --chat -1000000000000
+
+./bin/bot-agi-news-brief \
+  --db /path/to/bot-agi-shadow.sqlite \
+  --chat -1000000000000 \
+  --model-config /absolute/path/to/model-router.json \
+  --bot-token "$BOT_TOKEN" \
+  --apply
+```
+
+Отправка использует одну строку `send_outbox` в день (`dedupeKey =
+news-brief:<Moscow calendar day>`), заведённую напрямую через
+`reserveSend`/`markSendSending`/`markSendSent`, а не полный `SendThrottler`:
+oneshot-процесс отправляет синхронно и не нуждается в очереди/backoff.
+Повторный `--apply` в тот же день с байт-идентичным сгенерированным текстом —
+no-op `duplicate`; повторный запуск с другим (пересгенерированным моделью)
+текстом того же дня осознанно fail closed с ошибкой вместо повторной отправки
+— сводка генерируется моделью и потому не идемпотентна между запусками сама
+по себе. Ранее отправленные URL не переиспользуются ~30 дней — состояние
+хранится в отдельном bounded JSON-файле
+(`BOT_NEWS_BRIEF_SEEN_STORE_PATH`, по умолчанию рядом с DB), а не в общем
+SQLite: эти данные не обязаны быть атомарны с
+bot/outbox/digest/embedding transitions. Detали — в
+[src/news-brief/README.md](src/news-brief/README.md).
+
+Timer `systemd/bot-agi-news-brief.timer` в комплекте, но **не** включён
+автоматически ни одним другим unit — в отличие от `bot-agi-digests`, который
+`bot-agi-maintain.service` уже вызывает. Прежде чем `systemctl --user enable
+--now bot-agi-news-brief.timer`, задайте `BOT_NEWS_BRIEF_CHAT_ID` (или
+единственный `TELEGRAM_ALLOWED_CHAT_IDS`), проверьте dry-run и выполните
+первый `--apply` вручную, как и для digest выше.
+
+Отдельно от CLI/timer, сам живой `bot-agi-bot` умеет запускать этот же
+pipeline досрочно, по сообщению в чате — но только для одного заранее
+заданного Telegram user id. Если задан `BOT_NEWS_BRIEF_TRIGGER_USER_ID`, этот
+пользователь может обратиться к боту (упоминанием или реплаем, как обычно) с
+точной фразой `daily news-brief`, и бот сразу отреагирует 👀 и пришлёт
+дайджест — удобно для тестирования без ожидания таймера. Авторизация — это
+проверка `senderId` в коде `src/bot/runtime/update-processor.ts` до того, как
+сообщение вообще попадает в модель/agent loop; это не model tool и не
+promt-инструкция, поэтому её нельзя получить или обойти текстом в чате или
+prompt injection от другого пользователя. Без `BOT_NEWS_BRIEF_TRIGGER_USER_ID`
+никто не может вызвать pipeline досрочно. Ручной запуск использует свой
+dedupe key (`manual:...:<timestamp>`), поэтому не конфликтует с дневной
+отправкой таймера. Детали — в
+[src/news-brief/README.md](src/news-brief/README.md#live-bot-privileged-trigger).
 
 Python state importer также dry-run по умолчанию:
 

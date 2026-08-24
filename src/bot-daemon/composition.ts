@@ -1,10 +1,14 @@
+import { dirname, join } from "node:path";
 import type { Api } from "grammy";
 import { AiSdkBotTurnAgent } from "../bot/ai-agent.js";
 import { BotMemoryTools } from "../bot/memory-tools.js";
 import { BotMediaTools } from "../bot/media-tools.js";
 import { FlovAudioTranscriber } from "../bot/media/flov-transcriber.js";
+import { createNewsBriefTrigger } from "../bot/news-brief-trigger.js";
 import { CanonicalBotReadCache } from "../bot/read-cache.js";
 import { BotReadTools } from "../bot/read-tools.js";
+import { FirecrawlClient } from "../bot/web-tools/firecrawl-client.js";
+import { SearXNGClient } from "../bot/web-tools/searxng-client.js";
 import {
   BotApiLongPoller,
   BotApiRuntime,
@@ -81,6 +85,21 @@ export function composeBotDaemon(
     options.api,
   );
   const reactionBotApiPort = createReactionGrammyBotApiPort(options.api);
+  const newsBriefTrigger =
+    config.newsBriefTrigger === undefined
+      ? undefined
+      : createNewsBriefTrigger({
+          privilegedUserId: config.newsBriefTrigger.triggerUserId,
+          api: options.api,
+          store: options.store,
+          router: options.router,
+          searxng: new SearXNGClient({ origin: config.searxngEndpoint }),
+          firecrawl: new FirecrawlClient({ origin: config.firecrawlEndpoint }),
+          seenStorePath:
+            config.newsBriefTrigger.seenStorePath ??
+            join(dirname(config.dbPath), "news-brief-seen.json"),
+          logger: options.logger,
+        });
 
   // One full graph per assistant-role chat (Фаза 7): the coordinator's
   // fold/routing has no chat filter, so it -- and everything built against
@@ -188,6 +207,7 @@ export function composeBotDaemon(
     triggerCooldownMs: config.triggerCooldownMs,
     updateMaxAttempts: config.updateMaxAttempts,
     logger: options.logger,
+    ...(newsBriefTrigger === undefined ? {} : { newsBriefTrigger }),
   });
   const poller = new BotApiLongPoller({
     api: createGrammyLongPollingApi(options.api),

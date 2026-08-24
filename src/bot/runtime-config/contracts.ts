@@ -58,6 +58,17 @@ export interface BotVoiceReplyRuntimeConfig {
   maxRepliesPerChatPerDay: number;
 }
 
+/**
+ * Enables one Telegram user id to trigger an early news-brief run by
+ * messaging the bot the exact phrase "daily news-brief" -- checked in host
+ * code against the sender id before any model turn runs, never delegated to
+ * a prompt-level instruction. Absent means nobody can trigger it early.
+ */
+export interface BotNewsBriefTriggerRuntimeConfig {
+  triggerUserId: string;
+  seenStorePath?: string;
+}
+
 export interface BotRuntimeConfig {
   token: string;
   exclusivePollerConfirmed: true;
@@ -79,6 +90,7 @@ export interface BotRuntimeConfig {
   audioTranscribe: BotAudioTranscribeRuntimeConfig;
   imageGeneration?: BotImageGenerationRuntimeConfig;
   voiceReply?: BotVoiceReplyRuntimeConfig;
+  newsBriefTrigger?: BotNewsBriefTriggerRuntimeConfig;
   /** Loopback SearXNG JSON API origin. Default http://127.0.0.1:8080. */
   searxngEndpoint: string;
   /** Loopback Firecrawl v2 API origin. Default http://127.0.0.1:3002. */
@@ -106,6 +118,7 @@ export type SafeBotRuntimeConfig = Omit<
   | "memoryWriteAuthorizerIds"
   | "imageGeneration"
   | "voiceReply"
+  | "newsBriefTrigger"
 > & {
   tokenConfigured: true;
   memoryWriteAuthorizerCount: number;
@@ -118,6 +131,8 @@ export type SafeBotRuntimeConfig = Omit<
   voiceReply?: Omit<BotVoiceReplyRuntimeConfig, "apiKey"> & {
     apiKeyConfigured: true;
   };
+  /** Never echoes the privileged Telegram user id, same as memoryWriteAuthorizerCount. */
+  newsBriefTriggerConfigured: boolean;
   webSearch?:
     | {
         kind: "http";

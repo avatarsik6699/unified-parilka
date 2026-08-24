@@ -23,6 +23,10 @@
   dream memory consolidation.
 - `src/dream/`: per-chat memory consolidator через router role "summary".
 - `src/digest-cli/`: `bot-agi-digests --apply` запускает digest-фазы и dream-проход.
+- `src/news-brief/`, `src/news-brief-cli/`: daily external medicine/biohacking
+  news search+summary+send, `bot-agi-news-brief --apply`. Unrelated to
+  `src/digest/` above (that summarizes this chat's own history). Off unless
+  its systemd timer is explicitly enabled.
 - `src/providers/`: model/provider config, hardened HTTP и fallback.
 - `src/vector/`, `src/embeddings.ts`: opt-in embedding index/search.
 - `src/maintenance/`, `src/maintenance-cli.ts`: bounded retention, deferred FTS,

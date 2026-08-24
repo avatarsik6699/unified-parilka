@@ -14,6 +14,7 @@ import type {
   BotUpdateProcessingResult,
   BotUpdateProcessorOptions,
   BotWorkNotifier,
+  NewsBriefTriggerPort,
 } from "./contracts.js";
 import type { TurnCoordinator } from "../turn-coordinator.js";
 import type { TelegramUpdateOptions } from "../telegram-update.js";
@@ -39,12 +40,14 @@ export class BotUpdateProcessor {
   readonly #updateMaxAttempts: number;
   readonly #logger: JsonEventLogger | undefined;
   readonly #now: () => number;
+  readonly #newsBriefTrigger: NewsBriefTriggerPort | undefined;
 
   constructor(options: BotUpdateProcessorOptions) {
     this.#store = options.store;
     this.#coordinators = options.coordinators;
     this.#workNotifier = options.workNotifier;
     this.#telegram = options.telegram;
+    this.#newsBriefTrigger = options.newsBriefTrigger;
     this.#triggerCooldownMs = boundedInteger(
       options.triggerCooldownMs ?? 5_000,
       0,
@@ -156,29 +159,44 @@ export class BotUpdateProcessor {
       normalized.reason !== "bot_message" &&
       normalized.reason !== "human_persona_approval_reply"
     ) {
-      const coordinator = this.#coordinators.get(normalized.chat.chatId);
-      if (coordinator === undefined) {
-        // Invariant violation, not a runtime input error: normalizeTelegramUpdate
-        // already validated chat.chatId against the same allowedChatIds this
-        // map was built from (Фаза 7).
-        throw new Error(
-          `No TurnCoordinator configured for chat ${normalized.chat.chatId}.`,
-        );
+      // Host-code-enforced privileged shortcut, never a model/prompt-level
+      // decision: only fires for an already-addressed message from the one
+      // configured sender id, and consumes the update instead of routing it
+      // into a normal model turn.
+      const triggerHandled =
+        normalized.addressed &&
+        (this.#newsBriefTrigger?.tryTrigger({
+          chatId: normalized.chat.chatId,
+          messageId: normalized.message.messageId,
+          senderId: normalized.message.senderId,
+          text: normalized.message.text,
+        }) ??
+          false);
+      if (!triggerHandled) {
+        const coordinator = this.#coordinators.get(normalized.chat.chatId);
+        if (coordinator === undefined) {
+          // Invariant violation, not a runtime input error: normalizeTelegramUpdate
+          // already validated chat.chatId against the same allowedChatIds this
+          // map was built from (Фаза 7).
+          throw new Error(
+            `No TurnCoordinator configured for chat ${normalized.chat.chatId}.`,
+          );
+        }
+        coordinator.routeMessage({
+          messageId: durableMessageId(normalized.message),
+          senderId:
+            normalized.message.senderId ??
+            `unknown:${normalized.message.chatId}:${normalized.message.messageId}`,
+          ...(normalized.message.senderName === undefined
+            ? {}
+            : { senderName: normalized.message.senderName }),
+          text: normalized.message.text,
+          ...(normalized.replyToBot === true
+            ? { replyToBot: true as const }
+            : {}),
+        });
+        routed = true;
       }
-      coordinator.routeMessage({
-        messageId: durableMessageId(normalized.message),
-        senderId:
-          normalized.message.senderId ??
-          `unknown:${normalized.message.chatId}:${normalized.message.messageId}`,
-        ...(normalized.message.senderName === undefined
-          ? {}
-          : { senderName: normalized.message.senderName }),
-        text: normalized.message.text,
-        ...(normalized.replyToBot === true
-          ? { replyToBot: true as const }
-          : {}),
-      });
-      routed = true;
     }
 
     if (result.turn?.status === "queued" || result.turn?.status === "failed") {

@@ -15,6 +15,7 @@ import {
 import { optionalResearchGatewayConfig } from "./research-gateway.js";
 import { optionalImageGenerationConfig } from "./image-generation.js";
 import { optionalVoiceReplyConfig } from "./voice-reply.js";
+import { optionalNewsBriefTriggerConfig } from "./news-brief-trigger.js";
 import { audioTranscribeConfig } from "./audio-transcribe.js";
 import { requireLoopbackHttpOrigin } from "../web-tools/url-validation.js";
 import {
@@ -89,6 +90,7 @@ export function parseBotRuntimeConfig(
     ...optionalResearchGatewayConfig(env),
     ...optionalImageGenerationConfig(env),
     ...optionalVoiceReplyConfig(env),
+    ...optionalNewsBriefTriggerConfig(env),
     audioTranscribe: audioTranscribeConfig(env),
     searxngEndpoint: requireLoopbackHttpOrigin(
       env.BOT_SEARXNG_ENDPOINT ?? "http://127.0.0.1:8080",
