@@ -57,12 +57,12 @@ export function addGenerateImageTool(
           width: {
             type: "integer",
             enum: [512, 768, 1024],
-            description: "Ширина в пикселях, по умолчанию 1024.",
+            description: "Ширина в пикселях, по умолчанию 512.",
           },
           height: {
             type: "integer",
             enum: [512, 768, 1024],
-            description: "Высота в пикселях, по умолчанию 1024.",
+            description: "Высота в пикселях, по умолчанию 512.",
           },
           nsfw: {
             type: "boolean",

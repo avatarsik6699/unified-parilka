@@ -15,18 +15,21 @@ const IMAGE_DOWNLOAD_TIMEOUT_MS = 30_000;
 /**
  * A conservative allowlist of Runware model AIRs (`creator:family@version`)
  * the tool may request -- the model never picks an arbitrary provider
- * string. Verify these against Runware's current model explorer during
- * implementation review; the exact catalog was not confirmed against live
- * docs when this list was written.
+ * string. FLUX.1 Schnell (`runware:100@1`) is the default: ~$0.0006/image
+ * at its native 512x512, roughly 6x cheaper than FLUX.1 Dev
+ * (`runware:101@1`, ~$0.0038/image at 1024x1024) for casual chat requests
+ * where "acceptable quality, minimum spend" matters more than fidelity.
+ * Dev stays available for a model to request explicitly when quality
+ * genuinely matters more than cost.
  */
 export const RUNWARE_MODEL_ALLOWLIST = [
-  "runware:101@1",
   "runware:100@1",
+  "runware:101@1",
 ] as const;
 const DEFAULT_MODEL = RUNWARE_MODEL_ALLOWLIST[0];
 
 const SIZE_CHOICES = [512, 768, 1024] as const;
-const DEFAULT_SIZE = 1024;
+const DEFAULT_SIZE = 512;
 
 export interface RunwareGenerateParams {
   prompt: string;
