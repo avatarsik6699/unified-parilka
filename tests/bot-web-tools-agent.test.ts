@@ -15,21 +15,21 @@ import type { WebToolPort } from "../src/bot/web-tools/tool-definitions.js";
 import { SearXNGClient } from "../src/bot/web-tools/searxng-client.js";
 import { FirecrawlClient } from "../src/bot/web-tools/firecrawl-client.js";
 import { downloadImages } from "../src/bot/web-tools/image-downloader.js";
-import {
-  buildBotSystemPrompt,
-  BOT_AGENT_CONTRACT,
-} from "../src/bot/prompt.js";
+import { buildBotSystemPrompt, BOT_AGENT_CONTRACT } from "../src/bot/prompt.js";
 
 const JPEG_BYTES = new Uint8Array([
   0xff, 0xd8, 0xff, 0xe0, 0, 16, 0x4a, 0x46, 0x49, 0x46, 0, 1, 0, 0, 0, 0,
 ]);
 
-function fileParts(call: ReturnType<typeof mockModel>["doGenerateCalls"][number]): Array<{
+function fileParts(
+  call: ReturnType<typeof mockModel>["doGenerateCalls"][number],
+): Array<{
   type: "file";
   data: Uint8Array;
   mediaType: string;
 }> {
-  const parts: Array<{ type: string; data?: unknown; mediaType?: unknown }> = [];
+  const parts: Array<{ type: string; data?: unknown; mediaType?: unknown }> =
+    [];
   if (!call) {
     return [];
   }
@@ -46,13 +46,16 @@ function fileParts(call: ReturnType<typeof mockModel>["doGenerateCalls"][number]
       return [];
     }
     const data = part.data as { type?: unknown; data?: unknown } | undefined;
-    return data?.type === "data" && data.data instanceof Uint8Array &&
-        typeof part.mediaType === "string"
-      ? [{
-          type: "file" as const,
-          data: data.data,
-          mediaType: part.mediaType,
-        }]
+    return data?.type === "data" &&
+      data.data instanceof Uint8Array &&
+      typeof part.mediaType === "string"
+      ? [
+          {
+            type: "file" as const,
+            data: data.data,
+            mediaType: part.mediaType,
+          },
+        ]
       : [];
   });
 }
@@ -65,8 +68,9 @@ function toolNamesOf(
 
 function offlinePort(): WebToolPort {
   const tracker = createTurnImageTracker();
-  const lookup = async (): Promise<readonly { address: string; family: 4 | 6 }[]> =>
-    [{ address: "93.184.216.34", family: 4 }];
+  const lookup = async (): Promise<
+    readonly { address: string; family: 4 | 6 }[]
+  > => [{ address: "93.184.216.34", family: 4 }];
   const transport = async () => ({
     status: 200,
     headers: { "content-type": "image/jpeg" },
@@ -75,14 +79,18 @@ function offlinePort(): WebToolPort {
   return {
     searxngClient: new SearXNGClient({
       fetchImpl: (async () =>
-        new Response(JSON.stringify({ results: [] }), { status: 200 })) as typeof fetch,
+        new Response(JSON.stringify({ results: [] }), {
+          status: 200,
+        })) as typeof fetch,
     }),
     firecrawlClient: new FirecrawlClient({
-      fetchImpl: (async () => new Response("{}", { status: 404 })) as typeof fetch,
+      fetchImpl: (async () =>
+        new Response("{}", { status: 404 })) as typeof fetch,
     }),
     imageTracker: tracker,
     nonce: "fixed_nonce_1234",
     turnSignal: new AbortController().signal,
+    turnId: "test-turn",
     downloadImages: (urls, signal) =>
       downloadImages(urls, { tracker, signal, lookup, transport }),
   };
@@ -90,9 +98,11 @@ function offlinePort(): WebToolPort {
 
 test("inspect_web_images bytes reach the next model step", async () => {
   const model = mockModel([
-    toolResponse([toolCall("call-1", "inspect_web_images", {
-      urls: ["https://example.com/1.jpg"],
-    })]),
+    toolResponse([
+      toolCall("call-1", "inspect_web_images", {
+        urls: ["https://example.com/1.jpg"],
+      }),
+    ]),
     response([{ type: "text", text: "вижу картинку" }], "stop"),
   ]);
   const port = offlinePort();
@@ -123,10 +133,9 @@ test("text-only candidate neither sees the tool nor receives bytes", async () =>
     response([{ type: "text", text: "не вижу" }], "stop"),
   ]);
   const port = offlinePort();
-  const fixture = makeAgent(
-    [candidate("primary:text", model)],
-    { agentOptions: { webToolPort: port } },
-  );
+  const fixture = makeAgent([candidate("primary:text", model)], {
+    agentOptions: { webToolPort: port },
+  });
 
   const result = await fixture.agent.run(request());
 
@@ -140,9 +149,11 @@ test("text-only candidate neither sees the tool nor receives bytes", async () =>
 
 test("vision fallback receives already-downloaded turn images", async () => {
   const failing = mockModel([
-    toolResponse([toolCall("call-1", "inspect_web_images", {
-      urls: ["https://example.com/1.jpg", "https://example.com/2.jpg"],
-    })]),
+    toolResponse([
+      toolCall("call-1", "inspect_web_images", {
+        urls: ["https://example.com/1.jpg", "https://example.com/2.jpg"],
+      }),
+    ]),
     Object.assign(new Error("provider failure"), { statusCode: 500 }),
   ]);
   const fallback = mockModel([
@@ -170,9 +181,11 @@ test("vision fallback receives already-downloaded turn images", async () => {
 
 test("text-only fallback never sees the tool or bytes after a vision download", async () => {
   const failing = mockModel([
-    toolResponse([toolCall("call-1", "inspect_web_images", {
-      urls: ["https://example.com/1.jpg"],
-    })]),
+    toolResponse([
+      toolCall("call-1", "inspect_web_images", {
+        urls: ["https://example.com/1.jpg"],
+      }),
+    ]),
     Object.assign(new Error("provider failure"), { statusCode: 500 }),
   ]);
   const textOnly = mockModel([

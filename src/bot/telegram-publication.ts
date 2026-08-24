@@ -4,6 +4,9 @@ export const TELEGRAM_TEXT_LIMIT_UTF16 = 4_096;
 /** Telegram's documented native Rich Message UTF-8 payload limit. */
 export const TELEGRAM_RICH_TEXT_LIMIT_UTF8 = 32_768;
 
+/** Telegram's documented sendPhoto caption UTF-16 payload limit. */
+export const TELEGRAM_CAPTION_LIMIT_UTF16 = 1_024;
+
 /**
  * The exact model result that crosses the Telegram send boundary.
  *
@@ -26,13 +29,39 @@ export type TelegramPublication =
       mode: "plain";
       plainText: string;
       maxChunkUtf16: number;
+    }
+  | {
+      mode: "photo";
+      photoBytes: Buffer;
+      caption: string;
     };
 
+export interface TelegramImageAttachment {
+  bytes: Buffer;
+}
+
+/**
+ * `imageAttachment` is only honored when the fully rendered text (including
+ * the telemetry footer) fits Telegram's sendPhoto caption limit -- a longer
+ * reply falls back to the ordinary rich/plain text path without the photo,
+ * rather than splitting a caption across messages or dropping content.
+ */
 export function createTelegramPublication(
   text: string,
   responseOrigin?: "local_audio",
+  imageAttachment?: TelegramImageAttachment,
 ): TelegramPublication {
   const normalized = normalizeTelegramMarkdownTables(text);
+  if (
+    imageAttachment !== undefined &&
+    utf16Length(normalized) <= TELEGRAM_CAPTION_LIMIT_UTF16
+  ) {
+    return {
+      mode: "photo",
+      photoBytes: imageAttachment.bytes,
+      caption: normalized,
+    };
+  }
   if (
     responseOrigin === "local_audio" ||
     utf8Length(normalized) > TELEGRAM_RICH_TEXT_LIMIT_UTF8
@@ -162,10 +191,7 @@ export function normalizeTelegramMarkdownTables(text: string): string {
     const dataRows: string[][] = [];
     while (end < lines.length) {
       const next = lines[end];
-      if (
-        parseFenceOpen(next) !== null ||
-        hasTableSeparatorShape(next)
-      ) {
+      if (parseFenceOpen(next) !== null || hasTableSeparatorShape(next)) {
         break;
       }
       const cells = splitTableRowCells(next);
@@ -268,9 +294,7 @@ function renderWideTableRecords(
  * bullets never merge with a neighbor; adjacent compact bullets stay tight.
  * Labels are never invented: only the cell text, in source order.
  */
-function renderTableRowList(
-  rows: readonly (readonly string[])[],
-): string[] {
+function renderTableRowList(rows: readonly (readonly string[])[]): string[] {
   const output: string[] = [];
   let record = 0;
   let previousWasBlock = false;
@@ -400,11 +424,7 @@ function safeUtf16End(text: string, start: number, limit: number): number {
   return end;
 }
 
-function preferredBreak(
-  text: string,
-  start: number,
-  hardEnd: number,
-): number {
+function preferredBreak(text: string, start: number, hardEnd: number): number {
   const paragraph = text.lastIndexOf("\n\n", hardEnd - 2);
   if (paragraph >= start) {
     return paragraph + 2;

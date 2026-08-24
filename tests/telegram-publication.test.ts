@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   createTelegramPublication,
   normalizeTelegramMarkdownTables,
+  TELEGRAM_CAPTION_LIMIT_UTF16,
   TELEGRAM_RICH_TEXT_LIMIT_UTF8,
   utf8Length,
 } from "../src/bot/telegram-publication.js";
@@ -31,6 +32,26 @@ test("local audio publication stays plain", () => {
 
   assert.equal(publication.mode, "plain");
   assert.equal(publication.plainText, text);
+});
+
+test("an image attachment that fits the caption limit becomes a photo publication", () => {
+  const text = "вот сгенерированная картинка";
+  const bytes = Buffer.from([1, 2, 3]);
+  const publication = createTelegramPublication(text, undefined, { bytes });
+
+  assert.equal(publication.mode, "photo");
+  if (publication.mode === "photo") {
+    assert.equal(publication.photoBytes, bytes);
+    assert.equal(publication.caption, text);
+  }
+});
+
+test("an image attachment beyond the caption limit falls back to text-only", () => {
+  const text = "x".repeat(TELEGRAM_CAPTION_LIMIT_UTF16 + 1);
+  const bytes = Buffer.from([1, 2, 3]);
+  const publication = createTelegramPublication(text, undefined, { bytes });
+
+  assert.notEqual(publication.mode, "photo");
 });
 
 test("production-shaped orphan separator with nine columns becomes multiline record blocks", () => {
@@ -174,13 +195,9 @@ test("spaced header with wide rows feeds header and data through the fallback in
 });
 
 test("two blank lines before the separator stay outside the block boundary", () => {
-  const text = [
-    "| h1 | h2 |",
-    "",
-    "",
-    "| --- | --- |",
-    "| d1 | d2 |",
-  ].join("\n");
+  const text = ["| h1 | h2 |", "", "", "| --- | --- |", "| d1 | d2 |"].join(
+    "\n",
+  );
   const publication = createTelegramPublication(text);
 
   assert.equal(publication.mode, "rich");
@@ -299,11 +316,9 @@ test("valid wide tables become labeled mobile-friendly record blocks", () => {
 });
 
 test("ragged and short-dash tables degrade to compact bullets without invented labels", () => {
-  const ragged = [
-    "| h1 | h2 | h3 |",
-    "| --- | --- |",
-    "| a | b | c |",
-  ].join("\n");
+  const ragged = ["| h1 | h2 | h3 |", "| --- | --- |", "| a | b | c |"].join(
+    "\n",
+  );
   const raggedPublication = createTelegramPublication(ragged);
 
   assert.equal(raggedPublication.mode, "rich");
@@ -316,11 +331,7 @@ test("ragged and short-dash tables degrade to compact bullets without invented l
     raggedPublication.markdown,
   );
 
-  const shortDashes = [
-    "| h1 | h2 |",
-    "| -- | -- |",
-    "| 1 | 2 |",
-  ].join("\n");
+  const shortDashes = ["| h1 | h2 |", "| -- | -- |", "| 1 | 2 |"].join("\n");
   const shortDashPublication = createTelegramPublication(shortDashes);
 
   assert.equal(shortDashPublication.mode, "rich");
@@ -401,11 +412,7 @@ test("rich byte limit applies to the normalized text", () => {
 });
 
 test("normalization that crosses the byte limit falls back to plain", () => {
-  const table = [
-    "| Имя | Цена |",
-    "| --- | --- |",
-    "| A | 10 |",
-  ].join("\n");
+  const table = ["| Имя | Цена |", "| --- | --- |", "| A | 10 |"].join("\n");
   const text = `${"абзац текста ".repeat(2600)}\n${table}`;
 
   assert.ok(utf8Length(text) > TELEGRAM_RICH_TEXT_LIMIT_UTF8);

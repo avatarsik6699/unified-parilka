@@ -24,10 +24,7 @@ import {
   type WorkerScheduler,
 } from "./contracts.js";
 import { dispatchBotTurn, markBotTurnLostAck } from "./dispatch.js";
-import {
-  isAgentFinal,
-  safeErrorCode,
-} from "./helpers.js";
+import { isAgentFinal, safeErrorCode } from "./helpers.js";
 import { startTurnTimers, type TurnTimers } from "./timers.js";
 import {
   createTurnFoldCollector,
@@ -144,13 +141,7 @@ export class BotTurnWorker {
         ownerSenderId: loaded.trigger.senderId ?? `unknown:${turn.id}`,
       });
       if (!admission.accepted) {
-        if (
-          !this.#failClaimedTurn(
-            turn,
-            "coordinator",
-            admission.reason,
-          )
-        ) {
+        if (!this.#failClaimedTurn(turn, "coordinator", admission.reason)) {
           return { status: "lease_lost", turnId: turn.id };
         }
         return {
@@ -160,11 +151,7 @@ export class BotTurnWorker {
         };
       }
       coordinatorStarted = true;
-      seedBotTurnReplay(
-        this.#coordinator,
-        coordinatorTurnId,
-        loaded.replay,
-      );
+      seedBotTurnReplay(this.#coordinator, coordinatorTurnId, loaded.replay);
 
       const controller = new AbortController();
       if (this.#typingPort) {
@@ -236,13 +223,7 @@ export class BotTurnWorker {
           this.#log("warn", "bot.turn.lease_lost", { turnId: turn.id });
           return { status: "lease_lost", turnId: turn.id };
         }
-        if (
-          !this.#failClaimedTurn(
-            turn,
-            "agent",
-            safeErrorCode(error),
-          )
-        ) {
+        if (!this.#failClaimedTurn(turn, "agent", safeErrorCode(error))) {
           return { status: "lease_lost", turnId: turn.id };
         }
         return { status: "failed", turnId: turn.id, stage: "agent" };
@@ -254,13 +235,7 @@ export class BotTurnWorker {
       }
       if (!isAgentFinal(final)) {
         timers.stop();
-        if (
-          !this.#failClaimedTurn(
-            turn,
-            "agent",
-            "invalid_final_protocol",
-          )
-        ) {
+        if (!this.#failClaimedTurn(turn, "agent", "invalid_final_protocol")) {
           return { status: "lease_lost", turnId: turn.id };
         }
         return { status: "failed", turnId: turn.id, stage: "agent" };
@@ -278,6 +253,7 @@ export class BotTurnWorker {
       const publication: TelegramPublication = createTelegramPublication(
         draftText,
         final.responseOrigin,
+        final.imageAttachment,
       );
 
       if (
@@ -317,11 +293,7 @@ export class BotTurnWorker {
       typing?.stop();
       timers.stop();
       if (
-        !this.#store.markBotTurnSending(
-          turn.id,
-          this.#workerId,
-          this.#now(),
-        )
+        !this.#store.markBotTurnSending(turn.id, this.#workerId, this.#now())
       ) {
         return { status: "lease_lost", turnId: turn.id };
       }

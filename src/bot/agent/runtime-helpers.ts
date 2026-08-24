@@ -63,14 +63,65 @@ export function boundedInteger(
   maximum: number,
   field: string,
 ): number {
-  if (
-    !Number.isSafeInteger(value) ||
-    value < minimum ||
-    value > maximum
-  ) {
+  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
     throw new Error(
       `${field} must be an integer between ${minimum} and ${maximum}`,
     );
   }
   return value;
+}
+
+const DEFAULT_CONTEXT_CHARS = 48_000;
+const DEFAULT_MAX_OUTPUT_TOKENS = 16_384;
+const DEFAULT_STEP_TIMEOUT_MS = 180_000;
+const DEFAULT_TOOL_TIMEOUT_MS = 15_000;
+const MAX_CONTEXT_CHARS = 200_000;
+
+export interface AgentLimitOptions {
+  contextCharLimit?: number;
+  maxOutputTokens?: number;
+  stepTimeoutMs?: number;
+  toolTimeoutMs?: number;
+}
+
+export interface AgentLimits {
+  contextCharLimit: number;
+  maxOutputTokens: number;
+  stepTimeoutMs: number;
+  toolTimeoutMs: number;
+}
+
+/**
+ * Resolves and bounds `AiSdkBotTurnAgent`'s configurable limits in one place,
+ * kept outside the class so its constructor stays within the production-file
+ * line ceiling.
+ */
+export function resolveAgentLimits(options: AgentLimitOptions): AgentLimits {
+  const stepTimeoutMs = boundedInteger(
+    options.stepTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS,
+    100,
+    15 * 60_000,
+    "stepTimeoutMs",
+  );
+  return {
+    contextCharLimit: boundedInteger(
+      options.contextCharLimit ?? DEFAULT_CONTEXT_CHARS,
+      1_000,
+      MAX_CONTEXT_CHARS,
+      "contextCharLimit",
+    ),
+    maxOutputTokens: boundedInteger(
+      options.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
+      64,
+      32_768,
+      "maxOutputTokens",
+    ),
+    stepTimeoutMs,
+    toolTimeoutMs: boundedInteger(
+      options.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
+      100,
+      stepTimeoutMs,
+      "toolTimeoutMs",
+    ),
+  };
 }

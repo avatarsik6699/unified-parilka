@@ -43,9 +43,17 @@ export interface GrammyRichMessageSendInput {
   signal: AbortSignal;
 }
 
+export interface GrammySendPhotoInput {
+  chatId: string;
+  photoBytes: Buffer;
+  caption: string;
+  options: GrammyRichMessageOptions;
+  signal: AbortSignal;
+}
+
 /**
- * The publisher only needs two Bot API operations. Keeping this port narrower
- * than grammY's Api makes delivery behavior straightforward to test.
+ * The publisher only needs a few Bot API operations. Keeping this port
+ * narrower than grammY's Api makes delivery behavior straightforward to test.
  */
 export interface GrammyBotApiPort {
   sendRichMessage(input: GrammyRichMessageSendInput): Promise<unknown>;
@@ -55,6 +63,7 @@ export interface GrammyBotApiPort {
     options: GrammySendMessageOptions,
     signal: AbortSignal,
   ): Promise<unknown>;
+  sendPhoto?(input: GrammySendPhotoInput): Promise<unknown>;
 }
 
 type PublisherFailure = Extract<
@@ -129,9 +138,62 @@ export class GrammyBotTurnPublisher implements BotTurnPublisher {
       return this.#publishPlain(
         request,
         request.publication.plainText,
+        request.publication.maxChunkUtf16,
       );
     }
+    if (request.publication.mode === "photo") {
+      return this.#publishPhoto(request);
+    }
     return this.#publishRich(request);
+  }
+
+  async #publishPhoto(
+    request: TelegramPublishRequest,
+  ): Promise<TelegramPublisherResult> {
+    if (request.publication.mode !== "photo") {
+      return failure(0, {
+        kind: "unknown",
+        code: "INVALID_PUBLISH_REQUEST",
+      });
+    }
+    const { photoBytes, caption } = request.publication;
+    if (request.signal.aborted) {
+      return failure(0, { kind: "timeout", code: "ABORTED" });
+    }
+    const sendPhoto = this.#api.sendPhoto;
+    if (sendPhoto === undefined) {
+      // Photo delivery is not wired for this port; degrade to the ordinary
+      // plain-text path rather than silently dropping the reply.
+      return this.#publishPlain(request, caption, TELEGRAM_TEXT_LIMIT_UTF16);
+    }
+
+    let response: unknown;
+    try {
+      response = await sendPhoto({
+        chatId: request.chatId,
+        photoBytes,
+        caption,
+        options: richOptions(request.replyToMessageId),
+        signal: request.signal,
+      });
+    } catch (error) {
+      return classifyThrownFailure(error, request.signal, 0);
+    }
+
+    const rejection = readTelegramRejection(response);
+    if (rejection) {
+      return classifyTelegramRejection(rejection, 0);
+    }
+
+    const messageId = readMessageId(response);
+    if (messageId === undefined) {
+      return ambiguousOrPartialFailure(0, {
+        kind: "unknown",
+        code: "MALFORMED_SUCCESS_RESPONSE",
+      });
+    }
+
+    return { ok: true, chunksSent: 1, telegramMessageId: messageId };
   }
 
   async #publishRich(
@@ -143,7 +205,7 @@ export class GrammyBotTurnPublisher implements BotTurnPublisher {
         code: "INVALID_PUBLISH_REQUEST",
       });
     }
-    const { markdown, plainText } = request.publication;
+    const { markdown, plainText, maxChunkUtf16 } = request.publication;
     if (request.signal.aborted) {
       return failure(0, { kind: "timeout", code: "ABORTED" });
     }
@@ -159,18 +221,17 @@ export class GrammyBotTurnPublisher implements BotTurnPublisher {
       });
     } catch (error) {
       if (isRichParseRejection(error)) {
-        return this.#publishPlain(request, plainText);
+        return this.#publishPlain(request, plainText, maxChunkUtf16);
       }
       return classifyThrownFailure(error, request.signal, 0);
     }
 
     const rejection = readTelegramRejection(response);
     if (rejection) {
-      if (isRichParseRejectionCode(
-        rejection.errorCode,
-        rejection.description,
-      )) {
-        return this.#publishPlain(request, plainText);
+      if (
+        isRichParseRejectionCode(rejection.errorCode, rejection.description)
+      ) {
+        return this.#publishPlain(request, plainText, maxChunkUtf16);
       }
       return classifyTelegramRejection(rejection, 0);
     }
@@ -189,11 +250,9 @@ export class GrammyBotTurnPublisher implements BotTurnPublisher {
   async #publishPlain(
     request: TelegramPublishRequest,
     plainText: string,
+    maxChunkUtf16: number,
   ): Promise<TelegramPublisherResult> {
-    const chunks = splitTelegramText(
-      plainText,
-      request.publication.maxChunkUtf16,
-    );
+    const chunks = splitTelegramText(plainText, maxChunkUtf16);
     const baseOptions: GrammySendMessageOptions = {
       reply_parameters: {
         message_id: request.replyToMessageId,
@@ -327,21 +386,14 @@ function classifyTelegramRejection(
 
   const errorCode = rejection.errorCode;
   const hasSafeCode =
-    Number.isSafeInteger(errorCode) &&
-    errorCode >= 100 &&
-    errorCode <= 599;
+    Number.isSafeInteger(errorCode) && errorCode >= 100 && errorCode <= 599;
   return failure(0, {
     kind: "telegram_rejected",
-    code: hasSafeCode
-      ? `TELEGRAM_${String(errorCode)}`
-      : "TELEGRAM_REJECTED",
-    retryable:
-      errorCode === 429 || (errorCode >= 500 && errorCode <= 599),
-    ...(
-      rejection.retryAfterMs == null
-        ? {}
-        : { retryAfterMs: rejection.retryAfterMs }
-    ),
+    code: hasSafeCode ? `TELEGRAM_${String(errorCode)}` : "TELEGRAM_REJECTED",
+    retryable: errorCode === 429 || (errorCode >= 500 && errorCode <= 599),
+    ...(rejection.retryAfterMs == null
+      ? {}
+      : { retryAfterMs: rejection.retryAfterMs }),
   });
 }
 
@@ -362,11 +414,12 @@ function classifyTransportFailure(
   ) {
     return {
       kind: "timeout",
-      code: marker.code && TIMEOUT_CODES.has(marker.code)
-        ? marker.code
-        : marker.name === "AbortError"
-          ? "ABORTED"
-          : "TIMEOUT",
+      code:
+        marker.code && TIMEOUT_CODES.has(marker.code)
+          ? marker.code
+          : marker.name === "AbortError"
+            ? "ABORTED"
+            : "TIMEOUT",
     };
   }
 
@@ -409,9 +462,9 @@ function readTelegramRejection(value: unknown): TelegramRejection | undefined {
 
   try {
     return value.ok === false &&
-        typeof value.description === "string" &&
-        typeof value.error_code === "number" &&
-        Number.isSafeInteger(value.error_code)
+      typeof value.description === "string" &&
+      typeof value.error_code === "number" &&
+      Number.isSafeInteger(value.error_code)
       ? {
           errorCode: value.error_code,
           description: value.description,
@@ -427,10 +480,7 @@ function isRichParseRejection(error: unknown): boolean {
   if (!(error instanceof GrammyError)) {
     return false;
   }
-  return isRichParseRejectionCode(
-    error.error_code,
-    error.description,
-  );
+  return isRichParseRejectionCode(error.error_code, error.description);
 }
 
 function isRichParseRejectionCode(
@@ -444,9 +494,7 @@ function isRichParseRejectionCode(
   );
 }
 
-function retryAfterFromParameters(
-  value: unknown,
-): { retryAfterMs?: number } {
+function retryAfterFromParameters(value: unknown): { retryAfterMs?: number } {
   if (!isRecord(value)) {
     return {};
   }
@@ -460,10 +508,7 @@ function retryAfterFromParameters(
       return {};
     }
     return {
-      retryAfterMs: Math.min(
-        Math.ceil(seconds * 1_000),
-        MAX_RETRY_AFTER_MS,
-      ),
+      retryAfterMs: Math.min(Math.ceil(seconds * 1_000), MAX_RETRY_AFTER_MS),
     };
   } catch {
     return {};
@@ -478,8 +523,8 @@ function readMessageId(value: unknown): number | undefined {
   try {
     const messageId = value.message_id;
     return typeof messageId === "number" &&
-        Number.isSafeInteger(messageId) &&
-        messageId > 0
+      Number.isSafeInteger(messageId) &&
+      messageId > 0
       ? messageId
       : undefined;
   } catch {
@@ -497,7 +542,8 @@ function readErrorMarker(value: unknown): {
 
   try {
     const name =
-      typeof value.name === "string" && /^[A-Za-z][A-Za-z0-9_.:-]{0,79}$/u.test(value.name)
+      typeof value.name === "string" &&
+      /^[A-Za-z][A-Za-z0-9_.:-]{0,79}$/u.test(value.name)
         ? value.name
         : undefined;
     const code =
@@ -533,6 +579,8 @@ function isPublication(value: unknown): boolean {
     markdown?: unknown;
     plainText?: unknown;
     maxChunkUtf16?: unknown;
+    photoBytes?: unknown;
+    caption?: unknown;
   };
   const hasValidChunkLimit =
     Number.isSafeInteger(publication.maxChunkUtf16) &&
@@ -552,6 +600,13 @@ function isPublication(value: unknown): boolean {
       typeof publication.plainText === "string" &&
       publication.plainText.length > 0 &&
       hasValidChunkLimit
+    );
+  }
+  if (publication.mode === "photo") {
+    return (
+      Buffer.isBuffer(publication.photoBytes) &&
+      publication.photoBytes.length > 0 &&
+      typeof publication.caption === "string"
     );
   }
   return false;

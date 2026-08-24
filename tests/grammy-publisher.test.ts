@@ -193,7 +193,10 @@ test("a long canonical plain text is losslessly split across fallback chunks at 
     request(richPublication("**x**", plainText, 64)),
   );
 
-  assert.deepEqual(sentTexts.map((text) => text.length), [64, 64, 64, 8]);
+  assert.deepEqual(
+    sentTexts.map((text) => text.length),
+    [64, 64, 64, 8],
+  );
   assert.equal(sentTexts.join(""), plainText);
   assert.deepEqual(result, {
     ok: true,
@@ -271,13 +274,14 @@ test("timeout, network and aborted signals never resend", async (t) => {
         throw new Error("must not fall back on transport failure");
       },
     };
-    assert.deepEqual(await new GrammyBotTurnPublisher(api).publish(
-      request(richPublication()),
-    ), {
-      ok: false,
-      chunksSent: 0,
-      error: { kind: "network", code: "ECONNRESET" },
-    });
+    assert.deepEqual(
+      await new GrammyBotTurnPublisher(api).publish(request(richPublication())),
+      {
+        ok: false,
+        chunksSent: 0,
+        error: { kind: "network", code: "ECONNRESET" },
+      },
+    );
   });
 
   await t.test("timeout code stays timeout", async () => {
@@ -291,13 +295,14 @@ test("timeout, network and aborted signals never resend", async (t) => {
         throw new Error("must not fall back on timeout");
       },
     };
-    assert.deepEqual(await new GrammyBotTurnPublisher(api).publish(
-      request(richPublication()),
-    ), {
-      ok: false,
-      chunksSent: 0,
-      error: { kind: "timeout", code: "ETIMEDOUT" },
-    });
+    assert.deepEqual(
+      await new GrammyBotTurnPublisher(api).publish(request(richPublication())),
+      {
+        ok: false,
+        chunksSent: 0,
+        error: { kind: "timeout", code: "ETIMEDOUT" },
+      },
+    );
   });
 
   await t.test("pre-aborted signal makes no API call at all", async () => {
@@ -408,17 +413,18 @@ test("a definitive Telegram 429 on the rich path stays retryable", async () => {
     },
   };
 
-  assert.deepEqual(await new GrammyBotTurnPublisher(api).publish(
-    request(richPublication()),
-  ), {
-    ok: false,
-    chunksSent: 0,
-    error: {
-      kind: "telegram_rejected",
-      code: "TELEGRAM_429",
-      retryable: true,
+  assert.deepEqual(
+    await new GrammyBotTurnPublisher(api).publish(request(richPublication())),
+    {
+      ok: false,
+      chunksSent: 0,
+      error: {
+        kind: "telegram_rejected",
+        code: "TELEGRAM_429",
+        retryable: true,
+      },
     },
-  });
+  );
   assert.equal(plainCalls, 0);
 });
 
@@ -454,30 +460,30 @@ test("extracts and clamps retry_after from a raw 429 rejection on the fallback p
     },
   };
 
-  assert.deepEqual(await new GrammyBotTurnPublisher(api).publish(
-    request(richPublication("**x**", "plain")),
-  ), {
-    ok: false,
-    chunksSent: 0,
-    error: {
-      kind: "telegram_rejected",
-      code: "TELEGRAM_429",
-      retryable: true,
-      retryAfterMs: 61_000,
+  assert.deepEqual(
+    await new GrammyBotTurnPublisher(api).publish(
+      request(richPublication("**x**", "plain")),
+    ),
+    {
+      ok: false,
+      chunksSent: 0,
+      error: {
+        kind: "telegram_rejected",
+        code: "TELEGRAM_429",
+        retryable: true,
+        retryAfterMs: 61_000,
+      },
     },
-  });
+  );
 
   raw.parameters.retry_after = 999_999;
-  const clamped = await new GrammyBotTurnPublisher(api).publish(
+  const clamped = (await new GrammyBotTurnPublisher(api).publish(
     request(richPublication("**x**", "plain")),
-  ) as { ok: false; error: { retryAfterMs?: number } };
+  )) as { ok: false; error: { retryAfterMs?: number } };
   assert.equal(clamped.error.retryAfterMs, 15 * 60_000);
 });
 
-function telegramError(
-  errorCode: number,
-  description: string,
-): GrammyError {
+function telegramError(errorCode: number, description: string): GrammyError {
   return new GrammyError(
     "Call to sendRichMessage failed",
     {

@@ -38,6 +38,7 @@ export type BotDaemonApi = Pick<
   | "getFile"
   | "sendMessage"
   | "sendRichMessage"
+  | "sendPhoto"
   | "sendChatAction"
   | "editMessageText"
   | "deleteMessage"

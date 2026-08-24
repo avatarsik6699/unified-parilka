@@ -126,7 +126,7 @@ test("durable publisher inserts every acknowledged own message before returning 
     async sendRichMessage() {
       throw new Error("unexpected sendRichMessage");
     },
-  } as unknown as Pick<Api, "sendMessage" | "sendRichMessage">;
+  } as unknown as Pick<Api, "sendMessage" | "sendRichMessage" | "sendPhoto">;
   const publisher = createDurableGrammyBotTurnPublisher(api, {
     store,
     botId: BOT_ID,
@@ -177,7 +177,7 @@ test("own-send recording failure stays ambiguous and cannot become a definitive 
         from: { id: Number(BOT_ID), is_bot: true },
       };
     },
-  } as unknown as Pick<Api, "sendMessage" | "sendRichMessage">;
+  } as unknown as Pick<Api, "sendMessage" | "sendRichMessage" | "sendPhoto">;
   const publisher = createDurableGrammyBotTurnPublisher(api, {
     store: {
       getCachedChat() {
@@ -236,7 +236,7 @@ test("durable rich ACK records canonical plain text even without response.text",
     async sendMessage() {
       throw new Error("unexpected sendMessage");
     },
-  } as unknown as Pick<Api, "sendMessage" | "sendRichMessage">;
+  } as unknown as Pick<Api, "sendMessage" | "sendRichMessage" | "sendPhoto">;
   const publisher = createDurableGrammyBotTurnPublisher(api, {
     store,
     botId: BOT_ID,

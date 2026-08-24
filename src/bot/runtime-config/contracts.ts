@@ -32,6 +32,22 @@ export interface BotAudioTranscribeRuntimeConfig {
   bearerToken?: string;
 }
 
+/**
+ * Runware image-generation backend. `nsfwAllowed` is a deliberate, off-by-
+ * default operator decision -- the live bot speaks Bot API, not an MTProto
+ * user session, and Telegram moderates bot-sent adult content far more
+ * strictly, risking the bot token being banned.
+ */
+export interface BotImageGenerationRuntimeConfig {
+  provider: "runware";
+  apiKey: string;
+  endpoint: string;
+  timeoutMs: number;
+  nsfwAllowed: boolean;
+  maxImagesPerTurn: number;
+  maxImagesPerChatPerDay: number;
+}
+
 export interface BotRuntimeConfig {
   token: string;
   exclusivePollerConfirmed: true;
@@ -51,6 +67,7 @@ export interface BotRuntimeConfig {
   webSearch?: BotWebSearchRuntimeConfig;
   researchGateway?: BotResearchGatewayRuntimeConfig;
   audioTranscribe: BotAudioTranscribeRuntimeConfig;
+  imageGeneration?: BotImageGenerationRuntimeConfig;
   /** Loopback SearXNG JSON API origin. Default http://127.0.0.1:8080. */
   searxngEndpoint: string;
   /** Loopback Firecrawl v2 API origin. Default http://127.0.0.1:3002. */
@@ -76,11 +93,15 @@ export type SafeBotRuntimeConfig = Omit<
   | "researchGateway"
   | "audioTranscribe"
   | "memoryWriteAuthorizerIds"
+  | "imageGeneration"
 > & {
   tokenConfigured: true;
   memoryWriteAuthorizerCount: number;
   audioTranscribe: Omit<BotAudioTranscribeRuntimeConfig, "bearerToken"> & {
     bearerTokenConfigured: boolean;
+  };
+  imageGeneration?: Omit<BotImageGenerationRuntimeConfig, "apiKey"> & {
+    apiKeyConfigured: true;
   };
   webSearch?:
     | {

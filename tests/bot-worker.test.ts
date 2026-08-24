@@ -337,6 +337,7 @@ test("a final with a mention clears the tool-progress message before publication
       return final("@mallory unsafe final");
     },
     publisher: async ({ publication }) => {
+      assert.ok(publication.mode !== "photo");
       assert.equal(
         publication.plainText,
         "@mallory unsafe final\n\ntest-model 🧠 · 10/1.0m · 0 tool calls · 0с",
@@ -362,6 +363,7 @@ test("a failed unmodified final stays an unknown-delivery fence", async (t) => {
     agent: async () => final("@mallory unsafe final"),
     publisher: async ({ publication }) => {
       publisherCalls += 1;
+      assert.ok(publication.mode !== "photo");
       assert.equal(
         publication.plainText,
         "@mallory unsafe final\n\ntest-model 🧠 · 10/1.0m · 0 tool calls · 0с",

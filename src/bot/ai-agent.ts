@@ -60,24 +60,26 @@ import {
 } from "./agent/prepare-step.js";
 import { type BotMediaToolsPort } from "./media-tools.js";
 import {
-  boundedInteger,
   isTimeoutError,
   modelStepTimeoutError,
   requireNonce,
+  resolveAgentLimits,
   safeErrorCode,
   throwIfTurnAborted,
 } from "./agent/runtime-helpers.js";
 import type { ReadToolEvidence } from "./read-tools/contracts.js";
 import { createTurnImageTracker } from "./agent/web-images.js";
-import {
-  createWebToolPort,
-  type WebToolPort,
+import type {
+  GeneratedImage,
+  WebToolPort,
 } from "./web-tools/tool-definitions.js";
-const DEFAULT_CONTEXT_CHARS = 48_000;
-const DEFAULT_MAX_OUTPUT_TOKENS = 16_384;
-const DEFAULT_STEP_TIMEOUT_MS = 180_000;
-const DEFAULT_TOOL_TIMEOUT_MS = 15_000;
-const MAX_CONTEXT_CHARS = 200_000;
+import type { RunwareClient } from "./web-tools/runware-client.js";
+import type { ImageGenerationBudget } from "./agent/image-generation-budget.js";
+import {
+  buildAgentWebToolPort,
+  createImageGenerationRuntime,
+} from "./agent/image-generation-wiring.js";
+import type { BotImageGenerationRuntimeConfig } from "./runtime-config.js";
 const MAX_LENGTH_FINALIZATION_RETRIES = 1;
 const MAX_EMPTY_FINAL_RETRIES = 1;
 export interface TurnModelRouter {
@@ -106,6 +108,7 @@ export interface AiSdkBotTurnAgentOptions {
   searxngEndpoint?: string;
   firecrawlEndpoint?: string;
   webToolPort?: WebToolPort;
+  imageGeneration?: BotImageGenerationRuntimeConfig;
 }
 
 export type BotAgentProtocolErrorCode = "empty_final" | "incomplete_finish";
@@ -144,6 +147,9 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
   readonly #searxngEndpoint: string | undefined;
   readonly #firecrawlEndpoint: string | undefined;
   readonly #webToolPort: WebToolPort | undefined;
+  readonly #runwareClient: RunwareClient | undefined;
+  readonly #imageBudget: ImageGenerationBudget | undefined;
+  readonly #imageGenerationNsfwAllowed: boolean;
 
   constructor(options: AiSdkBotTurnAgentOptions) {
     this.#router = options.router;
@@ -155,33 +161,18 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
     this.#now = options.now ?? (() => new Date());
     this.#nonceFactory =
       options.nonceFactory ?? (() => randomBytes(12).toString("hex"));
-    this.#contextCharLimit = boundedInteger(
-      options.contextCharLimit ?? DEFAULT_CONTEXT_CHARS,
-      1_000,
-      MAX_CONTEXT_CHARS,
-      "contextCharLimit",
-    );
-    this.#maxOutputTokens = boundedInteger(
-      options.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
-      64,
-      32_768,
-      "maxOutputTokens",
-    );
-    this.#stepTimeoutMs = boundedInteger(
-      options.stepTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS,
-      100,
-      15 * 60_000,
-      "stepTimeoutMs",
-    );
-    this.#toolTimeoutMs = boundedInteger(
-      options.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
-      100,
-      this.#stepTimeoutMs,
-      "toolTimeoutMs",
-    );
+    const limits = resolveAgentLimits(options);
+    this.#contextCharLimit = limits.contextCharLimit;
+    this.#maxOutputTokens = limits.maxOutputTokens;
+    this.#stepTimeoutMs = limits.stepTimeoutMs;
+    this.#toolTimeoutMs = limits.toolTimeoutMs;
     this.#searxngEndpoint = options.searxngEndpoint;
     this.#firecrawlEndpoint = options.firecrawlEndpoint;
     this.#webToolPort = options.webToolPort;
+    const imageRuntime = createImageGenerationRuntime(options.imageGeneration);
+    this.#runwareClient = imageRuntime.runwareClient;
+    this.#imageBudget = imageRuntime.imageBudget;
+    this.#imageGenerationNsfwAllowed = imageRuntime.nsfwAllowed;
   }
 
   async run(request: BotAgentRequest): Promise<BotAgentFinalResult> {
@@ -227,6 +218,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
     const compactionState: PrepareStepCompactionState = { count: 0 };
     const imageTracker =
       this.#webToolPort?.imageTracker ?? createTurnImageTracker();
+    let generatedImage: GeneratedImage | undefined;
     const thinkingProgress = new ThinkingProgressTracker(
       request.toolProgressPort,
     );
@@ -381,12 +373,19 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
             visionAvailable: candidate.capabilities.vision,
             webToolPort:
               this.#webToolPort ??
-              createWebToolPort({
+              buildAgentWebToolPort({
                 searxngEndpoint: this.#searxngEndpoint,
                 firecrawlEndpoint: this.#firecrawlEndpoint,
+                runwareClient: this.#runwareClient,
+                imageBudget: this.#imageBudget,
+                nsfwAllowed: this.#imageGenerationNsfwAllowed,
                 imageTracker,
                 nonce,
                 turnSignal,
+                turnId: String(request.turn.id),
+                onImageGenerated: (image: GeneratedImage) => {
+                  generatedImage = image;
+                },
               }),
             onExecutionStarted: toolObserver.onExecutionStarted,
             onExecutionCompleted: toolObserver.onExecutionCompleted,
@@ -612,6 +611,9 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
                 kind: "final" as const,
                 text: sanitizedText,
                 telemetry: usage.build(),
+                ...(generatedImage === undefined
+                  ? {}
+                  : { imageAttachment: { bytes: generatedImage.bytes } }),
               };
             }
           } catch (error) {

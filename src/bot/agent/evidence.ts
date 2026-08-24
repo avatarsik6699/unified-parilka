@@ -9,6 +9,12 @@ const MAX_READ_CHAT_SLICE_CARRY_CHARS = 192_000;
 const MAX_SEARXNG_CARRY_CHARS = 16_000;
 /** Firecrawl page projections get a large but finite carry budget. */
 const MAX_FIRECRAWL_CARRY_CHARS = 48_000;
+/**
+ * generate_image never carries binary/base64 back into context -- only a
+ * small metadata record (ok, model, width, height) -- so a small fixed
+ * budget is enough.
+ */
+const MAX_GENERATE_IMAGE_CARRY_CHARS = 1_000;
 
 /**
  * Ordinary tool results keep the short carry cap. Only the purpose-built
@@ -28,6 +34,9 @@ export function maxCarriedToolResultChars(name: string): number {
   }
   if (name === "firecrawl_crawl") {
     return MAX_FIRECRAWL_CARRY_CHARS;
+  }
+  if (name === "generate_image") {
+    return MAX_GENERATE_IMAGE_CARRY_CHARS;
   }
   return MAX_TOOL_CARRY_CHARS;
 }

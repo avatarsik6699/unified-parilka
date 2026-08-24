@@ -1,4 +1,4 @@
-import type { Api } from "grammy";
+import { InputFile, type Api } from "grammy";
 import type { ApprovalPosterApiPort } from "../../human-persona-approval-poster.js";
 import type { ChatInfo } from "../../telegram/types.js";
 import type { StoredMessage } from "../../store.js";
@@ -58,12 +58,32 @@ export interface DurableGrammyPublisherOptions {
  * an automatic resend.
  */
 export function createDurableGrammyBotTurnPublisher(
-  api: Pick<Api, "sendRichMessage" | "sendMessage">,
+  api: Pick<Api, "sendRichMessage" | "sendMessage" | "sendPhoto">,
   options: DurableGrammyPublisherOptions,
 ): GrammyBotTurnPublisher {
   const botId = positiveTelegramId(options.botId, "botId");
   const botUsername = normalizeExpectedUsername(options.botUsername);
   const port: GrammyBotApiPort = {
+    async sendPhoto(input) {
+      const response = await api.sendPhoto(
+        input.chatId,
+        new InputFile(input.photoBytes),
+        {
+          caption: input.caption,
+          reply_parameters: input.options.reply_parameters,
+        } as unknown as Parameters<Api["sendPhoto"]>[2],
+        input.signal as unknown as Parameters<Api["sendPhoto"]>[3],
+      );
+      recordOwnSend(options.store, {
+        response,
+        requestedChatId: input.chatId,
+        text: input.caption,
+        replyToMessageId: input.options.reply_parameters.message_id,
+        botId,
+        botUsername,
+      });
+      return response;
+    },
     async sendRichMessage(input) {
       const response = await api.sendRichMessage(
         input.chatId,

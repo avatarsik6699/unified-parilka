@@ -13,8 +13,9 @@ import type { BotReadTools } from "../src/bot/read-tools.js";
 const JPEG_BYTES = new Uint8Array([
   0xff, 0xd8, 0xff, 0xe0, 0, 16, 0x4a, 0x46, 0x49, 0x46, 0, 1, 0, 0, 0, 0,
 ]);
-const PUBLIC_LOOKUP = async (): Promise<readonly { address: string; family: 4 | 6 }[]> =>
-  [{ address: "93.184.216.34", family: 4 }];
+const PUBLIC_LOOKUP = async (): Promise<
+  readonly { address: string; family: 4 | 6 }[]
+> => [{ address: "93.184.216.34", family: 4 }];
 
 interface FakeRoute {
   method: string;
@@ -50,7 +51,11 @@ function firecrawlRoutes(statusBody: string): FakeRoute[] {
       method: "POST",
       path: "/v2/crawl",
       status: 200,
-      body: JSON.stringify({ success: true, id: "job-1", url: "http://127.0.0.1:3002/v2/crawl" }),
+      body: JSON.stringify({
+        success: true,
+        id: "job-1",
+        url: "http://127.0.0.1:3002/v2/crawl",
+      }),
     },
     { method: "GET", path: "/v2/crawl/job-1", status: 200, body: statusBody },
     { method: "DELETE", path: "/v2/crawl/job-1", status: 200, body: "{}" },
@@ -71,8 +76,7 @@ interface ExecutableTestTool {
     input: Record<string, unknown>;
     output: WebToolResult;
   }) =>
-    | { type: string; value: string }
-    | Promise<{ type: string; value: string }>;
+    { type: string; value: string } | Promise<{ type: string; value: string }>;
 }
 
 function makeToolSet(
@@ -110,8 +114,11 @@ function testPort(): WebToolPort {
     imageTracker: createTurnImageTracker(),
     nonce: "fixed_nonce_1234",
     turnSignal: new AbortController().signal,
+    turnId: "test-turn",
     searxngClient: new SearXNGClient({
-      fetchImpl: fakeFetch([{ method: "GET", path: "/search", status: 200, body: "{}" }]),
+      fetchImpl: fakeFetch([
+        { method: "GET", path: "/search", status: 200, body: "{}" },
+      ]),
     }),
     firecrawlClient: new FirecrawlClient({
       lookup: PUBLIC_LOOKUP,
@@ -210,7 +217,9 @@ test("unexpected downloader throws become typed failures without leaks", async (
   const throwingPort: WebToolPort = {
     ...port,
     downloadImages: async () => {
-      throw new Error("secret upstream detail: https://example.com/x?token=SECRET");
+      throw new Error(
+        "secret upstream detail: https://example.com/x?token=SECRET",
+      );
     },
   };
   const { tools, completed } = makeToolSet(throwingPort, true);

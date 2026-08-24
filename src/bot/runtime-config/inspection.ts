@@ -1,7 +1,4 @@
-import type {
-  BotRuntimeConfig,
-  SafeBotRuntimeConfig,
-} from "./contracts.js";
+import type { BotRuntimeConfig, SafeBotRuntimeConfig } from "./contracts.js";
 
 export function safeBotRuntimeConfig(
   config: Readonly<BotRuntimeConfig>,
@@ -12,6 +9,7 @@ export function safeBotRuntimeConfig(
     researchGateway,
     audioTranscribe,
     memoryWriteAuthorizerIds,
+    imageGeneration,
     ...safe
   } = config;
   return {
@@ -30,8 +28,7 @@ export function safeBotRuntimeConfig(
             webSearch: {
               kind: "http",
               endpoint: webSearch.endpoint,
-              bearerTokenConfigured:
-                webSearch.bearerToken !== undefined,
+              bearerTokenConfigured: webSearch.bearerToken !== undefined,
             },
           }
         : {
@@ -41,8 +38,7 @@ export function safeBotRuntimeConfig(
               model: webSearch.model,
               region: webSearch.region,
               maxOutputTokens: webSearch.maxOutputTokens,
-              gcloudPathConfigured:
-                webSearch.gcloudPath !== undefined,
+              gcloudPathConfigured: webSearch.gcloudPath !== undefined,
             },
           }),
     ...(researchGateway === undefined
@@ -51,6 +47,19 @@ export function safeBotRuntimeConfig(
           researchGateway: {
             configured: true,
             timeoutMs: researchGateway.timeoutMs,
+          },
+        }),
+    ...(imageGeneration === undefined
+      ? {}
+      : {
+          imageGeneration: {
+            provider: imageGeneration.provider,
+            apiKeyConfigured: true,
+            endpoint: imageGeneration.endpoint,
+            timeoutMs: imageGeneration.timeoutMs,
+            nsfwAllowed: imageGeneration.nsfwAllowed,
+            maxImagesPerTurn: imageGeneration.maxImagesPerTurn,
+            maxImagesPerChatPerDay: imageGeneration.maxImagesPerChatPerDay,
           },
         }),
   };

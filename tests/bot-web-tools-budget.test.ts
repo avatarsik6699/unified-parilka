@@ -4,16 +4,18 @@ import { SearXNGClient } from "../src/bot/web-tools/searxng-client.js";
 import { FirecrawlClient } from "../src/bot/web-tools/firecrawl-client.js";
 import { createTurnImageTracker } from "../src/bot/agent/web-images.js";
 import { createBotToolSet } from "../src/bot/agent/tool-set.js";
-import { createWebToolPort, fitSerializedOutput } from "../src/bot/web-tools/tool-definitions.js";
+import { createWebToolPort } from "../src/bot/web-tools/tool-definitions.js";
 import type { WebToolPort } from "../src/bot/web-tools/tool-definitions.js";
 import type { WebToolResult } from "../src/bot/web-tools/tool-definitions.js";
+import { fitSerializedOutput } from "../src/bot/web-tools/web-tool-registration.js";
 import type { BotToolSetExecutionCompleted } from "../src/bot/agent/tool-set.js";
 import type { BotReadTools } from "../src/bot/read-tools.js";
 
 // ─── Fake helpers ───────────────────────────────────────────────────────────
 
-const PUBLIC_LOOKUP = async (): Promise<readonly { address: string; family: 4 | 6 }[]> =>
-  [{ address: "93.184.216.34", family: 4 }];
+const PUBLIC_LOOKUP = async (): Promise<
+  readonly { address: string; family: 4 | 6 }[]
+> => [{ address: "93.184.216.34", family: 4 }];
 
 interface FakeRoute {
   method: string;
@@ -45,7 +47,11 @@ function firecrawlRoutes(statusBody: string): FakeRoute[] {
       method: "POST",
       path: "/v2/crawl",
       status: 200,
-      body: JSON.stringify({ success: true, id: "job-1", url: "http://127.0.0.1:3002/v2/crawl" }),
+      body: JSON.stringify({
+        success: true,
+        id: "job-1",
+        url: "http://127.0.0.1:3002/v2/crawl",
+      }),
     },
     { method: "GET", path: "/v2/crawl/job-1", status: 200, body: statusBody },
     { method: "DELETE", path: "/v2/crawl/job-1", status: 200, body: "{}" },
@@ -66,8 +72,7 @@ interface ExecutableTestTool {
     input: Record<string, unknown>;
     output: WebToolResult;
   }) =>
-    | { type: string; value: string }
-    | Promise<{ type: string; value: string }>;
+    { type: string; value: string } | Promise<{ type: string; value: string }>;
 }
 
 function makeToolSet(
@@ -107,18 +112,24 @@ test("firecrawl success output stays under the 48k carry budget", async () => {
   const pages = Array.from({ length: 5 }, (_, i) => ({
     markdown: "y".repeat(8_000),
     metadata: { sourceURL: longUrl },
-    images: Array.from({ length: 20 }, (_, j) =>
-      `https://img.example.com/${i}/${"b".repeat(2000)}/${j}.png`),
+    images: Array.from(
+      { length: 20 },
+      (_, j) => `https://img.example.com/${i}/${"b".repeat(2000)}/${j}.png`,
+    ),
   }));
   const client = new FirecrawlClient({
     lookup: PUBLIC_LOOKUP,
     pollIntervalMs: 5,
-    fetchImpl: fakeFetch(firecrawlRoutes(JSON.stringify({
-      status: "completed",
-      completed: 5,
-      total: 5,
-      data: pages,
-    }))),
+    fetchImpl: fakeFetch(
+      firecrawlRoutes(
+        JSON.stringify({
+          status: "completed",
+          completed: 5,
+          total: 5,
+          data: pages,
+        }),
+      ),
+    ),
   });
   const result = await client.crawl(
     { url: "https://example.com/docs" },
@@ -130,9 +141,12 @@ test("firecrawl success output stays under the 48k carry budget", async () => {
     imageTracker: createTurnImageTracker(),
     nonce: "fixed_nonce_1234",
     turnSignal: new AbortController().signal,
+    turnId: "test-turn",
     firecrawlClient: client,
     searxngClient: new SearXNGClient({
-      fetchImpl: fakeFetch([{ method: "GET", path: "/search", status: 200, body: "{}" }]),
+      fetchImpl: fakeFetch([
+        { method: "GET", path: "/search", status: 200, body: "{}" },
+      ]),
     }),
   });
   const craftedSet = makeToolSet(crafted, false);
@@ -156,7 +170,10 @@ test("firecrawl success output stays under the 48k carry budget", async () => {
     (craftedOutput.result.pages as unknown[]).length,
   );
   // Evidence shrinks in lockstep with the surviving pages.
-  assert.equal(craftedOutput.evidence.length, (craftedOutput.result.pages as unknown[]).length);
+  assert.equal(
+    craftedOutput.evidence.length,
+    (craftedOutput.result.pages as unknown[]).length,
+  );
   assert.equal(craftedOutput.status, "done"); // pages survived, no empty status
   assert.equal("status" in craftedOutput.result, false); // no fabricated result.status
 });
@@ -225,17 +242,20 @@ test("searxng output fits the 16k carry budget without output_too_large", async 
     thumbnail: `https://thumb.example.com/${i}/${"c".repeat(2000)}.jpg`,
   }));
   const client = new SearXNGClient({
-    fetchImpl: fakeFetch([{
-      method: "GET",
-      path: "/search",
-      status: 200,
-      body: JSON.stringify({ results }),
-    }]),
+    fetchImpl: fakeFetch([
+      {
+        method: "GET",
+        path: "/search",
+        status: 200,
+        body: JSON.stringify({ results }),
+      },
+    ]),
   });
   const crafted = createWebToolPort({
     imageTracker: createTurnImageTracker(),
     nonce: "fixed_nonce_1234",
     turnSignal: new AbortController().signal,
+    turnId: "test-turn",
     searxngClient: client,
     firecrawlClient: new FirecrawlClient({
       lookup: PUBLIC_LOOKUP,

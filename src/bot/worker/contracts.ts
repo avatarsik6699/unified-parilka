@@ -6,7 +6,11 @@ import type {
   StoredFastChatMemory,
   StoredMessage,
 } from "../../store.js";
-import type { FoldBatch, TurnBoundary, TurnCoordinator } from "../turn-coordinator.js";
+import type {
+  FoldBatch,
+  TurnBoundary,
+  TurnCoordinator,
+} from "../turn-coordinator.js";
 import type { TelegramPublication } from "../telegram-publication.js";
 import type {
   ToolProgressBotApiPort,
@@ -30,6 +34,8 @@ export interface BotAgentFinalResult {
    * than being sent through the native rich-message endpoint.
    */
   responseOrigin?: "local_audio";
+  /** A generate_image tool result to attach as a native Telegram photo. */
+  imageAttachment?: { bytes: Buffer };
 }
 
 export interface BotAgentRequest {
@@ -130,7 +136,11 @@ export type BotTurnWorkerResult =
       turnId: number;
       reason: "shadow" | "chat_scope";
     }
-  | { status: "failed"; turnId: number; stage: "load" | "agent" | "coordinator" }
+  | {
+      status: "failed";
+      turnId: number;
+      stage: "load" | "agent" | "coordinator";
+    }
   | { status: "lease_lost"; turnId: number }
   | {
       status: "dispatch_rejected";

@@ -92,10 +92,7 @@ export function telegramIdList(
 
 export function normalizeBotUsername(value: string): string {
   const username = value.replace(/^@/u, "");
-  if (
-    !/^[A-Za-z0-9_]{5,32}$/u.test(username) ||
-    !/bot$/iu.test(username)
-  ) {
+  if (!/^[A-Za-z0-9_]{5,32}$/u.test(username) || !/bot$/iu.test(username)) {
     throw new Error(
       "BOT_USERNAME must be a 5-32 character Telegram bot username ending in bot.",
     );
@@ -138,10 +135,7 @@ export function absoluteSocketPath(value: string, name: string): string {
   return path;
 }
 
-export function existingAbsoluteFile(
-  value: string,
-  name: string,
-): string {
+export function existingAbsoluteFile(value: string, name: string): string {
   if (!isAbsolute(value)) {
     throw new Error(`${name} must be an absolute path.`);
   }
@@ -158,10 +152,7 @@ export function existingAbsoluteFile(
   return path;
 }
 
-export function sameConfiguredFile(
-  left: string,
-  right: string,
-): boolean {
+export function sameConfiguredFile(left: string, right: string): boolean {
   if (resolve(left) === resolve(right)) {
     return true;
   }
@@ -203,14 +194,28 @@ export function integer(
     throw integerError(name, minimum, maximum);
   }
   const parsed = Number(value);
-  if (
-    !Number.isSafeInteger(parsed) ||
-    parsed < minimum ||
-    parsed > maximum
-  ) {
+  if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
     throw integerError(name, minimum, maximum);
   }
   return parsed;
+}
+
+export function booleanFlag(
+  raw: string | undefined,
+  name: string,
+  fallback: boolean,
+): boolean {
+  const value = raw?.trim();
+  if (!value) {
+    return fallback;
+  }
+  if (value === "true") {
+    return true;
+  }
+  if (value === "false") {
+    return false;
+  }
+  throw new Error(`${name} must be "true" or "false".`);
 }
 
 export function enumValue<const T extends readonly string[]>(
@@ -226,11 +231,7 @@ export function enumValue<const T extends readonly string[]>(
   return value as T[number];
 }
 
-function integerError(
-  name: string,
-  minimum: number,
-  maximum: number,
-): Error {
+function integerError(name: string, minimum: number, maximum: number): Error {
   return new Error(
     `${name} must be an integer between ${minimum} and ${maximum}.`,
   );

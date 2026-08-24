@@ -134,6 +134,9 @@ export function composeBotDaemon(
       ),
       searxngEndpoint: config.searxngEndpoint,
       firecrawlEndpoint: config.firecrawlEndpoint,
+      ...(config.imageGeneration === undefined
+        ? {}
+        : { imageGeneration: config.imageGeneration }),
     });
     const workers = Array.from(
       { length: config.workerConcurrency },

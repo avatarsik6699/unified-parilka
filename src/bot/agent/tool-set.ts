@@ -17,11 +17,11 @@ import {
 } from "../read-tools.js";
 import type { AudioTranscribeToolResult } from "../media-tools.js";
 import { boundedSerialize, maxCarriedToolResultChars } from "./evidence.js";
-import {
-  addWebTools,
-  type WebToolPort,
-  type WebToolResult,
+import type {
+  WebToolPort,
+  WebToolResult,
 } from "../web-tools/tool-definitions.js";
+import { addWebTools } from "../web-tools/web-tool-registration.js";
 
 export interface BotToolSetExecutionStarted {
   readonly kind: "read" | "memory" | "web";

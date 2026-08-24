@@ -13,6 +13,7 @@ import {
   telegramIdList,
 } from "./env-rules.js";
 import { optionalResearchGatewayConfig } from "./research-gateway.js";
+import { optionalImageGenerationConfig } from "./image-generation.js";
 import { audioTranscribeConfig } from "./audio-transcribe.js";
 import { requireLoopbackHttpOrigin } from "../web-tools/url-validation.js";
 import {
@@ -85,6 +86,7 @@ export function parseBotRuntimeConfig(
     ),
     ...optionalWebSearchConfig(env),
     ...optionalResearchGatewayConfig(env),
+    ...optionalImageGenerationConfig(env),
     audioTranscribe: audioTranscribeConfig(env),
     searxngEndpoint: requireLoopbackHttpOrigin(
       env.BOT_SEARXNG_ENDPOINT ?? "http://127.0.0.1:8080",

@@ -5,6 +5,7 @@ export type {
   BotWebSearchRuntimeConfig,
   BotResearchGatewayRuntimeConfig,
   BotAudioTranscribeRuntimeConfig,
+  BotImageGenerationRuntimeConfig,
   SafeBotRuntimeConfig,
 } from "./runtime-config/contracts.js";
 export { safeBotRuntimeConfig } from "./runtime-config/inspection.js";
