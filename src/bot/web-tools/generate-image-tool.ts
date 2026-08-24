@@ -125,9 +125,14 @@ export function addGenerateImageTool(
         return failure;
       }
       try {
+        const translation = await port.translateImagePrompt?.(
+          rawPrompt,
+          execution.abortSignal ?? port.turnSignal,
+        );
+        const prompt = translation?.ok === true ? translation.text : rawPrompt;
         const result = await runwareClient.generate(
           {
-            prompt: rawPrompt,
+            prompt,
             width: typeof input.width === "number" ? input.width : undefined,
             height: typeof input.height === "number" ? input.height : undefined,
             nsfw: input.nsfw === true,

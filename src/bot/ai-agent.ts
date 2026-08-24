@@ -388,6 +388,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
                 onImageGenerated: (image: GeneratedImage) => {
                   generatedImage = image;
                 },
+                router: this.#router,
               }),
             onExecutionStarted: toolObserver.onExecutionStarted,
             onExecutionCompleted: toolObserver.onExecutionCompleted,

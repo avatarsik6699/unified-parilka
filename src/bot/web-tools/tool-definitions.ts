@@ -21,6 +21,11 @@ export interface GeneratedImage {
   height: number;
 }
 
+export type TranslateImagePrompt = (
+  text: string,
+  signal: AbortSignal,
+) => Promise<{ ok: true; text: string } | { ok: false }>;
+
 export type WebToolName = (typeof WEB_TOOL_NAMES)[number];
 
 export interface WebToolResultSuccess {
@@ -57,6 +62,8 @@ export interface WebToolPort {
   onImageGenerated?: (image: GeneratedImage) => void;
   /** Raw trigger text, mention-stripped, for generate_image's literal prompt. */
   rawImagePromptSource?: string;
+  /** Best-effort literal translation to English before Runware sees the prompt. */
+  translateImagePrompt?: TranslateImagePrompt;
 }
 
 export interface CreateWebToolPortOptions {
@@ -75,6 +82,8 @@ export interface CreateWebToolPortOptions {
   onImageGenerated?: (image: GeneratedImage) => void;
   /** Raw trigger text, mention-stripped, for generate_image's literal prompt. */
   rawImagePromptSource?: string;
+  /** Best-effort literal translation to English before Runware sees the prompt. */
+  translateImagePrompt?: TranslateImagePrompt;
 }
 
 export function createWebToolPort(
@@ -113,6 +122,9 @@ export function createWebToolPort(
     ...(options.rawImagePromptSource === undefined
       ? {}
       : { rawImagePromptSource: options.rawImagePromptSource }),
+    ...(options.translateImagePrompt === undefined
+      ? {}
+      : { translateImagePrompt: options.translateImagePrompt }),
   };
 }
 

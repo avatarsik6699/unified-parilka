@@ -89,6 +89,7 @@ function configuredPort(
     onImageGenerated?: (image: GeneratedImage) => void;
     fetchImpl?: typeof fetch;
     rawImagePromptSource?: string;
+    translateImagePrompt?: WebToolPort["translateImagePrompt"];
   } = {},
 ): WebToolPort {
   const nsfwAllowed = overrides.nsfwAllowed ?? false;
@@ -113,6 +114,9 @@ function configuredPort(
     ...(overrides.onImageGenerated === undefined
       ? {}
       : { onImageGenerated: overrides.onImageGenerated }),
+    ...(overrides.translateImagePrompt === undefined
+      ? {}
+      : { translateImagePrompt: overrides.translateImagePrompt }),
   });
 }
 
@@ -239,6 +243,49 @@ test("the Runware prompt is the port's raw trigger text, not a model-provided on
   );
   const parsed = JSON.parse(capturedBody);
   assert.equal(parsed[0].positivePrompt, "нарисуй дословно вот это");
+});
+
+test("Runware receives the translated prompt when translation succeeds", async () => {
+  let capturedBody = "";
+  const port = configuredPort({
+    rawImagePromptSource: "золотистый ретривер бежит в парке",
+    translateImagePrompt: () =>
+      Promise.resolve({
+        ok: true,
+        text: "a golden retriever running in a park",
+      }),
+    fetchImpl: (async (input: string | URL, init?: RequestInit) => {
+      if (String(input) === "https://api.runware.ai/v1") {
+        capturedBody = String(init?.body ?? "");
+      }
+      return successFetch()(input as never, init);
+    }) as typeof fetch,
+  });
+  const { tools } = makeToolSet(port);
+  await tools.generate_image.execute({}, { toolCallId: "call-1" });
+  const parsed = JSON.parse(capturedBody);
+  assert.equal(
+    parsed[0].positivePrompt,
+    "a golden retriever running in a park",
+  );
+});
+
+test("Runware falls back to the raw prompt when translation fails", async () => {
+  let capturedBody = "";
+  const port = configuredPort({
+    rawImagePromptSource: "золотистый ретривер бежит в парке",
+    translateImagePrompt: () => Promise.resolve({ ok: false }),
+    fetchImpl: (async (input: string | URL, init?: RequestInit) => {
+      if (String(input) === "https://api.runware.ai/v1") {
+        capturedBody = String(init?.body ?? "");
+      }
+      return successFetch()(input as never, init);
+    }) as typeof fetch,
+  });
+  const { tools } = makeToolSet(port);
+  await tools.generate_image.execute({}, { toolCallId: "call-1" });
+  const parsed = JSON.parse(capturedBody);
+  assert.equal(parsed[0].positivePrompt, "золотистый ретривер бежит в парке");
 });
 
 test("an empty raw prompt source fails closed without calling Runware", async () => {

@@ -6,6 +6,10 @@ import {
   type GeneratedImage,
   type WebToolPort,
 } from "../web-tools/tool-definitions.js";
+import {
+  translateImagePromptToEnglish,
+  type PromptTranslationRouter,
+} from "./image-prompt-translation.js";
 
 export interface ImageGenerationRuntime {
   runwareClient: RunwareClient | undefined;
@@ -33,6 +37,8 @@ export interface AgentWebToolPortOptions {
   /** Raw trigger text and bot username, mention-stripped for generate_image. */
   triggerText: string;
   botUsername: string;
+  /** Used to translate the raw prompt to English before Runware sees it. */
+  router: PromptTranslationRouter;
 }
 
 /**
@@ -77,6 +83,12 @@ export function buildAgentWebToolPort(
             options.triggerText,
             options.botUsername,
           ),
+          translateImagePrompt: (text: string, signal: AbortSignal) =>
+            translateImagePromptToEnglish({
+              router: options.router,
+              text,
+              signal,
+            }),
         }),
   });
 }
