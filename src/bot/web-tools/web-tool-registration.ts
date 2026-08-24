@@ -16,6 +16,7 @@ import {
 import { addGenerateImageTool } from "./generate-image-tool.js";
 import { addEditImageTool } from "./edit-image-tool.js";
 import { addSpeakTextTool } from "./speak-text-tool.js";
+import { addReactToMessageTool } from "./react-tool.js";
 
 const SEARXNG_TOOL_DESCRIPTION =
   "Прямой поиск во внешнем вебе и картинках через локальный SearXNG. " +
@@ -325,6 +326,7 @@ export function addWebTools(
   addGenerateImageTool(existing, options, addedNames);
   addEditImageTool(existing, options, addedNames);
   addSpeakTextTool(existing, options, addedNames);
+  addReactToMessageTool(existing, options, addedNames);
 
   return { tools: existing, names: addedNames };
 }

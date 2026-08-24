@@ -12,6 +12,8 @@ import {
   type ReferenceImage,
   type WebToolPort,
 } from "../web-tools/tool-definitions.js";
+import type { ReactionCapability } from "../web-tools/reaction-contracts.js";
+import type { BotAgentRequest } from "../worker/contracts.js";
 import {
   translateImagePromptToEnglish,
   type PromptTranslationRouter,
@@ -55,6 +57,7 @@ export interface AgentWebToolPortOptions {
   ttsClient: RunwareClient | undefined;
   ttsBudget: ImageGenerationBudget | undefined;
   onSpeechGenerated: (speech: GeneratedSpeech) => void;
+  reaction?: ReactionCapability;
 }
 
 /**
@@ -116,7 +119,34 @@ export function buildAgentWebToolPort(
           ttsBudget: options.ttsBudget,
           onSpeechGenerated: options.onSpeechGenerated,
         }),
+    ...(options.reaction === undefined ? {} : { reaction: options.reaction }),
   });
+}
+
+/**
+ * `react_to_message`'s target ids and chat scope come from the live request,
+ * not agent-construction-time config -- the Bot API port itself is the only
+ * part wired once, from `BotTurnWorker`, matching `toolProgressPort`.
+ */
+export function reactionPortOptions(
+  request: Pick<
+    BotAgentRequest,
+    "reactionApi" | "turn" | "trigger" | "replyTarget"
+  >,
+): Pick<AgentWebToolPortOptions, "reaction"> {
+  if (request.reactionApi === undefined) {
+    return {};
+  }
+  return {
+    reaction: {
+      api: request.reactionApi,
+      chatId: request.turn.chatId,
+      triggerMessageId: request.trigger.messageId,
+      ...(request.replyTarget === undefined
+        ? {}
+        : { replyMessageId: request.replyTarget.messageId }),
+    },
+  };
 }
 
 export function createImageGenerationRuntime(

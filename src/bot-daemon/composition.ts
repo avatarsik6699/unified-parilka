@@ -15,6 +15,7 @@ import {
   createDurableGrammyBotTurnPublisher,
   createGrammyLongPollingApi,
   createGrammyTelegramMediaDownloader,
+  createReactionGrammyBotApiPort,
   createToolProgressGrammyBotApiPort,
 } from "../bot/runtime.js";
 import { TurnCoordinator } from "../bot/turn-coordinator.js";
@@ -79,6 +80,7 @@ export function composeBotDaemon(
   const toolProgressBotApiPort = createToolProgressGrammyBotApiPort(
     options.api,
   );
+  const reactionBotApiPort = createReactionGrammyBotApiPort(options.api);
 
   // One full graph per assistant-role chat (Фаза 7): the coordinator's
   // fold/routing has no chat filter, so it -- and everything built against
@@ -155,6 +157,7 @@ export function composeBotDaemon(
           publishTimeoutMs: config.publishTimeoutMs,
           typingPort,
           toolProgressBotApiPort,
+          reactionBotApiPort,
           logger: options.logger,
           botSenderId: config.botId,
         }),

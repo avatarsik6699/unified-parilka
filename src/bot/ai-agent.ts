@@ -79,6 +79,7 @@ import {
   buildAgentWebToolPort,
   createAgentMediaRuntime,
   finalMediaAttachments,
+  reactionPortOptions,
   type AgentMediaRuntime,
   type BotImageGenerationRuntimeConfig,
   type BotVoiceReplyRuntimeConfig,
@@ -391,6 +392,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
                   (image) => (media.image = image),
                   (speech) => (media.speech = speech),
                 ),
+                ...reactionPortOptions(request),
               }),
             onExecutionStarted: toolObserver.onExecutionStarted,
             onExecutionCompleted: toolObserver.onExecutionCompleted,
@@ -463,8 +465,7 @@ export class AiSdkBotTurnAgent implements BotTurnAgent {
                   log: (level, event, fields) =>
                     this.#log(level, event, fields),
                 }),
-                // There is no whole-turn or model/tool-step count ceiling.
-                // Each provider and tool operation remains independently bounded.
+                // No whole-turn/step count ceiling: each op is independently bounded.
                 stopWhen: () => false,
                 maxRetries: 0,
                 abortSignal: turnSignal,

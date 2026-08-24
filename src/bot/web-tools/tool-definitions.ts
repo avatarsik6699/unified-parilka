@@ -6,6 +6,7 @@ import { FirecrawlClient } from "./firecrawl-client.js";
 import { downloadImages as defaultDownloadImages } from "./image-downloader.js";
 import type { RunwareClient } from "./runware-client.js";
 import type { ImageGenerationBudget } from "../agent/image-generation-budget.js";
+import type { ReactionCapability } from "./reaction-contracts.js";
 
 export const WEB_TOOL_NAMES = [
   "searxng_search",
@@ -14,6 +15,7 @@ export const WEB_TOOL_NAMES = [
   "generate_image",
   "edit_image",
   "speak_text",
+  "react_to_message",
 ] as const;
 
 export interface GeneratedImage {
@@ -83,6 +85,7 @@ export interface WebToolPort {
   ttsClient?: RunwareClient;
   ttsBudget?: ImageGenerationBudget;
   onSpeechGenerated?: (speech: GeneratedSpeech) => void;
+  reaction?: ReactionCapability;
 }
 
 export interface CreateWebToolPortOptions {
@@ -107,6 +110,7 @@ export interface CreateWebToolPortOptions {
   ttsClient?: RunwareClient;
   ttsBudget?: ImageGenerationBudget;
   onSpeechGenerated?: (speech: GeneratedSpeech) => void;
+  reaction?: ReactionCapability;
 }
 
 export function createWebToolPort(
@@ -160,6 +164,7 @@ export function createWebToolPort(
     ...(options.onSpeechGenerated === undefined
       ? {}
       : { onSpeechGenerated: options.onSpeechGenerated }),
+    ...(options.reaction === undefined ? {} : { reaction: options.reaction }),
   };
 }
 

@@ -29,6 +29,7 @@ export {
   createApprovalPosterApiPort,
   createDurableGrammyBotTurnPublisher,
   createToolProgressGrammyBotApiPort,
+  createReactionGrammyBotApiPort,
   createGrammyTelegramMediaDownloader,
   botRuntimeOptionsFromConfig,
   type DurableGrammyPublisherOptions,

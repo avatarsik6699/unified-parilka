@@ -8,6 +8,7 @@ import {
 } from "../grammy-publisher.js";
 import type { BotRuntimeConfig } from "../runtime-config.js";
 import type { ToolProgressBotApiPort } from "../tool-progress.js";
+import type { BotReactionApiPort } from "../web-tools/reaction-contracts.js";
 import { BotMediaError } from "../media/contracts.js";
 import { TelegramMediaDownloader } from "../media/telegram-downloader.js";
 import type { OwnSendStore } from "./contracts.js";
@@ -185,6 +186,32 @@ export function createToolProgressGrammyBotApiPort(
           chatId,
           messageId,
           signal as unknown as Parameters<Api["deleteMessage"]>[2],
+        );
+        return { ok: true };
+      } catch {
+        return { ok: false };
+      }
+    },
+  };
+}
+
+/**
+ * Best-effort Bot API port for `react_to_message`. A rejected/unreachable
+ * reaction call degrades to `{ ok: false }`, same failure shape the tool
+ * already surfaces as a typed `provider_error` -- never a thrown turn error.
+ */
+export function createReactionGrammyBotApiPort(
+  api: Pick<Api, "setMessageReaction">,
+): BotReactionApiPort {
+  return {
+    async setMessageReaction(chatId, messageId, emoji, signal) {
+      try {
+        await api.setMessageReaction(
+          chatId,
+          messageId,
+          [{ type: "emoji", emoji }],
+          undefined as unknown as Parameters<Api["setMessageReaction"]>[3],
+          signal as unknown as Parameters<Api["setMessageReaction"]>[4],
         );
         return { ok: true };
       } catch {

@@ -38,7 +38,8 @@ export function maxCarriedToolResultChars(name: string): number {
   if (
     name === "generate_image" ||
     name === "edit_image" ||
-    name === "speak_text"
+    name === "speak_text" ||
+    name === "react_to_message"
   ) {
     return MAX_GENERATE_IMAGE_CARRY_CHARS;
   }

@@ -18,6 +18,7 @@ import type {
 } from "../tool-progress.js";
 import type { TurnTelemetry } from "../telemetry.js";
 import type { TypingPort } from "../typing.js";
+import type { BotReactionApiPort } from "../web-tools/reaction-contracts.js";
 
 export const BOT_CONTEXT_MESSAGES = 60;
 export const BOT_REPLAY_MESSAGES = 100;
@@ -59,6 +60,8 @@ export interface BotAgentRequest {
   chatSkills?: readonly StoredChatSkill[];
   /** Durable sender id of this bot's own published messages. */
   botSenderId?: string;
+  /** Live Bot API port for `react_to_message`; absent leaves the tool unregistered. */
+  reactionApi?: BotReactionApiPort;
 }
 
 export interface BotTurnAgent {
@@ -127,6 +130,8 @@ export interface BotTurnWorkerOptions {
   now?: () => number;
   /** Durable sender id of this bot's own published messages. */
   botSenderId?: string;
+  /** Live Bot API port for `react_to_message`, forwarded into each turn's request. */
+  reactionBotApiPort?: BotReactionApiPort;
 }
 
 export type BotTurnWorkerResult =

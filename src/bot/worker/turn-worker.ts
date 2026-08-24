@@ -32,6 +32,7 @@ import {
   seedBotTurnReplay,
 } from "./turn-context.js";
 import { resolveBotTurnWorkerSettings } from "./worker-config.js";
+import type { BotReactionApiPort } from "../web-tools/reaction-contracts.js";
 
 export class BotTurnWorker {
   readonly #store: MessageStore;
@@ -51,6 +52,7 @@ export class BotTurnWorker {
   readonly #scheduler: WorkerScheduler;
   readonly #now: () => number;
   readonly #botSenderId: string | undefined;
+  readonly #reactionBotApiPort: BotReactionApiPort | undefined;
 
   constructor(options: BotTurnWorkerOptions) {
     this.#store = options.store;
@@ -71,6 +73,7 @@ export class BotTurnWorker {
     this.#scheduler = settings.scheduler;
     this.#now = settings.now;
     this.#botSenderId = options.botSenderId;
+    this.#reactionBotApiPort = options.reactionBotApiPort;
   }
 
   async runOnce(): Promise<BotTurnWorkerResult> {
@@ -214,6 +217,7 @@ export class BotTurnWorker {
             longTermLessons: loaded.longTermLessons,
             chatSkills: loaded.chatSkills,
             botSenderId: this.#botSenderId,
+            reactionApi: this.#reactionBotApiPort,
           }),
           timers.interruption,
         ]);
