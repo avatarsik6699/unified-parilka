@@ -13,7 +13,12 @@ import type {
   AssistantCuriosityPort,
 } from "./types.js";
 
-const DEFAULT_MAX_OUTPUT_TOKENS = 512;
+// Reasoning-mode providers (e.g. deepseek with thinkingMode: "enabled")
+// spend part of this budget on hidden reasoning tokens before any visible
+// text -- a tight budget intermittently truncates before finishReason
+// "stop", which this port treats as a fallback-eligible failure (see the
+// same fix in src/news-brief/summarize.ts).
+const DEFAULT_MAX_OUTPUT_TOKENS = 2_048;
 const DEFAULT_TOTAL_TIMEOUT_MS = 60_000;
 const DEFAULT_CANDIDATE_TIMEOUT_MS = 30_000;
 const MAX_TOPIC_CHARS = 160;
