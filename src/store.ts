@@ -1,3 +1,7 @@
+import {
+  AssistantCuriosityMethods,
+  type AssistantCuriosityApi,
+} from "./storage/assistant-curiosity.js";
 import { BotTurnMethods, type BotTurnApi } from "./storage/bot-turns.js";
 import { BotUpdateMethods, type BotUpdateApi } from "./storage/bot-updates.js";
 import {
@@ -95,18 +99,15 @@ export interface MessageStore
     SyncOpsApi,
     StatusApi,
     TranscriptApi,
-    HumanPersonaApi {}
-
+    HumanPersonaApi,
+    AssistantCuriosityApi {}
 /**
- * Stable compatibility facade over domain-focused SQLite method modules.
- *
- * There is exactly one StoreCore and one DatabaseSync per MessageStore.
- * Modules contribute methods to this prototype; they are never instantiated
- * as separate stores and cannot start nested transactions independently.
+ * Compatibility facade: exactly one StoreCore/DatabaseSync per MessageStore.
+ * Modules below contribute methods to this prototype and never instantiate
+ * as separate stores or start nested transactions independently.
  */
 export class MessageStore extends StoreCore {
   declare private initializeStore: (options: MessageStoreOptions) => void;
-
   constructor(path: string, options: MessageStoreOptions = {}) {
     super(path, options);
     try {
@@ -117,7 +118,6 @@ export class MessageStore extends StoreCore {
     }
   }
 }
-
 const domains = [
   SchemaDefinitionMethods,
   SchemaMigrationMethods,
@@ -139,8 +139,8 @@ const domains = [
   StatusMethods,
   TranscriptMethods,
   HumanPersonaMethods,
+  AssistantCuriosityMethods,
 ] as const;
-
 for (const domain of domains) {
   installStoreDomain(
     MessageStore.prototype as unknown as Record<PropertyKey, unknown>,

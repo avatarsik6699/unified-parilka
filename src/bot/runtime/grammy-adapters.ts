@@ -1,4 +1,5 @@
 import { InputFile, type Api } from "grammy";
+import type { AssistantCuriositySendPort } from "../../assistant-curiosity/types.js";
 import type { ApprovalPosterApiPort } from "../../human-persona-approval-poster.js";
 import type { ChatInfo } from "../../telegram/types.js";
 import type { StoredMessage } from "../../store.js";
@@ -242,6 +243,64 @@ export function createApprovalPosterApiPort(
         signal as unknown as Parameters<Api["sendMessage"]>[3],
       );
       return { message_id: message.message_id };
+    },
+  };
+}
+
+/**
+ * Adapter for the assistant persona's curiosity-trigger loop
+ * (`src/assistant-curiosity-loop.ts`): sends a plain, non-reply message and
+ * records it into the same local message history normal turn replies land
+ * in, so a later reply to it has full context available. Deliberately does
+ * not reuse `createDurableGrammyBotTurnPublisher` -- that publisher requires
+ * a reply target (`replyToMessageId > 0`), which a self-initiated question
+ * never has.
+ */
+export function createAssistantCuriositySendPort(
+  api: Pick<Api, "sendMessage">,
+  options: DurableGrammyPublisherOptions,
+): AssistantCuriositySendPort {
+  return {
+    async sendMessage(chatId, text, signal) {
+      const response = await api.sendMessage(
+        chatId,
+        text,
+        undefined as unknown as Parameters<Api["sendMessage"]>[2],
+        signal as unknown as Parameters<Api["sendMessage"]>[3],
+      );
+      const record = asRecord(response);
+      const messageId = positiveSafeInteger(record?.message_id);
+      const responseChatId = telegramId(asRecord(record?.chat)?.id);
+      if (!record || messageId === undefined || responseChatId !== chatId) {
+        throw new BotRuntimeProtocolError("OWN_SEND_RESPONSE_MALFORMED");
+      }
+      const responseSenderId = telegramId(asRecord(record.from)?.id);
+      if (
+        responseSenderId !== undefined &&
+        responseSenderId !== options.botId
+      ) {
+        throw new BotRuntimeProtocolError("OWN_SEND_IDENTITY_MISMATCH");
+      }
+      const cachedChat = options.store.getCachedChat(chatId);
+      const chat: ChatInfo = cachedChat ?? {
+        chatId,
+        requested: chatId,
+        kind: "unknown",
+      };
+      const date = botApiDate(record.date);
+      const rawJson = stringifyUpdate(record);
+      options.store.upsertMessages(chat, [
+        {
+          chatId,
+          messageId,
+          ...(date === undefined ? {} : { date }),
+          senderId: options.botId,
+          senderName: options.botUsername,
+          text,
+          ...(rawJson === undefined ? {} : { rawJson }),
+        },
+      ]);
+      return { messageId };
     },
   };
 }

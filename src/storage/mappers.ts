@@ -10,6 +10,7 @@ import type {
   MaintenanceJob,
   MaintenanceJobStatus,
   SendOutboxStatus,
+  StoredAssistantCuriosityTriggerState,
   StoredBotTurn,
   StoredBotUpdate,
   StoredDayDigest,
@@ -381,6 +382,32 @@ export function rowToHumanPersonaTriggerState(
     windowStartMs:
       row.window_start_ms == null ? null : Number(row.window_start_ms),
     initiatedCountInWindow: Number(row.initiated_count_in_window ?? 0),
+    updatedAtMs: Number(row.updated_at_ms),
+  };
+}
+
+export function rowToAssistantCuriosityTriggerState(
+  row: Record<string, unknown>,
+): StoredAssistantCuriosityTriggerState {
+  return {
+    chatId: String(row.chat_id),
+    lastInitiatedAtMs:
+      row.last_initiated_at_ms == null
+        ? null
+        : Number(row.last_initiated_at_ms),
+    lastCheckedAtMs:
+      row.last_checked_at_ms == null ? null : Number(row.last_checked_at_ms),
+    windowStartMs:
+      row.window_start_ms == null ? null : Number(row.window_start_ms),
+    initiatedCountInWindow: Number(row.initiated_count_in_window ?? 0),
+    lastAskedMessageId:
+      row.last_asked_message_id == null
+        ? null
+        : Number(row.last_asked_message_id),
+    lastAskedAnsweredAtMs:
+      row.last_asked_answered_at_ms == null
+        ? null
+        : Number(row.last_asked_answered_at_ms),
     updatedAtMs: Number(row.updated_at_ms),
   };
 }

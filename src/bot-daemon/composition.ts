@@ -1,5 +1,10 @@
 import { dirname, join } from "node:path";
 import type { Api } from "grammy";
+import { AiSdkCuriosityDecisionPort } from "../assistant-curiosity/port.js";
+import {
+  CuriosityTriggerLoop,
+  type CuriosityTriggerChatRuntime,
+} from "../assistant-curiosity-loop.js";
 import { AiSdkBotTurnAgent } from "../bot/ai-agent.js";
 import { BotMemoryTools } from "../bot/memory-tools.js";
 import { BotMediaTools } from "../bot/media-tools.js";
@@ -16,6 +21,7 @@ import {
   BotWorkerPump,
   botRuntimeOptionsFromConfig,
   createApprovalPosterApiPort,
+  createAssistantCuriositySendPort,
   createDurableGrammyBotTurnPublisher,
   createGrammyLongPollingApi,
   createGrammyTelegramMediaDownloader,
@@ -226,12 +232,14 @@ export function composeBotDaemon(
           claimedBy: workerIdPrefix,
         })
       : undefined;
+  const curiosityTrigger = buildCuriosityTriggerLoop(options, config);
   const runtime = new BotApiRuntime({
     poller,
     workers: workerPump,
     shutdownTimeoutMs: config.shutdownTimeoutMs,
     logger: options.logger,
     ...(approvalPoster === undefined ? {} : { approvalPoster }),
+    ...(curiosityTrigger === undefined ? {} : { curiosityTrigger }),
   });
 
   return {
@@ -239,6 +247,7 @@ export function composeBotDaemon(
     poller,
     workerPump,
     ...(approvalPoster === undefined ? {} : { approvalPoster }),
+    ...(curiosityTrigger === undefined ? {} : { curiosityTrigger }),
     workers,
     processor,
     chats,
@@ -246,6 +255,59 @@ export function composeBotDaemon(
     mediaTools,
     memoryTools,
   };
+}
+
+/**
+ * Builds one curiosity-trigger loop covering every assistant chat that opts
+ * in via `curiosityTrigger.enabled` (undefined when none do). A single loop
+ * polling multiple chats, not one loop per chat -- see
+ * `src/assistant-curiosity-loop.ts`.
+ */
+function buildCuriosityTriggerLoop(
+  options: ComposeBotDaemonOptions,
+  config: ComposeBotDaemonOptions["config"],
+): CuriosityTriggerLoop | undefined {
+  const enabledChats = options.chats.filter(
+    (chat) => chat.curiosityTrigger?.enabled === true,
+  );
+  if (enabledChats.length === 0) {
+    return undefined;
+  }
+  const send = createAssistantCuriositySendPort(options.api, {
+    store: options.store,
+    botId: config.botId,
+    botUsername: config.botUsername,
+  });
+  const chats: CuriosityTriggerChatRuntime[] = enabledChats.map((chat) => {
+    const heuristics = chat.curiosityTrigger!;
+    return {
+      config: {
+        chatId: chat.allowedChatId,
+        chatTitle: chat.chatTitle,
+        personaPrompt: chat.personaPrompt,
+        botDisplayName: config.botDisplayName,
+        heuristics: {
+          activeHourStartMoscow: heuristics.activeHourStartMoscow,
+          activeHourEndMoscow: heuristics.activeHourEndMoscow,
+          minSilenceMs: heuristics.minSilenceMs,
+          minSilenceSinceOwnQuestionMs: heuristics.minSilenceSinceOwnQuestionMs,
+          maxInitiationsPerWindow: heuristics.maxInitiationsPerWindow,
+          windowMs: heuristics.windowMs,
+          pendingAnswerGraceMs: heuristics.pendingAnswerGraceMs,
+        },
+      },
+      send,
+    };
+  });
+  const idleIntervalMs = Math.min(
+    ...enabledChats.map((chat) => chat.curiosityTrigger!.idleIntervalMs),
+  );
+  return new CuriosityTriggerLoop({
+    store: options.store,
+    port: new AiSdkCuriosityDecisionPort(options.router),
+    chats,
+    idleIntervalMs,
+  });
 }
 
 function requireWorkerIdPrefix(value: string): string {

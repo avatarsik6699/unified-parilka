@@ -41,6 +41,11 @@ export interface BotRuntimeStore {
     approvalChatId: string,
     approvalMessageId: number,
   ): StoredHumanPersonaProposal | undefined;
+  /** Assistant curiosity trigger: marks a pending question answered on a matching reply. */
+  recordAssistantCuriosityAnswerIfMatches(
+    chatId: string,
+    replyToMessageId: number,
+  ): boolean;
 }
 
 export interface OwnSendStore {

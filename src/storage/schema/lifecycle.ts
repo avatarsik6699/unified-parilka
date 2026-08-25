@@ -29,6 +29,7 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
     this.migrate();
   }
 
+  declare protected applyAssistantCuriosityMigration: () => void;
   declare protected applyBackfillExhaustedMigration: () => void;
   declare protected applyBaseSchema: () => void;
   declare protected applyBotChatDreamDaysMigration: () => void;
@@ -151,6 +152,10 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
         this.applyHumanPersonaMigration();
         this.db.exec("PRAGMA user_version = 23");
       }
+      if (currentVersion < 24) {
+        this.applyAssistantCuriosityMigration();
+        this.db.exec("PRAGMA user_version = 24");
+      }
       // This is a backwards-compatible performance index, not a data-model
       // change. Reconcile it for every writable compatible open so databases
       // created by an earlier build do not make one full corpus scan per day.
@@ -182,6 +187,8 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
       "human_persona_style_profile",
       "human_persona_trigger_state",
       "human_persona_pending_proposal",
+      "assistant_curiosity_trigger_state",
+      "assistant_curiosity_topic_log",
       "schema_object_versions",
       "maintenance_jobs",
       "message_embedding_chunks",
@@ -215,6 +222,7 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
       "idx_messages_digest_date",
       "idx_bot_turns_due",
       "idx_human_persona_pending_proposal_status",
+      "idx_assistant_curiosity_topic_log_chat",
     ]) {
       this.assertSqliteObject("index", index);
     }

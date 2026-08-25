@@ -106,6 +106,9 @@ test("migration offset skips only legacy-confirmed updates on the first poll", a
       getClaimedHumanPersonaProposalByApprovalMessage() {
         return undefined;
       },
+      recordAssistantCuriosityAnswerIfMatches() {
+        return false;
+      },
     },
     coordinators: new Map([[CHAT_ID, new TurnCoordinator({ maxActiveTurns: 1 })]]),
     workNotifier: { notify() {} },
@@ -167,6 +170,9 @@ test("pinned bot identity is verified before any queued worker can run", async (
       },
       getClaimedHumanPersonaProposalByApprovalMessage() {
         return undefined;
+      },
+      recordAssistantCuriosityAnswerIfMatches() {
+        return false;
       },
     },
     coordinators: new Map([[CHAT_ID, new TurnCoordinator({ maxActiveTurns: 1 })]]),
@@ -244,6 +250,9 @@ test("runtime stops polling first and waits for an in-flight worker probe", asyn
       getClaimedHumanPersonaProposalByApprovalMessage() {
         return undefined;
       },
+      recordAssistantCuriosityAnswerIfMatches() {
+        return false;
+      },
     },
     coordinators: new Map([[CHAT_ID, new TurnCoordinator({ maxActiveTurns: 1 })]]),
     workNotifier: { notify() {} },
@@ -313,6 +322,9 @@ test("fatal polling conflict waits in-flight work but does not drain new queued 
       },
       getClaimedHumanPersonaProposalByApprovalMessage() {
         return undefined;
+      },
+      recordAssistantCuriosityAnswerIfMatches() {
+        return false;
       },
     },
     coordinators: new Map([[CHAT_ID, new TurnCoordinator({ maxActiveTurns: 1 })]]),
@@ -398,6 +410,9 @@ test("a storage failure is retried without sending a larger offset", async () =>
     },
     getClaimedHumanPersonaProposalByApprovalMessage() {
       return undefined;
+    },
+    recordAssistantCuriosityAnswerIfMatches() {
+      return false;
     },
   };
   const processor = new BotUpdateProcessor({

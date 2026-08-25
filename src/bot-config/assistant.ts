@@ -17,11 +17,38 @@ import type {
  */
 export const MAX_ASSISTANT_CHATS = 5;
 
+export interface AssistantCuriosityChatConfig {
+  enabled: boolean;
+  activeHourStartMoscow: number;
+  activeHourEndMoscow: number;
+  minSilenceMs: number;
+  minSilenceSinceOwnQuestionMs: number;
+  maxInitiationsPerWindow: number;
+  windowMs: number;
+  pendingAnswerGraceMs: number;
+  idleIntervalMs: number;
+}
+
+/**
+ * Conservative so an operator who merely sets `curiosityTrigger.enabled`
+ * without tuning every field gets a low-frequency, non-spammy default
+ * rather than an aggressive one.
+ */
+const DEFAULT_CURIOSITY_ACTIVE_HOUR_START = 9;
+const DEFAULT_CURIOSITY_ACTIVE_HOUR_END = 23;
+const DEFAULT_CURIOSITY_MIN_SILENCE_MS = 30 * 60_000;
+const DEFAULT_CURIOSITY_MIN_SILENCE_SINCE_OWN_QUESTION_MS = 6 * 60 * 60_000;
+const DEFAULT_CURIOSITY_MAX_INITIATIONS_PER_WINDOW = 2;
+const DEFAULT_CURIOSITY_WINDOW_MS = 24 * 60 * 60_000;
+const DEFAULT_CURIOSITY_PENDING_ANSWER_GRACE_MS = 12 * 60 * 60_000;
+const DEFAULT_CURIOSITY_IDLE_INTERVAL_MS = 5 * 60_000;
+
 export interface AssistantChatConfig {
   allowedChatId: string;
   chatTitle: string;
   approximateMemberCount?: number;
   personaPrompt: string;
+  curiosityTrigger?: AssistantCuriosityChatConfig;
 }
 
 /**
@@ -103,5 +130,36 @@ function parseAssistantEntry(
     ...(entry.approximateMemberCount === undefined
       ? {}
       : { approximateMemberCount: entry.approximateMemberCount }),
+    ...(entry.curiosityTrigger === undefined
+      ? {}
+      : { curiosityTrigger: parseCuriosityTrigger(entry.curiosityTrigger) }),
+  };
+}
+
+function parseCuriosityTrigger(
+  curiosityTrigger: NonNullable<
+    AssistantBotDefinitionEntry["curiosityTrigger"]
+  >,
+): AssistantCuriosityChatConfig {
+  return {
+    enabled: curiosityTrigger.enabled,
+    activeHourStartMoscow:
+      curiosityTrigger.activeHourStart ?? DEFAULT_CURIOSITY_ACTIVE_HOUR_START,
+    activeHourEndMoscow:
+      curiosityTrigger.activeHourEnd ?? DEFAULT_CURIOSITY_ACTIVE_HOUR_END,
+    minSilenceMs:
+      curiosityTrigger.minSilenceMs ?? DEFAULT_CURIOSITY_MIN_SILENCE_MS,
+    minSilenceSinceOwnQuestionMs:
+      curiosityTrigger.minSilenceSinceOwnQuestionMs ??
+      DEFAULT_CURIOSITY_MIN_SILENCE_SINCE_OWN_QUESTION_MS,
+    maxInitiationsPerWindow:
+      curiosityTrigger.maxInitiationsPerWindow ??
+      DEFAULT_CURIOSITY_MAX_INITIATIONS_PER_WINDOW,
+    windowMs: curiosityTrigger.windowMs ?? DEFAULT_CURIOSITY_WINDOW_MS,
+    pendingAnswerGraceMs:
+      curiosityTrigger.pendingAnswerGraceMs ??
+      DEFAULT_CURIOSITY_PENDING_ANSWER_GRACE_MS,
+    idleIntervalMs:
+      curiosityTrigger.idleIntervalMs ?? DEFAULT_CURIOSITY_IDLE_INTERVAL_MS,
   };
 }

@@ -149,6 +149,11 @@ export class BotUpdateProcessor {
         normalized.chat.chatId,
         normalized.message,
       );
+    } else {
+      this.#tryCaptureAssistantCuriosityAnswer(
+        normalized.chat.chatId,
+        normalized.message,
+      );
     }
 
     let routed = false;
@@ -322,6 +327,31 @@ export class BotUpdateProcessor {
       proposalId: proposal.id,
       applied,
     });
+  }
+
+  /**
+   * A reply to a curiosity question the assistant persona asked earlier
+   * (see `src/assistant-curiosity/tick.ts`) marks it answered so the
+   * heuristic gate stops waiting on it. Best-effort and silently a no-op
+   * for any reply that doesn't match a currently-pending question --
+   * matching is done entirely inside the SQL update
+   * (`recordAssistantCuriosityAnswerIfMatches`), never by fetching state
+   * here first.
+   */
+  #tryCaptureAssistantCuriosityAnswer(
+    chatId: string,
+    message: { text: string; replyToMessageId?: number },
+  ): void {
+    if (message.replyToMessageId === undefined) {
+      return;
+    }
+    const applied = this.#store.recordAssistantCuriosityAnswerIfMatches(
+      chatId,
+      message.replyToMessageId,
+    );
+    if (applied) {
+      this.#log("info", "assistant_curiosity.answer_captured", { chatId });
+    }
   }
 
   #recordPoison(updateId: number, reason: string): BotUpdateProcessingResult {

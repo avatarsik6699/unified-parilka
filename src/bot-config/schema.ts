@@ -9,6 +9,47 @@ import { z } from "zod";
  * text in a JSON string needs escaping a real editor doesn't (Фаза 6).
  */
 
+const assistantCuriosityTriggerSchema = z
+  .object({
+    enabled: z.boolean(),
+    /** Moscow local hour, inclusive. */
+    activeHourStart: z.number().int().min(0).max(23).optional(),
+    /** Moscow local hour, exclusive. */
+    activeHourEnd: z.number().int().min(1).max(24).optional(),
+    minSilenceMs: z
+      .number()
+      .int()
+      .min(0)
+      .max(24 * 60 * 60_000)
+      .optional(),
+    minSilenceSinceOwnQuestionMs: z
+      .number()
+      .int()
+      .min(0)
+      .max(30 * 24 * 60 * 60_000)
+      .optional(),
+    maxInitiationsPerWindow: z.number().int().min(0).max(1_000).optional(),
+    windowMs: z
+      .number()
+      .int()
+      .min(60_000)
+      .max(30 * 24 * 60 * 60_000)
+      .optional(),
+    pendingAnswerGraceMs: z
+      .number()
+      .int()
+      .min(60_000)
+      .max(30 * 24 * 60 * 60_000)
+      .optional(),
+    idleIntervalMs: z
+      .number()
+      .int()
+      .min(10_000)
+      .max(6 * 60 * 60_000)
+      .optional(),
+  })
+  .strict();
+
 const assistantBotDefinitionSchema = z
   .object({
     role: z.literal("assistant"),
@@ -16,6 +57,8 @@ const assistantBotDefinitionSchema = z
     chatTitle: z.string(),
     personaPromptPath: z.string(),
     approximateMemberCount: z.number().int().positive().optional(),
+    /** Off unless explicitly enabled -- see AGENTS.md's assistant curiosity trigger note. */
+    curiosityTrigger: assistantCuriosityTriggerSchema.optional(),
   })
   .strict();
 

@@ -580,3 +580,14 @@ export type StoredHumanPersonaProposal = {
   createdAtMs: number;
   updatedAtMs: number;
 };
+
+export type StoredAssistantCuriosityTriggerState = {
+  chatId: string;
+  lastInitiatedAtMs: number | null;
+  lastCheckedAtMs: number | null;
+  windowStartMs: number | null;
+  initiatedCountInWindow: number;
+  lastAskedMessageId: number | null;
+  lastAskedAnsweredAtMs: number | null;
+  updatedAtMs: number;
+};

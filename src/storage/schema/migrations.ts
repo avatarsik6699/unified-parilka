@@ -622,4 +622,38 @@ export abstract class SchemaMigrationMethods extends StoreCore {
         ON human_persona_pending_proposal(persona_id, chat_id, status, created_at_ms);
     `);
   }
+
+  /**
+   * Storage for the assistant persona's "curiosity" trigger: per-chat
+   * rate-limit/cooldown state plus a short recent-topic log the LLM decision
+   * prompt uses to avoid repeating itself. Unlike `human_persona_*`, there is
+   * no proposal queue -- the assistant persona is openly a bot and sends
+   * directly (see AGENTS.md), so a decision is either sent immediately or
+   * discarded, never queued for approval.
+   */
+  protected applyAssistantCuriosityMigration(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS assistant_curiosity_trigger_state (
+        chat_id TEXT PRIMARY KEY,
+        last_initiated_at_ms INTEGER,
+        last_checked_at_ms INTEGER,
+        window_start_ms INTEGER,
+        initiated_count_in_window INTEGER NOT NULL DEFAULT 0,
+        last_asked_message_id INTEGER,
+        last_asked_answered_at_ms INTEGER,
+        updated_at_ms INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS assistant_curiosity_topic_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id TEXT NOT NULL,
+        asked_at_ms INTEGER NOT NULL,
+        topic_summary TEXT NOT NULL,
+        CHECK(length(trim(topic_summary)) > 0)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_assistant_curiosity_topic_log_chat
+        ON assistant_curiosity_topic_log(chat_id, asked_at_ms DESC);
+    `);
+  }
 }

@@ -1,3 +1,4 @@
+import type { CuriosityTriggerLoop } from "../../assistant-curiosity-loop.js";
 import type { ApprovalPosterLoop } from "../../human-persona-approval-poster.js";
 import type { JsonEventLogger } from "../worker.js";
 import type { BotApiLongPoller } from "./long-poller.js";
@@ -16,6 +17,13 @@ export interface BotApiRuntimeOptions {
    * affects the poller/workers.
    */
   approvalPoster?: ApprovalPosterLoop;
+  /**
+   * Assistant-persona curiosity trigger, undefined when no chat enables it.
+   * Runs concurrently with the poller for the whole lifetime of `run()`,
+   * same isolation contract as `approvalPoster`: a failure is logged and
+   * never affects the poller/workers.
+   */
+  curiosityTrigger?: CuriosityTriggerLoop;
 }
 
 export class BotApiRuntime {
@@ -24,6 +32,7 @@ export class BotApiRuntime {
   readonly #shutdownTimeoutMs: number;
   readonly #logger: JsonEventLogger | undefined;
   readonly #approvalPoster: ApprovalPosterLoop | undefined;
+  readonly #curiosityTrigger: CuriosityTriggerLoop | undefined;
 
   constructor(options: BotApiRuntimeOptions) {
     this.#poller = options.poller;
@@ -36,6 +45,7 @@ export class BotApiRuntime {
     );
     this.#logger = options.logger;
     this.#approvalPoster = options.approvalPoster;
+    this.#curiosityTrigger = options.curiosityTrigger;
   }
 
   async run(signal?: AbortSignal): Promise<BotWorkerDrainResult> {
@@ -49,6 +59,13 @@ export class BotApiRuntime {
           failure: error instanceof Error ? error.message : String(error),
         });
       });
+    const curiosityPromise = this.#curiosityTrigger
+      ?.run(posterController.signal)
+      .catch((error: unknown) => {
+        this.#log("warn", "assistant_curiosity.trigger_loop_failed", {
+          failure: error instanceof Error ? error.message : String(error),
+        });
+      });
     let pollError: unknown;
     try {
       await this.#poller.run(signal, () => this.#workers.start());
@@ -59,6 +76,7 @@ export class BotApiRuntime {
       posterController.abort();
       signal?.removeEventListener("abort", forwardAbort);
       await posterPromise;
+      await curiosityPromise;
     }
     // Queued turns are already durable. Graceful shutdown stops admission and
     // waits only for in-flight workers; it does not begin fresh model calls

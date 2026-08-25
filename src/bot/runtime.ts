@@ -27,6 +27,7 @@ export {
 export {
   createGrammyLongPollingApi,
   createApprovalPosterApiPort,
+  createAssistantCuriositySendPort,
   createDurableGrammyBotTurnPublisher,
   createToolProgressGrammyBotApiPort,
   createReactionGrammyBotApiPort,
