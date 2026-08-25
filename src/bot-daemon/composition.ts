@@ -294,6 +294,8 @@ function buildCuriosityTriggerLoop(
           maxInitiationsPerWindow: heuristics.maxInitiationsPerWindow,
           windowMs: heuristics.windowMs,
           pendingAnswerGraceMs: heuristics.pendingAnswerGraceMs,
+          baseAskProbability: heuristics.baseAskProbability,
+          maxAskProbability: heuristics.maxAskProbability,
         },
       },
       send,
@@ -307,6 +309,27 @@ function buildCuriosityTriggerLoop(
     port: new AiSdkCuriosityDecisionPort(options.router),
     chats,
     idleIntervalMs,
+    onTick: (chatId, report) => {
+      // Best-effort observability for the probabilistic gate (see
+      // src/assistant-curiosity/heuristics.ts) -- without this, "why didn't
+      // it ask today" is unanswerable after the fact.
+      try {
+        options.logger?.info({
+          event: "assistant_curiosity.tick",
+          chatId,
+          status: report.status,
+          ...(report.reason === undefined ? {} : { reason: report.reason }),
+          ...(report.probability === undefined
+            ? {}
+            : { probability: report.probability }),
+          ...(report.messageId === undefined
+            ? {}
+            : { messageId: report.messageId }),
+        });
+      } catch {
+        // Logging is best-effort.
+      }
+    },
   });
 }
 

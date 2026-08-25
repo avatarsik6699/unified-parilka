@@ -33,8 +33,15 @@ const BASE_CONFIG: AssistantCuriosityRuntimeConfig = {
     maxInitiationsPerWindow: 3,
     windowMs: 24 * 60 * 60_000,
     pendingAnswerGraceMs: 12 * 60 * 60_000,
+    baseAskProbability: 0.05,
+    maxAskProbability: 0.5,
   },
 };
+
+// Always passes the probability roll (roll < any positive probability).
+const ALWAYS_ROLL = () => 0;
+// Never passes the probability roll (roll >= any probability <= 1).
+const NEVER_ROLL = () => 1;
 
 // 2026-01-15T10:00:00Z is 13:00 Europe/Moscow (UTC+3) -- inside 9-23.
 const ACTIVE_NOW = new Date("2026-01-15T10:00:00.000Z");
@@ -47,20 +54,59 @@ test("heuristic gate: outside active hours blocks regardless of other state", ()
     config: BASE_CONFIG.heuristics,
     now: NIGHT_NOW,
     lastMessageAtMs: undefined,
+    recentMessageCount: 0,
+    random: ALWAYS_ROLL,
   });
   assert.equal(result.pass, false);
   assert.equal(result.reason, "outside_active_hours");
 });
 
-test("heuristic gate: a chat with no recent silence is gated as too quiet", () => {
-  const result = evaluateCuriosityGate({
+test("heuristic gate: a fresh chat is very unlikely to pass, but not impossible", () => {
+  const blocked = evaluateCuriosityGate({
     state: undefined,
     config: BASE_CONFIG.heuristics,
     now: ACTIVE_NOW,
     lastMessageAtMs: ACTIVE_NOW.getTime() - 60_000,
+    recentMessageCount: 0,
+    random: NEVER_ROLL,
   });
-  assert.equal(result.pass, false);
-  assert.equal(result.reason, "chat_too_quiet");
+  assert.equal(blocked.pass, false);
+  assert.equal(blocked.reason, "not_this_time");
+  assert.ok(blocked.probability !== undefined && blocked.probability > 0);
+
+  const passed = evaluateCuriosityGate({
+    state: undefined,
+    config: BASE_CONFIG.heuristics,
+    now: ACTIVE_NOW,
+    lastMessageAtMs: ACTIVE_NOW.getTime() - 60_000,
+    recentMessageCount: 0,
+    random: ALWAYS_ROLL,
+  });
+  assert.equal(passed.pass, true);
+});
+
+test("heuristic gate: probability climbs with silence and is damped by recent chat activity", () => {
+  const quiet = evaluateCuriosityGate({
+    state: undefined,
+    config: BASE_CONFIG.heuristics,
+    now: ACTIVE_NOW,
+    lastMessageAtMs: ACTIVE_NOW.getTime() - 60 * 60_000, // well past minSilenceMs
+    recentMessageCount: 0,
+    random: ALWAYS_ROLL,
+  });
+  const busy = evaluateCuriosityGate({
+    state: undefined,
+    config: BASE_CONFIG.heuristics,
+    now: ACTIVE_NOW,
+    lastMessageAtMs: ACTIVE_NOW.getTime() - 60 * 60_000,
+    recentMessageCount: 40, // a lively chat right up to the cutoff
+    random: ALWAYS_ROLL,
+  });
+
+  assert.ok(quiet.probability !== undefined && busy.probability !== undefined);
+  assert.equal(quiet.probability, BASE_CONFIG.heuristics.maxAskProbability);
+  assert.ok(busy.probability! < quiet.probability!);
+  assert.ok(busy.probability! >= BASE_CONFIG.heuristics.baseAskProbability);
 });
 
 test("heuristic gate: asking again too soon after the last question is blocked", () => {
@@ -79,6 +125,8 @@ test("heuristic gate: asking again too soon after the last question is blocked",
     config: BASE_CONFIG.heuristics,
     now: ACTIVE_NOW,
     lastMessageAtMs: undefined,
+    recentMessageCount: 0,
+    random: ALWAYS_ROLL,
   });
   assert.equal(result.pass, false);
   assert.equal(result.reason, "recently_initiated");
@@ -103,6 +151,8 @@ test("heuristic gate: a still-unanswered recent question blocks a new one", () =
     },
     now: ACTIVE_NOW,
     lastMessageAtMs: undefined,
+    recentMessageCount: 0,
+    random: ALWAYS_ROLL,
   });
   assert.equal(result.pass, false);
   assert.equal(result.reason, "awaiting_answer");
@@ -127,8 +177,10 @@ test("heuristic gate: an already-answered question does not block a new one", ()
     },
     now: ACTIVE_NOW,
     lastMessageAtMs: ACTIVE_NOW.getTime() - 60 * 60_000,
+    recentMessageCount: 0,
+    random: ALWAYS_ROLL,
   });
-  assert.deepEqual(result, { pass: true });
+  assert.equal(result.pass, true);
 });
 
 test("heuristic gate: rate limit blocks once the window quota is reached", () => {
@@ -150,19 +202,11 @@ test("heuristic gate: rate limit blocks once the window quota is reached", () =>
     config: BASE_CONFIG.heuristics,
     now: ACTIVE_NOW,
     lastMessageAtMs: undefined,
+    recentMessageCount: 0,
+    random: ALWAYS_ROLL,
   });
   assert.equal(result.pass, false);
   assert.equal(result.reason, "rate_limited");
-});
-
-test("heuristic gate: passes with no state and old-enough chat silence, inside active hours", () => {
-  const result = evaluateCuriosityGate({
-    state: undefined,
-    config: BASE_CONFIG.heuristics,
-    now: ACTIVE_NOW,
-    lastMessageAtMs: ACTIVE_NOW.getTime() - 60 * 60_000,
-  });
-  assert.deepEqual(result, { pass: true });
 });
 
 class FakeCuriosityStore implements AssistantCuriosityStore {
@@ -265,6 +309,7 @@ test("tick: an empty chat is reported without touching the port", async () => {
     port,
     send,
     now: () => ACTIVE_NOW,
+    random: NEVER_ROLL,
   });
 
   assert.equal(report.status, "no_history");
@@ -288,10 +333,11 @@ test("tick: a gated heuristic check records the check but skips the port", async
     port,
     send,
     now: () => ACTIVE_NOW,
+    random: NEVER_ROLL,
   });
 
   assert.equal(report.status, "gated");
-  assert.equal(report.reason, "chat_too_quiet");
+  assert.equal(report.reason, "not_this_time");
   assert.equal(port.calls, 0);
   assert.equal(store.checks.length, 1);
 });
@@ -314,6 +360,7 @@ test("tick: an 'ask' decision sends, records initiation and the topic", async ()
     port,
     send,
     now: () => ACTIVE_NOW,
+    random: ALWAYS_ROLL,
   });
 
   assert.equal(report.status, "asked");
@@ -342,6 +389,7 @@ test("tick: a 'don't ask' decision sends nothing and records no initiation", asy
     port,
     send,
     now: () => ACTIVE_NOW,
+    random: ALWAYS_ROLL,
   });
 
   assert.equal(report.status, "no_message");
@@ -370,6 +418,7 @@ test("tick: a send failure is reported as 'failed' without throwing", async () =
     port,
     send,
     now: () => ACTIVE_NOW,
+    random: ALWAYS_ROLL,
   });
 
   assert.equal(report.status, "failed");

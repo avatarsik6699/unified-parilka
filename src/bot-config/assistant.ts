@@ -27,6 +27,8 @@ export interface AssistantCuriosityChatConfig {
   windowMs: number;
   pendingAnswerGraceMs: number;
   idleIntervalMs: number;
+  baseAskProbability: number;
+  maxAskProbability: number;
 }
 
 /**
@@ -42,6 +44,8 @@ const DEFAULT_CURIOSITY_MAX_INITIATIONS_PER_WINDOW = 2;
 const DEFAULT_CURIOSITY_WINDOW_MS = 24 * 60 * 60_000;
 const DEFAULT_CURIOSITY_PENDING_ANSWER_GRACE_MS = 12 * 60 * 60_000;
 const DEFAULT_CURIOSITY_IDLE_INTERVAL_MS = 5 * 60_000;
+const DEFAULT_CURIOSITY_BASE_ASK_PROBABILITY = 0.02;
+const DEFAULT_CURIOSITY_MAX_ASK_PROBABILITY = 0.3;
 
 export interface AssistantChatConfig {
   allowedChatId: string;
@@ -161,5 +165,11 @@ function parseCuriosityTrigger(
       DEFAULT_CURIOSITY_PENDING_ANSWER_GRACE_MS,
     idleIntervalMs:
       curiosityTrigger.idleIntervalMs ?? DEFAULT_CURIOSITY_IDLE_INTERVAL_MS,
+    baseAskProbability:
+      curiosityTrigger.baseAskProbability ??
+      DEFAULT_CURIOSITY_BASE_ASK_PROBABILITY,
+    maxAskProbability:
+      curiosityTrigger.maxAskProbability ??
+      DEFAULT_CURIOSITY_MAX_ASK_PROBABILITY,
   };
 }

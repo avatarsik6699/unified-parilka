@@ -43,6 +43,26 @@ export function lastMessageTimestampMs(
   return undefined;
 }
 
+/** Counts messages within `windowMs` before `nowMs` -- a cheap busyness proxy for the quiet-probability curve. */
+export function countRecentMessages(
+  messagesNewestFirst: readonly StoredMessage[],
+  windowMs: number,
+  nowMs: number,
+): number {
+  const cutoffMs = nowMs - windowMs;
+  let count = 0;
+  for (const message of messagesNewestFirst) {
+    if (!message.date) {
+      continue;
+    }
+    const parsed = Date.parse(message.date);
+    if (Number.isFinite(parsed) && parsed >= cutoffMs) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
 /** Renders recent topics as a bullet list the decision prompt can tell the model to avoid repeating. */
 export function renderAvoidTopics(topics: readonly string[]): string {
   if (topics.length === 0) {

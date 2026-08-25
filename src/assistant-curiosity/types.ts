@@ -9,11 +9,16 @@ export interface AssistantCuriosityHeuristicConfig {
   activeHourStartMoscow: number;
   /** Moscow local hour, exclusive. */
   activeHourEndMoscow: number;
+  /** Scale for the quiet-probability curve, not a hard cutoff -- see heuristics.ts. */
   minSilenceMs: number;
   minSilenceSinceOwnQuestionMs: number;
   maxInitiationsPerWindow: number;
   windowMs: number;
   pendingAnswerGraceMs: number;
+  /** Floor probability of proceeding to the LLM decision on any given check. */
+  baseAskProbability: number;
+  /** Ceiling probability of proceeding to the LLM decision on any given check. */
+  maxAskProbability: number;
 }
 
 export interface AssistantCuriosityRuntimeConfig {
@@ -90,6 +95,8 @@ export type AssistantCuriosityTickStatus =
 export interface AssistantCuriosityTickReport {
   status: AssistantCuriosityTickStatus;
   reason?: string;
+  /** The quiet-probability that was rolled against, present whenever the gate reached that check. */
+  probability?: number;
   messageId?: number;
   error?: { name: string; code: string };
 }
@@ -103,4 +110,6 @@ export interface AssistantCuriosityTickOptions {
   historyLimit?: number;
   itemTimeoutMs?: number;
   maxOutputChars?: number;
+  /** Injectable for tests; defaults to `Math.random`. */
+  random?: () => number;
 }

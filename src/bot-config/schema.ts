@@ -47,8 +47,19 @@ const assistantCuriosityTriggerSchema = z
       .min(10_000)
       .max(6 * 60 * 60_000)
       .optional(),
+    /** Floor probability of reaching the LLM decision on any given check. */
+    baseAskProbability: z.number().min(0).max(1).optional(),
+    /** Ceiling probability of reaching the LLM decision on any given check. */
+    maxAskProbability: z.number().min(0).max(1).optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (value) =>
+      value.baseAskProbability === undefined ||
+      value.maxAskProbability === undefined ||
+      value.baseAskProbability <= value.maxAskProbability,
+    { message: "baseAskProbability must be <= maxAskProbability" },
+  );
 
 const assistantBotDefinitionSchema = z
   .object({

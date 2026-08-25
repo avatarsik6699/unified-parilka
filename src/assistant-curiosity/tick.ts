@@ -1,6 +1,11 @@
-import { evaluateCuriosityGate, windowStart } from "./heuristics.js";
+import {
+  evaluateCuriosityGate,
+  VELOCITY_WINDOW_MS,
+  windowStart,
+} from "./heuristics.js";
 import { buildAssistantCuriosityPrompt } from "./prompt.js";
 import {
+  countRecentMessages,
   lastMessageTimestampMs,
   renderAvoidTopics,
   renderRecentMessages,
@@ -46,10 +51,22 @@ export async function runCuriosityTriggerTick(
     config: config.heuristics,
     now,
     lastMessageAtMs: lastMessageTimestampMs(recent),
+    recentMessageCount: countRecentMessages(
+      recent,
+      VELOCITY_WINDOW_MS,
+      now.getTime(),
+    ),
+    ...(options.random === undefined ? {} : { random: options.random }),
   });
   store.recordAssistantCuriosityTriggerCheck(config.chatId, now.getTime());
   if (!gate.pass) {
-    return { status: "gated", reason: gate.reason };
+    return {
+      status: "gated",
+      reason: gate.reason,
+      ...(gate.probability === undefined
+        ? {}
+        : { probability: gate.probability }),
+    };
   }
 
   try {
@@ -99,7 +116,13 @@ export async function runCuriosityTriggerTick(
       decision.topicSummary ?? decision.text.slice(0, 80),
       nowMs,
     );
-    return { status: "asked", messageId: sent.messageId };
+    return {
+      status: "asked",
+      messageId: sent.messageId,
+      ...(gate.probability === undefined
+        ? {}
+        : { probability: gate.probability }),
+    };
   } catch (error) {
     return { status: "failed", error: safeErrorIdentity(error) };
   }
