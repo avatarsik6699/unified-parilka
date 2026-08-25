@@ -138,7 +138,7 @@ export abstract class AssistantCuriosityMethods extends StoreCore {
     topicSummary: string,
     nowMs = Date.now(),
   ): void {
-    this.writeWithRetry("recordAssistantCuriosityTopic", () => {
+    this.immediateTransaction("recordAssistantCuriosityTopic", () => {
       this.db
         .prepare(
           `INSERT INTO assistant_curiosity_topic_log (chat_id, asked_at_ms, topic_summary)
