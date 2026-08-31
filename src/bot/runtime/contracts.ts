@@ -15,7 +15,17 @@ import type { VkUpdateOptions } from "../vk-update.js";
 import type { TurnCoordinator } from "../turn-coordinator.js";
 import type { JsonEventLogger } from "../worker.js";
 
-export const MAX_BOT_WORKER_CONCURRENCY = 3;
+/**
+ * Process-wide cap on concurrent model-turn workers, shared across every
+ * chat this process serves (see `distributeWorkerBudget` in
+ * `bot-daemon/composition.ts`). Sized as MAX_ASSISTANT_CHATS (5, the
+ * highest `selectAssistantChats` allows) times the default per-chat
+ * BOT_WORKERS (3), so a deployment at the chat-count ceiling keeps the
+ * same per-chat parallelism a single-chat deployment always had -- not a
+ * hard technical ceiling, just this project's chosen real-money budget for
+ * concurrent LLM calls; raise it deliberately, not reflexively.
+ */
+export const MAX_BOT_WORKER_CONCURRENCY = 15;
 
 export interface BotRuntimeStore {
   getBotUpdate(

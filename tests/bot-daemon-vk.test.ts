@@ -84,19 +84,53 @@ test("worker budget is split across a Telegram chat and a VK chat, not multiplie
     router: noNetworkRouter(),
   });
 
-  // MAX_BOT_WORKER_CONCURRENCY(3) split across 2 chats: 2 + 1, never 3 + 3.
-  assert.equal(composition.workers.length, 3);
+  // MAX_BOT_WORKER_CONCURRENCY(15) comfortably covers 2 chats x BOT_WORKERS(3)
+  // each -- both keep their full per-chat ceiling, nothing is starved.
+  assert.equal(composition.workers.length, 6);
   const telegramWorkers = composition.chats.get(CHAT_ID)!.workers.length;
   const vkWorkers = composition.chats.get("vk:2000000001")!.workers.length;
-  assert.equal(telegramWorkers + vkWorkers, 3);
-  assert.ok(telegramWorkers >= 1 && vkWorkers >= 1);
+  assert.equal(telegramWorkers, 3);
+  assert.equal(vkWorkers, 3);
+});
+
+test("worker budget is split proportionally once chat count pushes past it", (t) => {
+  const { store, dbPath } = fixtureStore(t);
+  const config = botConfig(dbPath, { BOT_WORKERS: "3" });
+  // 6 chats x 3 desired workers each = 18, over the 15 budget -- must be
+  // split (2 or 3 per chat), never naively multiplied out to 18.
+  const chats: AssistantChatConfig[] = Array.from(
+    { length: 6 },
+    (_unused, index) => ({
+      transport: "telegram" as const,
+      allowedChatId: `-${1000 + index}`,
+      chatTitle: `Chat ${index}`,
+      personaPrompt: "persona",
+    }),
+  );
+
+  const composition = composeBotDaemon({
+    config,
+    chats,
+    store,
+    api: noNetworkApi(),
+    router: noNetworkRouter(),
+  });
+
+  assert.equal(composition.workers.length, 15);
+  for (const chat of chats) {
+    const workers = composition.chats.get(chat.allowedChatId)!.workers.length;
+    assert.ok(
+      workers === 2 || workers === 3,
+      `unexpected worker count ${workers}`,
+    );
+  }
 });
 
 test("more assistant chats than the worker budget fails composition with a clear error", (t) => {
   const { store, dbPath } = fixtureStore(t);
   const config = botConfig(dbPath, { BOT_WORKERS: "1" });
   const chats: AssistantChatConfig[] = Array.from(
-    { length: 4 },
+    { length: 16 },
     (_unused, index) => ({
       transport: "telegram" as const,
       allowedChatId: `-${1000 + index}`,

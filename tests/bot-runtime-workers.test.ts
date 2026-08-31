@@ -54,8 +54,11 @@ test("worker pump never exceeds three concurrent runs and drains the durable hin
   assert.equal(maximumActive, 3);
   assert.equal(perWorkerActive.size, 0);
   assert.throws(
-    () => new BotWorkerPump({ workers: [...workers, workers[0]!] }),
-    /between 1 and 3/u,
+    () =>
+      new BotWorkerPump({
+        workers: Array.from({ length: 16 }, () => workers[0]!),
+      }),
+    /between 1 and 15/u,
   );
 });
 
@@ -102,10 +105,7 @@ test("durable publisher inserts every acknowledged own message before returning 
   const store = makeStore(t);
   let nextMessageId = 900;
   const api = {
-    async sendMessage(
-      chatId: string | number,
-      text: string,
-    ) {
+    async sendMessage(chatId: string | number, text: string) {
       nextMessageId += 1;
       return {
         message_id: nextMessageId,
