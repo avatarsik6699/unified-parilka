@@ -8,6 +8,7 @@ import {
 import { AiSdkBotTurnAgent } from "../bot/ai-agent.js";
 import { BotMemoryTools } from "../bot/memory-tools.js";
 import { BotMediaTools } from "../bot/media-tools.js";
+import { VkMediaDownloader } from "../bot/media/vk-downloader.js";
 import { FlovAudioTranscriber } from "../bot/media/flov-transcriber.js";
 import { createNewsBriefTrigger } from "../bot/news-brief-trigger.js";
 import { CanonicalBotReadCache } from "../bot/read-cache.js";
@@ -75,6 +76,10 @@ export function composeBotDaemon(
   });
   const mediaTools = new BotMediaTools({
     downloader: createGrammyTelegramMediaDownloader(options.api, config.token),
+    // VK photo URLs are already public CDN links embedded in the message
+    // payload -- no token or per-chat config needed, so this is always safe
+    // to construct even for a process serving no VK chats yet.
+    vkDownloader: new VkMediaDownloader(),
     transcriber: new FlovAudioTranscriber({
       endpoint: `${config.audioTranscribe.endpoint}/v1/audio/transcriptions`,
       timeoutMs: config.audioTranscribe.timeoutMs,

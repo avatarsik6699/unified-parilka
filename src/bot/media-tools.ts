@@ -1,11 +1,6 @@
 import type { StoredMessage } from "../store.js";
-import type {
-  ReadToolEvidence,
-} from "./read-tools.js";
-import {
-  BotMediaError,
-  type TelegramMediaTarget,
-} from "./media/contracts.js";
+import type { ReadToolEvidence } from "./read-tools.js";
+import { BotMediaError, type TelegramMediaTarget } from "./media/contracts.js";
 import {
   FlovAudioTranscriber,
   FlovHttpError,
@@ -17,6 +12,9 @@ import {
   type DownloadedTelegramMedia,
 } from "./media/telegram-downloader.js";
 import { selectTelegramMediaTarget } from "./media/telegram-media.js";
+import type { VkMediaDownloader } from "./media/vk-downloader.js";
+import type { VkMediaTarget } from "./media/vk-contracts.js";
+import { selectVkPhotoTarget } from "./media/vk-media.js";
 
 const MAX_VISION_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_AUDIO_DURATION_SECONDS = 600;
@@ -70,8 +68,7 @@ export interface FlovRejectionDiagnostic {
 }
 
 export type AudioTranscribeToolResult =
-  | AudioTranscribeToolSuccess
-  | AudioTranscribeToolFailure;
+  AudioTranscribeToolSuccess | AudioTranscribeToolFailure;
 
 /**
  * Private application result for an explicit "расшифруй" request. Unlike the
@@ -90,7 +87,10 @@ export type DirectAudioTranscriptionResult =
 
 // Diagnostics stay out of model-facing tool data. The execution layer extracts
 // these two coarse fields solely for the structured bot log.
-const flovRejections = new WeakMap<AudioTranscribeToolFailure, FlovRejectionDiagnostic>();
+const flovRejections = new WeakMap<
+  AudioTranscribeToolFailure,
+  FlovRejectionDiagnostic
+>();
 
 export function flovRejectionDiagnostic(
   result: AudioTranscribeToolResult | DirectAudioTranscriptionResult,
@@ -102,13 +102,13 @@ export interface BotMediaToolsPort {
   findPhoto(
     trigger: StoredMessage,
     replyTarget?: StoredMessage,
-  ): TelegramMediaTarget | undefined;
+  ): TelegramMediaTarget | VkMediaTarget | undefined;
   findAudio(
     trigger: StoredMessage,
     replyTarget?: StoredMessage,
   ): TelegramMediaTarget | undefined;
   resolveVision(
-    target: TelegramMediaTarget,
+    target: TelegramMediaTarget | VkMediaTarget,
     signal: AbortSignal,
   ): Promise<VisionAttachment>;
   transcribeAudio(
@@ -129,49 +129,85 @@ export interface BotMediaToolsPort {
 export class BotMediaTools implements BotMediaToolsPort {
   readonly #downloader: TelegramMediaDownloader;
   readonly #transcriber: FlovAudioTranscriber;
+  readonly #vkDownloader: VkMediaDownloader | undefined;
 
   constructor(options: {
     downloader: TelegramMediaDownloader;
     transcriber: FlovAudioTranscriber;
+    vkDownloader?: VkMediaDownloader;
   }) {
     this.#downloader = options.downloader;
     this.#transcriber = options.transcriber;
+    this.#vkDownloader = options.vkDownloader;
   }
 
   findPhoto(
     trigger: StoredMessage,
     replyTarget?: StoredMessage,
-  ): TelegramMediaTarget | undefined {
-    return selectTelegramMediaTarget(trigger, replyTarget, ["photo"]);
+  ): TelegramMediaTarget | VkMediaTarget | undefined {
+    return (
+      selectTelegramMediaTarget(trigger, replyTarget, ["photo"]) ??
+      selectVkPhotoTarget(trigger, replyTarget)
+    );
   }
 
   findAudio(
     trigger: StoredMessage,
     replyTarget?: StoredMessage,
   ): TelegramMediaTarget | undefined {
-    return selectTelegramMediaTarget(
-      trigger,
-      replyTarget,
-      ["voice", "video_note", "audio"],
-    );
+    return selectTelegramMediaTarget(trigger, replyTarget, [
+      "voice",
+      "video_note",
+      "audio",
+    ]);
   }
 
   async resolveVision(
-    target: TelegramMediaTarget,
+    target: TelegramMediaTarget | VkMediaTarget,
     signal: AbortSignal,
   ): Promise<VisionAttachment> {
+    if (target.kind === "vk_photo") {
+      if (!this.#vkDownloader) {
+        throw new BotMediaError(
+          "invalid_media",
+          "VK image download is not configured.",
+        );
+      }
+      const downloaded = await this.#vkDownloader.download(target, signal);
+      if (downloaded.data.byteLength > MAX_VISION_IMAGE_BYTES) {
+        throw new BotMediaError(
+          "file_too_large",
+          "The selected image is too large.",
+        );
+      }
+      return {
+        data: downloaded.data,
+        mediaType: imageMediaType(downloaded),
+        source: target.source,
+        messageId: target.message.messageId,
+      };
+    }
     if (target.kind !== "photo") {
-      throw new BotMediaError("invalid_media", "The selected image is invalid.");
+      throw new BotMediaError(
+        "invalid_media",
+        "The selected image is invalid.",
+      );
     }
     if (
       target.fileSize !== undefined &&
       target.fileSize > MAX_VISION_IMAGE_BYTES
     ) {
-      throw new BotMediaError("file_too_large", "The selected image is too large.");
+      throw new BotMediaError(
+        "file_too_large",
+        "The selected image is too large.",
+      );
     }
     const downloaded = await this.#downloader.download(target, signal);
     if (downloaded.data.byteLength > MAX_VISION_IMAGE_BYTES) {
-      throw new BotMediaError("file_too_large", "The selected image is too large.");
+      throw new BotMediaError(
+        "file_too_large",
+        "The selected image is too large.",
+      );
     }
     return {
       data: downloaded.data,
@@ -265,7 +301,7 @@ function asModelAudioResult(
 }
 
 function imageMediaType(
-  downloaded: DownloadedTelegramMedia,
+  downloaded: Pick<DownloadedTelegramMedia, "mediaType">,
 ): VisionAttachment["mediaType"] {
   switch (downloaded.mediaType.toLowerCase()) {
     case "image/png":

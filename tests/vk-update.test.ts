@@ -8,6 +8,15 @@ const GROUP_ID = 123456;
 const ALLOWED_CHAT_ID = "vk:2000000001";
 const PEER_ID = 2_000_000_001;
 
+interface FakePhotoAttachment {
+  sizes?: ReadonlyArray<{ url: string; width: number; height: number }>;
+  largeSizeUrl?: string;
+  mediumSizeUrl?: string;
+  smallSizeUrl?: string;
+  width?: number;
+  height?: number;
+}
+
 interface FakeMessageContextInput {
   id: number;
   peerId: number;
@@ -20,6 +29,7 @@ interface FakeMessageContextInput {
   replyMessage?: { conversationMessageId: number; senderId: number };
   hasAttachments?: boolean;
   hasGeo?: boolean;
+  photos?: readonly FakePhotoAttachment[];
 }
 
 function fakeContext(input: FakeMessageContextInput): MessageContext {
@@ -35,6 +45,8 @@ function fakeContext(input: FakeMessageContextInput): MessageContext {
     replyMessage: input.replyMessage,
     hasAttachments: () => input.hasAttachments ?? false,
     hasGeo: input.hasGeo ?? false,
+    getAttachments: (type: string) =>
+      type === "photo" ? (input.photos ?? []) : [],
   } as unknown as MessageContext;
 }
 
@@ -206,6 +218,66 @@ test("an attachment-only message gets a text placeholder", () => {
     { allowedChatIds: new Set([ALLOWED_CHAT_ID]), groupId: GROUP_ID },
   );
   assert.equal(result.message?.text, "[вложение]");
+});
+
+test("a photo-only message gets the [фото] placeholder and a parseable vkPhoto rawJson", () => {
+  const result = normalizeVkUpdate(
+    fakeContext({
+      id: 0,
+      peerId: PEER_ID,
+      senderId: 42,
+      conversationMessageId: 9,
+      text: "",
+      subTypes: ["message_new"],
+      hasAttachments: true,
+      photos: [
+        {
+          sizes: [
+            {
+              url: "https://sun9-1.userapi.com/small.jpg",
+              width: 100,
+              height: 75,
+            },
+            {
+              url: "https://sun9-1.userapi.com/large.jpg",
+              width: 800,
+              height: 600,
+            },
+          ],
+        },
+      ],
+    }),
+    { allowedChatIds: new Set([ALLOWED_CHAT_ID]), groupId: GROUP_ID },
+  );
+  assert.equal(result.message?.text, "[фото]");
+  assert.ok(result.message?.rawJson);
+  assert.deepEqual(JSON.parse(result.message?.rawJson ?? "{}"), {
+    vkPhoto: {
+      url: "https://sun9-1.userapi.com/large.jpg",
+      width: 800,
+      height: 600,
+    },
+  });
+});
+
+test("a photo with a caption keeps the caption text but still records vkPhoto rawJson", () => {
+  const result = normalizeVkUpdate(
+    fakeContext({
+      id: 0,
+      peerId: PEER_ID,
+      senderId: 42,
+      conversationMessageId: 10,
+      text: "смотри",
+      subTypes: ["message_new"],
+      hasAttachments: true,
+      photos: [{ largeSizeUrl: "https://sun9-2.userapi.com/only.jpg" }],
+    }),
+    { allowedChatIds: new Set([ALLOWED_CHAT_ID]), groupId: GROUP_ID },
+  );
+  assert.equal(result.message?.text, "смотри");
+  assert.deepEqual(JSON.parse(result.message?.rawJson ?? "{}"), {
+    vkPhoto: { url: "https://sun9-2.userapi.com/only.jpg" },
+  });
 });
 
 test("a missing conversation_message_id is rejected (message.id alone is unusable -- always 0 for community-received messages)", () => {

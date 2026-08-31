@@ -99,13 +99,18 @@ export function normalizeVkUpdate(
   const replyToMessageId = context.hasReplyMessage
     ? context.replyMessage?.conversationMessageId
     : undefined;
+  const photo = extractVkPhoto(context);
+  const rawJson = photo === undefined ? undefined : vkPhotoRawJson(photo);
   const message: StoredMessage = {
     chatId,
     messageId,
     date: vkDate(context.createdAt),
     senderId,
-    text: context.text?.trim() ? context.text : mediaPlaceholder(context),
+    text: context.text?.trim()
+      ? context.text
+      : mediaPlaceholder(context, photo !== undefined),
     ...(replyToMessageId === undefined ? {} : { replyToMessageId }),
+    ...(rawJson === undefined ? {} : { rawJson }),
   };
 
   const base = {
@@ -164,7 +169,10 @@ function vkDate(seconds: number): string | undefined {
   }
 }
 
-function mediaPlaceholder(context: MessageContext): string {
+function mediaPlaceholder(context: MessageContext, hasPhoto: boolean): string {
+  if (hasPhoto) {
+    return "[фото]";
+  }
   if (context.hasAttachments()) {
     return "[вложение]";
   }
@@ -172,4 +180,54 @@ function mediaPlaceholder(context: MessageContext): string {
     return "[геопозиция]";
   }
   return "";
+}
+
+const MAX_VK_PHOTO_RAW_CHARS = 4_000;
+
+interface ExtractedVkPhoto {
+  url: string;
+  width?: number;
+  height?: number;
+}
+
+/**
+ * Picks the largest available size of the first photo attachment. Uses
+ * `context.getAttachments("photo")` rather than `context.attachments`
+ * directly so the result is already narrowed to `PhotoAttachment[]`.
+ */
+function extractVkPhoto(context: MessageContext): ExtractedVkPhoto | undefined {
+  const photo = context.getAttachments("photo")[0];
+  if (!photo) {
+    return undefined;
+  }
+  let best: ExtractedVkPhoto | undefined;
+  let bestArea = -1;
+  for (const size of photo.sizes ?? []) {
+    if (typeof size.url !== "string" || size.url.length === 0) {
+      continue;
+    }
+    const area = (size.width ?? 0) * (size.height ?? 0);
+    if (area > bestArea) {
+      best = { url: size.url, width: size.width, height: size.height };
+      bestArea = area;
+    }
+  }
+  if (best) {
+    return best;
+  }
+  const fallbackUrl =
+    photo.largeSizeUrl ?? photo.mediumSizeUrl ?? photo.smallSizeUrl;
+  return fallbackUrl === undefined
+    ? undefined
+    : { url: fallbackUrl, width: photo.width, height: photo.height };
+}
+
+/**
+ * Nested under `vkPhoto` (not the top-level `photo` field Telegram's Bot API
+ * uses) so `parseStoredVkMedia`/`parseStoredTelegramMedia` never collide
+ * over the same `messages.raw_json` column.
+ */
+function vkPhotoRawJson(photo: ExtractedVkPhoto): string | undefined {
+  const json = JSON.stringify({ vkPhoto: photo });
+  return json.length <= MAX_VK_PHOTO_RAW_CHARS ? json : undefined;
 }

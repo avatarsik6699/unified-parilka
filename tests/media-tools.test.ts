@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { BotMediaTools, flovRejectionDiagnostic } from "../src/bot/media-tools.js";
+import {
+  BotMediaTools,
+  flovRejectionDiagnostic,
+} from "../src/bot/media-tools.js";
 import type { AudioFlacConverter } from "../src/bot/media/flov-transcriber.js";
 import { FlovAudioTranscriber } from "../src/bot/media/flov-transcriber.js";
 import { TelegramMediaDownloader } from "../src/bot/media/telegram-downloader.js";
+import { VkMediaDownloader } from "../src/bot/media/vk-downloader.js";
 import type { StoredMessage } from "../src/store.js";
 
 function stored(rawJson: unknown, messageId = 10): StoredMessage {
@@ -43,10 +47,14 @@ function makeTools(options: {
   const transcriber = new FlovAudioTranscriber({
     converter,
     async fetch() {
-      return new Response(options.responseBody ?? JSON.stringify(options.response ?? { text: "готовый текст" }), {
-        status: options.responseStatus,
-        headers: { "content-type": "application/json" },
-      });
+      return new Response(
+        options.responseBody ??
+          JSON.stringify(options.response ?? { text: "готовый текст" }),
+        {
+          status: options.responseStatus,
+          headers: { "content-type": "application/json" },
+        },
+      );
     },
   });
   return new BotMediaTools({ downloader, transcriber });
@@ -55,12 +63,14 @@ function makeTools(options: {
 test("Vision resolves only the selected Telegram photo into in-memory image bytes", async () => {
   const tools = makeTools({ bytes: new Uint8Array([1, 2, 3]) });
   const trigger = stored({
-    photo: [{
-      file_id: "photo_secret_reference",
-      width: 100,
-      height: 80,
-      file_size: 3,
-    }],
+    photo: [
+      {
+        file_id: "photo_secret_reference",
+        width: 100,
+        height: 80,
+        file_size: 3,
+      },
+    ],
   });
   const target = tools.findPhoto(trigger);
   assert.ok(target);
@@ -73,6 +83,85 @@ test("Vision resolves only the selected Telegram photo into in-memory image byte
   assert.doesNotMatch(JSON.stringify(image), /photo_secret_reference/u);
 });
 
+test("Vision resolves a VK photo target via the VK downloader, no Telegram getFile call", async () => {
+  const telegramDownloads = { count: 0 };
+  const downloader = new TelegramMediaDownloader({
+    async getFile() {
+      telegramDownloads.count += 1;
+      return { filePath: "should/not/be/used.jpg" };
+    },
+    fileUrl: (path) => `https://telegram.invalid/${path}`,
+  });
+  const vkDownloader = new VkMediaDownloader({
+    async fetch() {
+      return new Response(
+        new Uint8Array([9, 9, 9]) as Uint8Array<ArrayBuffer>,
+        {
+          headers: { "content-type": "image/png" },
+        },
+      );
+    },
+  });
+  const converter: AudioFlacConverter = {
+    async convert({ bytes }) {
+      return bytes;
+    },
+  };
+  const transcriber = new FlovAudioTranscriber({
+    converter,
+    async fetch() {
+      return new Response(JSON.stringify({ text: "" }));
+    },
+  });
+  const tools = new BotMediaTools({ downloader, vkDownloader, transcriber });
+
+  const trigger = stored({
+    vkPhoto: { url: "https://sun9-1.userapi.com/photo.jpg" },
+  });
+  const target = tools.findPhoto(trigger);
+  assert.ok(target);
+  assert.equal(target.kind, "vk_photo");
+
+  const image = await tools.resolveVision(target, new AbortController().signal);
+  assert.deepEqual([...image.data], [9, 9, 9]);
+  assert.equal(image.mediaType, "image/png");
+  assert.equal(image.source, "trigger");
+  assert.equal(telegramDownloads.count, 0);
+});
+
+test("resolveVision on a VK target without a configured vkDownloader fails as invalid_media", async () => {
+  const downloader = new TelegramMediaDownloader({
+    async getFile() {
+      throw new Error("must not be called");
+    },
+    fileUrl: (path) => `https://telegram.invalid/${path}`,
+  });
+  const converter: AudioFlacConverter = {
+    async convert({ bytes }) {
+      return bytes;
+    },
+  };
+  const transcriber = new FlovAudioTranscriber({
+    converter,
+    async fetch() {
+      return new Response(JSON.stringify({ text: "" }));
+    },
+  });
+  const tools = new BotMediaTools({ downloader, transcriber });
+  const trigger = stored({
+    vkPhoto: { url: "https://sun9-1.userapi.com/photo.jpg" },
+  });
+  const target = tools.findPhoto(trigger);
+  assert.ok(target);
+
+  await assert.rejects(
+    tools.resolveVision(target, new AbortController().signal),
+    (error: unknown) =>
+      error instanceof Error &&
+      (error as { code?: string }).code === "invalid_media",
+  );
+});
+
 test("Flov 4xx becomes a nonretryable local failure without serializing its body", async () => {
   const hidden = "НЕ_ПОКАЗЫВАТЬ_АУДИО_ТЕКСТ";
   const tools = makeTools({
@@ -80,12 +169,17 @@ test("Flov 4xx becomes a nonretryable local failure without serializing its body
     responseStatus: 400,
     responseBody: `audio decode failed: ${hidden}`,
   });
-  const target = tools.findAudio(stored({
-    video_note: { file_id: "video_note_reference", duration: 3 },
-  }));
+  const target = tools.findAudio(
+    stored({
+      video_note: { file_id: "video_note_reference", duration: 3 },
+    }),
+  );
   assert.ok(target);
 
-  const result = await tools.transcribeAudio(target, new AbortController().signal);
+  const result = await tools.transcribeAudio(
+    target,
+    new AbortController().signal,
+  );
   assert.equal(result.ok, false);
   if (result.ok) {
     assert.fail("expected local rejection");
@@ -97,7 +191,10 @@ test("Flov 4xx becomes a nonretryable local failure without serializing its body
     flovReason: "audio_decode",
     flovSourceContainer: "other",
   });
-  assert.doesNotMatch(JSON.stringify(result), /НЕ_ПОКАЗЫВАТЬ|video_note_reference/u);
+  assert.doesNotMatch(
+    JSON.stringify(result),
+    /НЕ_ПОКАЗЫВАТЬ|video_note_reference/u,
+  );
 });
 
 test("audio transcription uses only a direct inline reply and returns attributable bounded text", async () => {
@@ -119,21 +216,26 @@ test("audio transcription uses only a direct inline reply and returns attributab
   assert.ok(target);
   assert.equal(target.source, "reply");
 
-  const result = await tools.transcribeAudio(target, new AbortController().signal);
+  const result = await tools.transcribeAudio(
+    target,
+    new AbortController().signal,
+  );
   assert.equal(result.ok, true);
   if (!result.ok) {
     assert.fail("expected transcription success");
   }
   assert.equal(result.result.transcript, "готовый текст");
   assert.equal(result.result.source, "reply");
-  assert.deepEqual(result.evidence, [{
-    source: "chat_message",
-    chat: { id: "-100" },
-    message: { id: 9 },
-    speaker: { id: "42", name: "kolya" },
-    date: null,
-    text: "готовый текст",
-  }]);
+  assert.deepEqual(result.evidence, [
+    {
+      source: "chat_message",
+      chat: { id: "-100" },
+      message: { id: 9 },
+      speaker: { id: "42", name: "kolya" },
+      date: null,
+      text: "готовый текст",
+    },
+  ]);
   assert.doesNotMatch(JSON.stringify(result), /voice_secret_reference/u);
 });
 
@@ -141,7 +243,9 @@ test("audio with unknown or over-limit duration is rejected before Telegram down
   let downloads = 0;
   const tools = makeTools({
     bytes: new Uint8Array([7, 8]),
-    onDownload: () => { downloads += 1; },
+    onDownload: () => {
+      downloads += 1;
+    },
   });
   const trigger = stored({
     voice: {
@@ -153,7 +257,10 @@ test("audio with unknown or over-limit duration is rejected before Telegram down
   const target = tools.findAudio(trigger);
   assert.ok(target);
 
-  const result = await tools.transcribeAudio(target, new AbortController().signal);
+  const result = await tools.transcribeAudio(
+    target,
+    new AbortController().signal,
+  );
   assert.deepEqual(result, {
     ok: false,
     tool: "audio_transcribe",
@@ -166,9 +273,11 @@ test("audio with unknown or over-limit duration is rejected before Telegram down
   });
   assert.equal(downloads, 0);
 
-  const missingDuration = tools.findAudio(stored({
-    audio: { file_id: "audio_unknown_duration", mime_type: "audio/mpeg" },
-  }));
+  const missingDuration = tools.findAudio(
+    stored({
+      audio: { file_id: "audio_unknown_duration", mime_type: "audio/mpeg" },
+    }),
+  );
   assert.ok(missingDuration);
   const unknownResult = await tools.transcribeAudio(
     missingDuration,
