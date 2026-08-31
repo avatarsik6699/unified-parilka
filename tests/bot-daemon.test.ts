@@ -50,6 +50,7 @@ test("composition wires all worker slots without performing external I/O", async
     config,
     chats: [
       {
+        transport: "telegram",
         allowedChatId: CHAT_ID,
         chatTitle: "Test Chat",
         personaPrompt: "# Кто ты\nТестовая персона для юнит-тестов.",
@@ -191,6 +192,7 @@ test("combined configuration enforces the shared DB and chat allowlist", (t) => 
   const config = botConfig(dbPath);
   const chats = [
     {
+      transport: "telegram" as const,
       allowedChatId: CHAT_ID,
       chatTitle: "Test Chat",
       personaPrompt: "persona",

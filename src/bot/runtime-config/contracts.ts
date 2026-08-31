@@ -69,6 +69,20 @@ export interface BotNewsBriefTriggerRuntimeConfig {
   seenStorePath?: string;
 }
 
+/**
+ * VK.ru (second transport). Opt-in: absent means this process constructs no
+ * VK client and never starts a VK long-poll loop, even if `config/bots.json`
+ * lists no `transport: "vk"` entries -- both must agree (validated in
+ * `validateBotRuntimeRelationships`).
+ */
+export interface BotVkRuntimeConfig {
+  /** Community (group) access token with the `messages` scope. */
+  groupToken: string;
+  /** Numeric VK community id, positive (not the peer_id namespacing prefix). */
+  groupId: number;
+  apiVersion: string;
+}
+
 export interface BotRuntimeConfig {
   token: string;
   exclusivePollerConfirmed: true;
@@ -91,6 +105,7 @@ export interface BotRuntimeConfig {
   imageGeneration?: BotImageGenerationRuntimeConfig;
   voiceReply?: BotVoiceReplyRuntimeConfig;
   newsBriefTrigger?: BotNewsBriefTriggerRuntimeConfig;
+  vk?: BotVkRuntimeConfig;
   /** Loopback SearXNG JSON API origin. Default http://127.0.0.1:8080. */
   searxngEndpoint: string;
   /** Loopback Firecrawl v2 API origin. Default http://127.0.0.1:3002. */
@@ -119,6 +134,7 @@ export type SafeBotRuntimeConfig = Omit<
   | "imageGeneration"
   | "voiceReply"
   | "newsBriefTrigger"
+  | "vk"
 > & {
   tokenConfigured: true;
   memoryWriteAuthorizerCount: number;
@@ -133,6 +149,11 @@ export type SafeBotRuntimeConfig = Omit<
   };
   /** Never echoes the privileged Telegram user id, same as memoryWriteAuthorizerCount. */
   newsBriefTriggerConfigured: boolean;
+  vk?: {
+    groupTokenConfigured: true;
+    groupId: number;
+    apiVersion: string;
+  };
   webSearch?:
     | {
         kind: "http";

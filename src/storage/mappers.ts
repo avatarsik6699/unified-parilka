@@ -1,5 +1,6 @@
 import type { ChatInfo } from "../telegram/types.js";
 import { LEGACY_EMBEDDING_NAMESPACE } from "./constants.js";
+import { normalizeBotTransport } from "./validation.js";
 import type {
   BotDurableStatus,
   BotTurnProgressState,
@@ -244,6 +245,9 @@ export function rowToStoredBotUpdate(
 ): StoredBotUpdate {
   return {
     updateId: Number(row.update_id),
+    transport: normalizeBotTransport(
+      row.transport == null ? undefined : String(row.transport),
+    ),
     rawJson: String(row.raw_json),
     status: String(row.status) as BotDurableStatus,
     addressed: Number(row.addressed) === 1,
@@ -268,6 +272,9 @@ export function rowToStoredBotTurn(
   return {
     id: Number(row.id),
     updateId: Number(row.update_id),
+    transport: normalizeBotTransport(
+      row.transport == null ? undefined : String(row.transport),
+    ),
     chatId: String(row.chat_id),
     triggerMessageId: Number(row.trigger_message_id),
     status: String(row.status) as BotDurableStatus,

@@ -10,7 +10,7 @@ import type {
   TelegramPublisherResult,
 } from "./worker.js";
 
-export interface GrammySendMessageOptions {
+export interface BotApiSendMessageOptions {
   reply_parameters: {
     message_id: number;
     allow_sending_without_reply: false;
@@ -18,44 +18,44 @@ export interface GrammySendMessageOptions {
   link_preview_options?: { is_disabled: true };
 }
 
-export interface GrammyRichMessageOptions {
+export interface BotApiRichMessageOptions {
   reply_parameters: {
     message_id: number;
     allow_sending_without_reply: false;
   };
 }
 
-export interface GrammyRichMessagePayload {
+export interface BotApiRichMessagePayload {
   markdown: string;
   skip_entity_detection: true;
 }
 
-export interface GrammyRichMessageSendInput {
+export interface BotApiRichMessageSendInput {
   chatId: string;
-  richMessage: GrammyRichMessagePayload;
+  richMessage: BotApiRichMessagePayload;
   /**
    * Canonical visible plain text. The durable adapter records it as the
    * acknowledged message text because a rich ACK carries `rich_message`,
    * not `text`.
    */
   plainText: string;
-  options: GrammyRichMessageOptions;
+  options: BotApiRichMessageOptions;
   signal: AbortSignal;
 }
 
-export interface GrammySendPhotoInput {
+export interface BotApiSendPhotoInput {
   chatId: string;
   photoBytes: Buffer;
   caption: string;
-  options: GrammyRichMessageOptions;
+  options: BotApiRichMessageOptions;
   signal: AbortSignal;
 }
 
-export interface GrammySendVoiceInput {
+export interface BotApiSendVoiceInput {
   chatId: string;
   voiceBytes: Buffer;
   caption: string;
-  options: GrammyRichMessageOptions;
+  options: BotApiRichMessageOptions;
   signal: AbortSignal;
 }
 
@@ -63,16 +63,16 @@ export interface GrammySendVoiceInput {
  * The publisher only needs a few Bot API operations. Keeping this port
  * narrower than grammY's Api makes delivery behavior straightforward to test.
  */
-export interface GrammyBotApiPort {
-  sendRichMessage(input: GrammyRichMessageSendInput): Promise<unknown>;
+export interface BotApiPort {
+  sendRichMessage(input: BotApiRichMessageSendInput): Promise<unknown>;
   sendMessage(
     chatId: string,
     text: string,
-    options: GrammySendMessageOptions,
+    options: BotApiSendMessageOptions,
     signal: AbortSignal,
   ): Promise<unknown>;
-  sendPhoto?(input: GrammySendPhotoInput): Promise<unknown>;
-  sendVoice?(input: GrammySendVoiceInput): Promise<unknown>;
+  sendPhoto?(input: BotApiSendPhotoInput): Promise<unknown>;
+  sendVoice?(input: BotApiSendVoiceInput): Promise<unknown>;
 }
 
 type PublisherFailure = Extract<
@@ -127,9 +127,9 @@ const RICH_PARSE_REJECTION_PATTERN =
  * one-shot parser-related 400 fallback.
  */
 export class GrammyBotTurnPublisher implements BotTurnPublisher {
-  readonly #api: GrammyBotApiPort;
+  readonly #api: BotApiPort;
 
-  constructor(api: GrammyBotApiPort) {
+  constructor(api: BotApiPort) {
     this.#api = api;
   }
 
@@ -314,7 +314,7 @@ export class GrammyBotTurnPublisher implements BotTurnPublisher {
     maxChunkUtf16: number,
   ): Promise<TelegramPublisherResult> {
     const chunks = splitTelegramText(plainText, maxChunkUtf16);
-    const baseOptions: GrammySendMessageOptions = {
+    const baseOptions: BotApiSendMessageOptions = {
       reply_parameters: {
         message_id: request.replyToMessageId,
         allow_sending_without_reply: false,
@@ -399,7 +399,7 @@ export function createGrammyBotTurnPublisher(
   });
 }
 
-function richOptions(replyToMessageId: number): GrammyRichMessageOptions {
+function richOptions(replyToMessageId: number): BotApiRichMessageOptions {
   return {
     reply_parameters: {
       message_id: replyToMessageId,

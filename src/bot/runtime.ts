@@ -23,6 +23,7 @@ export {
 export {
   BotApiRuntime,
   type BotApiRuntimeOptions,
+  type VkLongPollLoop,
 } from "./runtime/api-runtime.js";
 export {
   createGrammyLongPollingApi,

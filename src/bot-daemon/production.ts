@@ -1,9 +1,11 @@
 import { statSync } from "node:fs";
 import { resolve } from "node:path";
 import { Api } from "grammy";
+import type { VK } from "vk-io";
 import { loadConfig, type AppConfig } from "../config.js";
 import type { BotRuntimeConfig } from "../bot/runtime-config.js";
 import { parseBotRuntimeConfig } from "../bot/runtime-config.js";
+import { createVkClient } from "../vk/client.js";
 import { ModelRouter } from "../providers/model-router.js";
 import { MessageStore } from "../store.js";
 import { VectorRag } from "../vector-rag.js";
@@ -84,6 +86,10 @@ export function createProductionBotDaemon(
     config.researchGateway === undefined
       ? undefined
       : factories.createResearchGateway(config.researchGateway);
+  // Only constructed when at least one chat needs it -- a Telegram-only
+  // deployment with no BOT_VK_GROUP_TOKEN never touches VK at all.
+  const vkApi: VK | undefined =
+    config.vk === undefined ? undefined : factories.createVk(config.vk);
   const store = factories.createStore(config.dbPath);
   store.reconcileActiveSendsOnStartup();
 
@@ -135,6 +141,7 @@ export function createProductionBotDaemon(
       chats,
       store,
       api,
+      ...(vkApi === undefined ? {} : { vkApi }),
       router,
       appConfig,
       ...(vector === undefined ? {} : { vector }),
@@ -178,13 +185,25 @@ export function assertBotDaemonConfiguration(
       "Bot and Telegram services must use the same SQLite database.",
     );
   }
+  // TELEGRAM_ALLOWED_CHAT_IDS scopes bot-agi-sync's Telegram allowlist --
+  // a `transport: "vk"` chat has no MTProto/Bot-API identity to check
+  // against it, so only Telegram-transport chats are validated here.
   const allowed = new Set(app.telegram.allowedChatIds.map(normalizeTelegramId));
   for (const chat of chats) {
+    if (chat.transport !== "telegram") {
+      continue;
+    }
     if (!allowed.has(normalizeTelegramId(chat.allowedChatId))) {
       throw new Error(
         `BOT_BOTS_CONFIG_PATH assistant chat ${chat.allowedChatId} must be present in TELEGRAM_ALLOWED_CHAT_IDS.`,
       );
     }
+  }
+  const vkChatConfigured = chats.some((chat) => chat.transport === "vk");
+  if (vkChatConfigured && bot.vk === undefined) {
+    throw new Error(
+      'BOT_BOTS_CONFIG_PATH lists a transport: "vk" chat but BOT_VK_GROUP_TOKEN is not set.',
+    );
   }
   if (humanPersonaApprovalChatId !== undefined) {
     const normalizedApprovalChatId = normalizeTelegramId(
@@ -192,6 +211,7 @@ export function assertBotDaemonConfiguration(
     );
     const collidingChat = chats.find(
       (chat) =>
+        chat.transport === "telegram" &&
         normalizeTelegramId(chat.allowedChatId) === normalizedApprovalChatId,
     );
     if (collidingChat !== undefined) {
@@ -230,6 +250,9 @@ const DEFAULT_PRODUCTION_FACTORIES: ProductionBotDaemonFactories = {
     return new UnixSocketResearchGatewayProvider({
       socketPath: config.socketPath,
     });
+  },
+  createVk(config) {
+    return createVkClient(config);
   },
 };
 

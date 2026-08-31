@@ -33,3 +33,8 @@ __pycache__/
 .venv/
 venv/
 config/bots.json
+
+# Athanor secrets workspace (never commit encrypted secrets alongside code)
+athanor.yaml
+secrets.enc.yaml
+*.enc.yaml

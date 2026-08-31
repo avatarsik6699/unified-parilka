@@ -61,6 +61,7 @@ function makeTurn(triggerMessageId: number): StoredBotTurn {
   return {
     id: 1,
     updateId: 1,
+    transport: "telegram",
     chatId: CHAT_ID,
     triggerMessageId,
     status: "queued",
@@ -175,12 +176,14 @@ test("loadBotTurn restores Bot API media from its durable update after sync meta
 
     // The sync path only has transport-neutral metadata and must not make an
     // already-reserved Bot API media turn lose its file reference.
-    store.upsertMessages(chat, [{
-      chatId: CHAT_ID,
-      messageId: 3,
-      text: "@bot расшифруй",
-      rawJson: JSON.stringify({ groupedId: "sync-only" }),
-    }]);
+    store.upsertMessages(chat, [
+      {
+        chatId: CHAT_ID,
+        messageId: 3,
+        text: "@bot расшифруй",
+        rawJson: JSON.stringify({ groupedId: "sync-only" }),
+      },
+    ]);
 
     const loaded = loadBotTurn(store, ingested.turn!);
     assert.ok(loaded);

@@ -646,9 +646,10 @@ export abstract class BotTurnMethods extends StoreCore {
              error = (SELECT error FROM bot_turns WHERE id = ?),
              updated_at_ms = ?,
              completed_at_ms = (SELECT completed_at_ms FROM bot_turns WHERE id = ?)
-         WHERE update_id = (SELECT update_id FROM bot_turns WHERE id = ?)`,
+         WHERE update_id = (SELECT update_id FROM bot_turns WHERE id = ?)
+           AND transport = (SELECT transport FROM bot_turns WHERE id = ?)`,
       )
-      .run(turnId, turnId, nowMs, turnId, turnId);
+      .run(turnId, turnId, nowMs, turnId, turnId, turnId);
   }
 
   protected getBotTurnLocked(turnId: number): StoredBotTurn | undefined {

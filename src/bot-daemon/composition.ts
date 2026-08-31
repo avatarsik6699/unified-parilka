@@ -28,9 +28,12 @@ import {
   createReactionGrammyBotApiPort,
   createToolProgressGrammyBotApiPort,
 } from "../bot/runtime.js";
+import { VkBotTurnPublisher } from "../bot/runtime/vk-adapters.js";
 import { TurnCoordinator } from "../bot/turn-coordinator.js";
 import type { TypingPort } from "../bot/typing.js";
+import type { BotTurnPublisher } from "../bot/worker.js";
 import { BotTurnWorker } from "../bot/worker.js";
+import { VkLongPollLoop } from "../vk/long-poll-loop.js";
 import { ApprovalPosterLoop } from "../human-persona-approval-poster.js";
 import type {
   BotDaemonChatComposition,
@@ -77,6 +80,10 @@ export function composeBotDaemon(
     botId: config.botId,
     botUsername: config.botUsername,
   });
+  const vkPublisher: BotTurnPublisher | undefined =
+    options.vkApi === undefined
+      ? undefined
+      : new VkBotTurnPublisher(options.vkApi);
   const typingPort: TypingPort = {
     sendChatAction: (chatId, signal) =>
       options.api
@@ -168,6 +175,14 @@ export function composeBotDaemon(
         ? {}
         : { voiceReply: config.voiceReply }),
     });
+    // VK chats get no typing indicator, ephemeral tool-progress message, or
+    // message-reaction port: all three are Bot-API-specific UI affordances
+    // (`src/bot/typing.ts`, `src/bot/tool-progress.ts`,
+    // `src/bot/web-tools/reaction-contracts.ts`) with no VK equivalent wired
+    // in v1 -- each is optional on `BotTurnWorkerOptions`, so the worker
+    // simply skips them, same as any Telegram deployment missing one.
+    const chatPublisher =
+      chat.transport === "vk" ? requireVkPublisher(vkPublisher) : publisher;
     const workers = Array.from(
       { length: config.workerConcurrency },
       (_unused, index) =>
@@ -175,16 +190,16 @@ export function composeBotDaemon(
           store: options.store,
           coordinator,
           agent,
-          publisher,
+          publisher: chatPublisher,
           workerId: `${workerIdPrefix}:${chat.allowedChatId}:${index + 1}`,
           allowedChatId: chat.allowedChatId,
           mode: config.mode,
           publishTimeoutMs: config.publishTimeoutMs,
-          typingPort,
-          toolProgressBotApiPort,
-          reactionBotApiPort,
           logger: options.logger,
           botSenderId: config.botId,
+          ...(chat.transport === "vk"
+            ? {}
+            : { typingPort, toolProgressBotApiPort, reactionBotApiPort }),
         }),
     );
     chats.set(chat.allowedChatId, { coordinator, readTools, agent, workers });
@@ -198,18 +213,31 @@ export function composeBotDaemon(
     workers,
     logger: options.logger,
   });
+  const telegramChatIds = new Set(
+    options.chats
+      .filter((chat) => chat.transport === "telegram")
+      .map((chat) => chat.allowedChatId),
+  );
+  const vkChatIds = new Set(
+    options.chats
+      .filter((chat) => chat.transport === "vk")
+      .map((chat) => chat.allowedChatId),
+  );
   const processor = new BotUpdateProcessor({
     store: options.store,
     coordinators,
     workNotifier: workerPump,
     telegram: {
-      allowedChatIds: new Set(chats.keys()),
+      allowedChatIds: telegramChatIds,
       botId: config.botId,
       botUsername: config.botUsername,
       ...(options.humanPersonaApprovalChatId === undefined
         ? {}
         : { humanPersonaApprovalChatId: options.humanPersonaApprovalChatId }),
     },
+    ...(config.vk === undefined
+      ? {}
+      : { vk: { allowedChatIds: vkChatIds, groupId: config.vk.groupId } }),
     triggerCooldownMs: config.triggerCooldownMs,
     updateMaxAttempts: config.updateMaxAttempts,
     logger: options.logger,
@@ -221,6 +249,14 @@ export function composeBotDaemon(
     ...botRuntimeOptionsFromConfig(config),
     logger: options.logger,
   });
+  const vkPoller =
+    options.vkApi === undefined
+      ? undefined
+      : new VkLongPollLoop({
+          vk: options.vkApi,
+          processor,
+          logger: options.logger,
+        });
   const approvalPoster =
     options.humanPersonaId !== undefined &&
     options.humanPersonaApprovalChatId !== undefined
@@ -240,6 +276,7 @@ export function composeBotDaemon(
     logger: options.logger,
     ...(approvalPoster === undefined ? {} : { approvalPoster }),
     ...(curiosityTrigger === undefined ? {} : { curiosityTrigger }),
+    ...(vkPoller === undefined ? {} : { vkPoller }),
   });
 
   return {
@@ -331,6 +368,20 @@ function buildCuriosityTriggerLoop(
       }
     },
   });
+}
+
+function requireVkPublisher(
+  publisher: BotTurnPublisher | undefined,
+): BotTurnPublisher {
+  if (publisher === undefined) {
+    // Invariant violation, not a runtime input error: `assertBotDaemonConfiguration`
+    // (bot-daemon/production.ts) already refuses to start a `transport: "vk"`
+    // chat without BOT_VK_GROUP_TOKEN configured.
+    throw new Error(
+      'A transport: "vk" chat was composed without a VK API client.',
+    );
+  }
+  return publisher;
 }
 
 function requireWorkerIdPrefix(value: string): string {

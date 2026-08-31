@@ -62,6 +62,31 @@ export function telegramId(
  * error message. An omitted or blank list intentionally means nobody can
  * authorize model-driven memory writes.
  */
+const MAX_SAFE_VK_PEER_ID = Number.MAX_SAFE_INTEGER;
+
+/**
+ * VK multi-user chat peer_id (2000000000 + internal chat_id), namespaced
+ * as `vk:<peer_id>` in our own `chatId` strings so it can share the same
+ * `TEXT` chat-id columns as Telegram's numeric ids without colliding.
+ */
+export function vkPeerId(value: string, name: string): string {
+  const match = /^vk:(\d+)$/u.exec(value);
+  if (!match) {
+    throw new Error(`${name} must be a "vk:<peer_id>" chat id.`);
+  }
+  const peerId = Number(match[1]);
+  if (
+    !Number.isSafeInteger(peerId) ||
+    peerId <= 0 ||
+    peerId > MAX_SAFE_VK_PEER_ID
+  ) {
+    throw new Error(
+      `${name} must have a positive, JavaScript-safe-integer VK peer_id.`,
+    );
+  }
+  return `vk:${String(peerId)}`;
+}
+
 export function telegramIdList(
   raw: string | undefined,
   name: string,

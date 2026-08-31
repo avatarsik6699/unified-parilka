@@ -656,4 +656,5 @@ export abstract class SchemaMigrationMethods extends StoreCore {
         ON assistant_curiosity_topic_log(chat_id, asked_at_ms DESC);
     `);
   }
+
 }

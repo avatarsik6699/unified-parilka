@@ -61,11 +61,13 @@ test("loads and validates well-formed assistant entries, reading persona prose f
 
   assert.equal(chats.length, 2);
   assert.deepEqual(chats[0], {
+    transport: "telegram",
     allowedChatId: "-1001",
     chatTitle: "Chat A",
     personaPrompt: "# Кто ты\nПерсона A.",
   });
   assert.deepEqual(chats[1], {
+    transport: "telegram",
     allowedChatId: "-1002",
     chatTitle: "Chat B",
     personaPrompt: "# Кто ты\nПерсона B.",
@@ -210,4 +212,69 @@ test("requires BOT_BOTS_CONFIG_PATH to be set", () => {
     () => loadBotDefinitionsFromEnv({}),
     /BOT_BOTS_CONFIG_PATH is required/u,
   );
+});
+
+test('transport defaults to "telegram" when absent (backward compatibility)', (t) => {
+  const directory = fixtureDir(t);
+  const persona = writePersona(directory, "p.md", "# Кто ты\nПерсона.");
+  const configPath = writeConfig(directory, [
+    {
+      role: "assistant",
+      chatId: "-1001",
+      chatTitle: "Chat A",
+      personaPromptPath: persona,
+    },
+  ]);
+  const chats = loadChats(configPath);
+  assert.equal(chats[0]?.transport, "telegram");
+});
+
+test('a transport: "vk" entry parses a "vk:<peer_id>" chatId', (t) => {
+  const directory = fixtureDir(t);
+  const persona = writePersona(directory, "p.md", "# Кто ты\nПерсона.");
+  const configPath = writeConfig(directory, [
+    {
+      role: "assistant",
+      transport: "vk",
+      chatId: "vk:2000000001",
+      chatTitle: "VK Chat",
+      personaPromptPath: persona,
+    },
+  ]);
+  const chats = loadChats(configPath);
+  assert.deepEqual(chats[0], {
+    transport: "vk",
+    allowedChatId: "vk:2000000001",
+    chatTitle: "VK Chat",
+    personaPrompt: "# Кто ты\nПерсона.",
+  });
+});
+
+test('a malformed "vk:" chatId is rejected', (t) => {
+  const directory = fixtureDir(t);
+  const persona = writePersona(directory, "p.md", "# Кто ты\nПерсона.");
+  const configPath = writeConfig(directory, [
+    {
+      role: "assistant",
+      transport: "vk",
+      chatId: "-1001",
+      chatTitle: "VK Chat",
+      personaPromptPath: persona,
+    },
+  ]);
+  assert.throws(() => loadChats(configPath), /vk:<peer_id>/u);
+});
+
+test('a "vk:" chatId is rejected without transport: "vk"', (t) => {
+  const directory = fixtureDir(t);
+  const persona = writePersona(directory, "p.md", "# Кто ты\nПерсона.");
+  const configPath = writeConfig(directory, [
+    {
+      role: "assistant",
+      chatId: "vk:2000000001",
+      chatTitle: "VK Chat",
+      personaPromptPath: persona,
+    },
+  ]);
+  assert.throws(() => loadChats(configPath), /Telegram integer id/u);
 });

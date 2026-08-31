@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   GrammyBotTurnPublisher,
-  type GrammyBotApiPort,
-  type GrammyRichMessageOptions,
+  type BotApiPort,
+  type BotApiRichMessageOptions,
 } from "../src/bot/grammy-publisher.js";
 import type { TelegramPublication } from "../src/bot/telegram-publication.js";
 
@@ -11,7 +11,7 @@ interface PhotoCall {
   chatId: string;
   photoBytes: Buffer;
   caption: string;
-  options: GrammyRichMessageOptions;
+  options: BotApiRichMessageOptions;
 }
 
 interface PlainCall {
@@ -22,7 +22,7 @@ interface PlainCall {
 function makeFakeApi(options: { withSendPhoto?: boolean } = {}) {
   const photoCalls: PhotoCall[] = [];
   const plainCalls: PlainCall[] = [];
-  const api: GrammyBotApiPort = {
+  const api: BotApiPort = {
     async sendRichMessage() {
       throw new Error("unexpected sendRichMessage");
     },

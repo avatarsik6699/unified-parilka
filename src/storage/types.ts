@@ -271,6 +271,14 @@ export type SendReservation =
       telegramMessageId?: number;
     };
 
+/**
+ * `bot_updates`/`bot_turns` identity is `(transport, update_id)` (see
+ * `applyBotUpdatesTransportMigration`): Telegram and VK each have their own,
+ * independently-growing update counter, so `update_id` alone is not
+ * globally unique once a second transport is in play.
+ */
+export type BotTransport = "telegram" | "vk";
+
 export type BotDurableStatus =
   | "queued"
   | "running"
@@ -284,6 +292,7 @@ export type BotDurableStatus =
 
 export type StoredBotUpdate = {
   updateId: number;
+  transport: BotTransport;
   rawJson: string;
   status: BotDurableStatus;
   addressed: boolean;
@@ -300,6 +309,7 @@ export type StoredBotUpdate = {
 export type StoredBotTurn = {
   id: number;
   updateId: number;
+  transport: BotTransport;
   chatId: string;
   triggerMessageId: number;
   status: BotDurableStatus;

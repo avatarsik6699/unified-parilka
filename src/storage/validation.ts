@@ -11,6 +11,7 @@ import {
 } from "./constants.js";
 import type {
   BotDurableStatus,
+  BotTransport,
   SparseTerm,
   StoredSendOutboxItem,
   UpsertDayDigestInput,
@@ -30,6 +31,16 @@ export function assertBotUpdateId(updateId: number): void {
   }
 }
 
+export function normalizeBotTransport(value: string | undefined): BotTransport {
+  if (value === undefined || value === "telegram") {
+    return "telegram";
+  }
+  if (value === "vk") {
+    return "vk";
+  }
+  throw new Error('transport must be "telegram" or "vk".');
+}
+
 export function assertBotTurnId(turnId: number): void {
   if (!Number.isSafeInteger(turnId) || turnId <= 0) {
     throw new Error("turnId must be a positive safe integer.");
@@ -44,8 +55,14 @@ export function assertTimestamp(value: number, name: string): void {
 
 export function normalizeBotMaxAttempts(value: number | undefined): number {
   const attempts = value ?? DEFAULT_BOT_MAX_ATTEMPTS;
-  if (!Number.isInteger(attempts) || attempts < 1 || attempts > MAX_BOT_ATTEMPTS) {
-    throw new Error(`maxAttempts must be an integer between 1 and ${MAX_BOT_ATTEMPTS}.`);
+  if (
+    !Number.isInteger(attempts) ||
+    attempts < 1 ||
+    attempts > MAX_BOT_ATTEMPTS
+  ) {
+    throw new Error(
+      `maxAttempts must be an integer between 1 and ${MAX_BOT_ATTEMPTS}.`,
+    );
   }
   return attempts;
 }
@@ -92,8 +109,14 @@ export function botTriggerCooldownKey(userKey: string): string {
 }
 
 export function assertBotLeaseMs(leaseMs: number): void {
-  if (!Number.isSafeInteger(leaseMs) || leaseMs < MIN_BOT_LEASE_MS || leaseMs > MAX_BOT_LEASE_MS) {
-    throw new Error(`leaseMs must be an integer between ${MIN_BOT_LEASE_MS} and ${MAX_BOT_LEASE_MS}.`);
+  if (
+    !Number.isSafeInteger(leaseMs) ||
+    leaseMs < MIN_BOT_LEASE_MS ||
+    leaseMs > MAX_BOT_LEASE_MS
+  ) {
+    throw new Error(
+      `leaseMs must be an integer between ${MIN_BOT_LEASE_MS} and ${MAX_BOT_LEASE_MS}.`,
+    );
   }
 }
 
@@ -108,10 +131,7 @@ export function botTurnRetryDelayMs(
     );
   }
   const exponent = Math.max(0, Math.min(attempts - 1, 20));
-  return Math.min(
-    BOT_RETRY_INITIAL_MS * 2 ** exponent,
-    BOT_RETRY_MAX_MS,
-  );
+  return Math.min(BOT_RETRY_INITIAL_MS * 2 ** exponent, BOT_RETRY_MAX_MS);
 }
 
 export function normalizeQueryLimit(value: number | undefined): number {
@@ -128,13 +148,17 @@ export function validateDayDigestInput(input: UpsertDayDigestInput): void {
   assertPositiveSafeInteger(input.startMessageId, "startMessageId");
   assertPositiveSafeInteger(input.endMessageId, "endMessageId");
   if (input.endMessageId < input.startMessageId) {
-    throw new Error("endMessageId must be greater than or equal to startMessageId.");
+    throw new Error(
+      "endMessageId must be greater than or equal to startMessageId.",
+    );
   }
   assertPositiveSafeInteger(input.messageCount, "messageCount");
   validateDigestMetadata(input);
 }
 
-export function validateDigestRollupInput(input: UpsertDigestRollupInput): void {
+export function validateDigestRollupInput(
+  input: UpsertDigestRollupInput,
+): void {
   assertNonEmptyBounded(input.chatId, 256, "chatId");
   if (input.kind !== "week" && input.kind !== "month") {
     throw new Error('kind must be either "week" or "month".');
@@ -172,10 +196,7 @@ export function validateDigestMetadata(
     ["inputTokens", input.inputTokens],
     ["outputTokens", input.outputTokens],
   ] as const) {
-    if (
-      value !== undefined &&
-      (!Number.isSafeInteger(value) || value < 0)
-    ) {
+    if (value !== undefined && (!Number.isSafeInteger(value) || value < 0)) {
       throw new Error(`${name} must be a non-negative safe integer.`);
     }
   }
@@ -245,7 +266,9 @@ export function boundedDigestQueryLimit(value: number | undefined): number {
   return limit;
 }
 
-export function normalizeBotStatuses(statuses: BotDurableStatus[] | undefined): BotDurableStatus[] {
+export function normalizeBotStatuses(
+  statuses: BotDurableStatus[] | undefined,
+): BotDurableStatus[] {
   if (statuses == null) {
     return [];
   }
@@ -310,10 +333,7 @@ export function normalizeSparseTerms(
     }
   }
   return [...byTokenId.entries()]
-    .sort(
-      (left, right) =>
-        right[1] - left[1] || left[0] - right[0],
-    )
+    .sort((left, right) => right[1] - left[1] || left[0] - right[0])
     .slice(0, maxTerms)
     .sort((left, right) => left[0] - right[0])
     .map(([tokenId, weight]) => ({ tokenId, weight }));

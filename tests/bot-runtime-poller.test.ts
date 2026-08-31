@@ -110,7 +110,9 @@ test("migration offset skips only legacy-confirmed updates on the first poll", a
         return false;
       },
     },
-    coordinators: new Map([[CHAT_ID, new TurnCoordinator({ maxActiveTurns: 1 })]]),
+    coordinators: new Map([
+      [CHAT_ID, new TurnCoordinator({ maxActiveTurns: 1 })],
+    ]),
     workNotifier: { notify() {} },
     telegram: TELEGRAM_OPTIONS,
   });
@@ -175,7 +177,9 @@ test("pinned bot identity is verified before any queued worker can run", async (
         return false;
       },
     },
-    coordinators: new Map([[CHAT_ID, new TurnCoordinator({ maxActiveTurns: 1 })]]),
+    coordinators: new Map([
+      [CHAT_ID, new TurnCoordinator({ maxActiveTurns: 1 })],
+    ]),
     workNotifier: { notify() {} },
     telegram: TELEGRAM_OPTIONS,
   });
@@ -254,7 +258,9 @@ test("runtime stops polling first and waits for an in-flight worker probe", asyn
         return false;
       },
     },
-    coordinators: new Map([[CHAT_ID, new TurnCoordinator({ maxActiveTurns: 1 })]]),
+    coordinators: new Map([
+      [CHAT_ID, new TurnCoordinator({ maxActiveTurns: 1 })],
+    ]),
     workNotifier: { notify() {} },
     telegram: TELEGRAM_OPTIONS,
   });
@@ -327,7 +333,9 @@ test("fatal polling conflict waits in-flight work but does not drain new queued 
         return false;
       },
     },
-    coordinators: new Map([[CHAT_ID, new TurnCoordinator({ maxActiveTurns: 1 })]]),
+    coordinators: new Map([
+      [CHAT_ID, new TurnCoordinator({ maxActiveTurns: 1 })],
+    ]),
     workNotifier: { notify() {} },
     telegram: TELEGRAM_OPTIONS,
   });
@@ -386,6 +394,7 @@ test("a storage failure is retried without sending a larger offset", async () =>
         ackUpdateId: params.updateId,
         update: {
           updateId: params.updateId,
+          transport: "telegram",
           rawJson: params.rawJson,
           status: "skipped",
           addressed: false,
@@ -417,7 +426,9 @@ test("a storage failure is retried without sending a larger offset", async () =>
   };
   const processor = new BotUpdateProcessor({
     store: fakeStore,
-    coordinators: new Map([[CHAT_ID, new TurnCoordinator({ maxActiveTurns: 3 })]]),
+    coordinators: new Map([
+      [CHAT_ID, new TurnCoordinator({ maxActiveTurns: 3 })],
+    ]),
     workNotifier: { notify() {} },
     telegram: TELEGRAM_OPTIONS,
   });

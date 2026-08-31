@@ -4,6 +4,7 @@ import {
   boundedPlain,
   existingAbsoluteFile,
   telegramId,
+  vkPeerId,
 } from "../bot/runtime-config/env-rules.js";
 import type {
   AssistantBotDefinitionEntry,
@@ -48,6 +49,7 @@ const DEFAULT_CURIOSITY_BASE_ASK_PROBABILITY = 0.02;
 const DEFAULT_CURIOSITY_MAX_ASK_PROBABILITY = 0.3;
 
 export interface AssistantChatConfig {
+  transport: "telegram" | "vk";
   allowedChatId: string;
   chatTitle: string;
   approximateMemberCount?: number;
@@ -102,11 +104,10 @@ function parseAssistantEntry(
   configPath: string,
 ): AssistantChatConfig {
   const fieldLabel = `${configPath}[assistant #${index}]`;
-  const allowedChatId = telegramId(
-    entry.chatId,
-    `${fieldLabel}.chatId`,
-    "negative",
-  );
+  const allowedChatId =
+    entry.transport === "vk"
+      ? vkPeerId(entry.chatId, `${fieldLabel}.chatId`)
+      : telegramId(entry.chatId, `${fieldLabel}.chatId`, "negative");
   const chatTitle = boundedPlain(
     entry.chatTitle,
     `${fieldLabel}.chatTitle`,
@@ -128,6 +129,7 @@ function parseAssistantEntry(
   const personaPrompt = boundedPersonaPrompt(personaPromptSource);
 
   return {
+    transport: entry.transport,
     allowedChatId,
     chatTitle,
     personaPrompt,

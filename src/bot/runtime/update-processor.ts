@@ -1,4 +1,6 @@
+import type { MessageContext } from "vk-io";
 import { normalizeTelegramUpdate } from "../telegram-update.js";
+import { normalizeVkUpdate } from "../vk-update.js";
 import {
   asRecord,
   boundedInteger,
@@ -17,11 +19,15 @@ import type {
   NewsBriefTriggerPort,
 } from "./contracts.js";
 import type { TurnCoordinator } from "../turn-coordinator.js";
-import type { TelegramUpdateOptions } from "../telegram-update.js";
+import type {
+  TelegramUpdateOptions,
+  NormalizedTelegramUpdate,
+} from "../telegram-update.js";
+import type { VkUpdateOptions } from "../vk-update.js";
+import type { BotTransport } from "../../store.js";
 import type { JsonEventLogger } from "../worker.js";
 
 const MAX_RAW_UPDATE_CHARS = 2_000_000;
-const BOT_TRIGGER_COOLDOWN_PREFIX = "telegram-user:";
 /**
  * Human-persona approval button callback data (plan 4d/5 Шаг 5):
  * `hp:<action>:<proposalId>`. `edit` never mutates the proposal here -- it
@@ -36,6 +42,7 @@ export class BotUpdateProcessor {
   readonly #coordinators: ReadonlyMap<string, TurnCoordinator>;
   readonly #workNotifier: BotWorkNotifier;
   readonly #telegram: TelegramUpdateOptions;
+  readonly #vk: VkUpdateOptions | undefined;
   readonly #triggerCooldownMs: number;
   readonly #updateMaxAttempts: number;
   readonly #logger: JsonEventLogger | undefined;
@@ -47,6 +54,7 @@ export class BotUpdateProcessor {
     this.#coordinators = options.coordinators;
     this.#workNotifier = options.workNotifier;
     this.#telegram = options.telegram;
+    this.#vk = options.vk;
     this.#newsBriefTrigger = options.newsBriefTrigger;
     this.#triggerCooldownMs = boundedInteger(
       options.triggerCooldownMs ?? 5_000,
@@ -75,7 +83,48 @@ export class BotUpdateProcessor {
       return this.#processHumanPersonaCallback(updateId, callbackQuery);
     }
 
-    const existing = this.#store.getBotUpdate(updateId);
+    return this.#commit("telegram", updateId, {
+      computeRawJson: () => stringifyUpdate(update),
+      normalize: () => normalizeTelegramUpdate(update, this.#telegram),
+    });
+  }
+
+  /**
+   * VK counterpart of `process()`: `context` is an already-parsed vk-io
+   * `MessageContext` (from `message_new`/`message_edit`), never raw bytes
+   * that might fail to parse -- vk-io wouldn't construct a context without a
+   * valid `id`, so there is no Telegram-style "updateId unreadable" pre-check
+   * here. Must only be called when `options.vk` was configured.
+   */
+  processVk(context: MessageContext): BotUpdateProcessingResult {
+    if (this.#vk === undefined) {
+      throw new Error(
+        "BotUpdateProcessor.processVk called without vk options configured.",
+      );
+    }
+    const vk = this.#vk;
+    return this.#commit("vk", context.id, {
+      computeRawJson: () => stringifyUpdate(context),
+      normalize: () => normalizeVkUpdate(context, vk),
+    });
+  }
+
+  /**
+   * Shared dedupe/commit/route tail for both transports. `computeRawJson`/
+   * `normalize` are lazy so a duplicate redelivery short-circuits before
+   * paying for either, exactly as the pre-split single-transport `process()`
+   * did (mechanical extraction, no behavior change for the Telegram path --
+   * covered by the existing `bot-durability*`/`bot-runtime*` test suites).
+   */
+  #commit(
+    transport: BotTransport,
+    updateId: number,
+    steps: {
+      computeRawJson: () => string | undefined;
+      normalize: () => NormalizedTelegramUpdate;
+    },
+  ): BotUpdateProcessingResult {
+    const existing = this.#store.getBotUpdate(updateId, transport);
     if (
       existing &&
       (existing.status === "dead_letter" ||
@@ -93,6 +142,7 @@ export class BotUpdateProcessor {
       }
       this.#log("info", "bot.update.duplicate_ack", {
         updateId,
+        transport,
         status: existing.status,
         turnId: turn?.id,
       });
@@ -105,27 +155,28 @@ export class BotUpdateProcessor {
       };
     }
 
-    const rawJson = stringifyUpdate(update);
+    const rawJson = steps.computeRawJson();
     if (rawJson === undefined || rawJson.length > MAX_RAW_UPDATE_CHARS) {
       return this.#recordPoison(
+        transport,
         updateId,
         "raw_update_unserializable_or_too_large",
       );
     }
 
-    const normalized = normalizeTelegramUpdate(update, this.#telegram);
+    const normalized = steps.normalize();
     if (
       !normalized.ingest ||
       normalized.updateId !== updateId ||
       !normalized.chat ||
-      !normalized.message ||
-      !normalized.updateKind
+      !normalized.message
     ) {
-      return this.#recordPoison(updateId, normalized.reason);
+      return this.#recordPoison(transport, updateId, normalized.reason);
     }
 
     const result = this.#store.ingestBotUpdate({
       updateId,
+      transport,
       rawJson,
       chat: normalized.chat,
       message: normalized.message,
@@ -134,7 +185,7 @@ export class BotUpdateProcessor {
         ? {
             triggerCooldown: {
               userKey:
-                BOT_TRIGGER_COOLDOWN_PREFIX +
+                `${transport}-user:` +
                 (normalized.message.senderId ?? "unknown"),
               cooldownMs: this.#triggerCooldownMs,
             },
@@ -159,7 +210,7 @@ export class BotUpdateProcessor {
     let routed = false;
     if (
       result.disposition !== "duplicate" &&
-      normalized.updateKind === "message" &&
+      normalized.reason !== "edited_message" &&
       normalized.reason !== "own_message" &&
       normalized.reason !== "bot_message" &&
       normalized.reason !== "human_persona_approval_reply"
@@ -180,9 +231,9 @@ export class BotUpdateProcessor {
       if (!triggerHandled) {
         const coordinator = this.#coordinators.get(normalized.chat.chatId);
         if (coordinator === undefined) {
-          // Invariant violation, not a runtime input error: normalizeTelegramUpdate
-          // already validated chat.chatId against the same allowedChatIds this
-          // map was built from (Фаза 7).
+          // Invariant violation, not a runtime input error: normalizeTelegramUpdate/
+          // normalizeVkUpdate already validated chat.chatId against the same
+          // allowedChatIds this map was built from (Фаза 7).
           throw new Error(
             `No TurnCoordinator configured for chat ${normalized.chat.chatId}.`,
           );
@@ -212,6 +263,7 @@ export class BotUpdateProcessor {
       result.throttled ? "bot.update.cooldown" : "bot.update.committed",
       {
         updateId,
+        transport,
         reason: normalized.reason,
         disposition: result.disposition,
         turnId: result.turn?.id,
@@ -354,9 +406,14 @@ export class BotUpdateProcessor {
     }
   }
 
-  #recordPoison(updateId: number, reason: string): BotUpdateProcessingResult {
+  #recordPoison(
+    transport: BotTransport,
+    updateId: number,
+    reason: string,
+  ): BotUpdateProcessingResult {
     const result = this.#store.recordBotUpdateFailure({
       updateId,
+      transport,
       rawJson: JSON.stringify({ update_id: updateId, reason }),
       error: `Bot API update rejected: ${safeMachineCode(reason)}.`,
       maxAttempts: this.#updateMaxAttempts,
@@ -364,6 +421,7 @@ export class BotUpdateProcessor {
     });
     this.#log("warn", "bot.update.rejected", {
       updateId,
+      transport,
       reason: safeMachineCode(reason),
       attempts: result.update.attempts,
       maxAttempts: result.update.maxAttempts,

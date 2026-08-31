@@ -260,6 +260,7 @@ export function request(
   const turn: StoredBotTurn = {
     id: 1,
     updateId: 2,
+    transport: "telegram",
     chatId: CHAT_ID,
     triggerMessageId: trigger.messageId,
     status: "running",

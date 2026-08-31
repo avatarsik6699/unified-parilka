@@ -12,14 +12,8 @@ import type {
   TurnBoundary,
   TurnCoordinator,
 } from "../turn-coordinator.js";
-import {
-  BOT_CONTEXT_MESSAGES,
-  BOT_REPLAY_MESSAGES,
-} from "./contracts.js";
-import {
-  durableMessageId,
-  WorkerProtocolError,
-} from "./helpers.js";
+import { BOT_CONTEXT_MESSAGES, BOT_REPLAY_MESSAGES } from "./contracts.js";
+import { durableMessageId, WorkerProtocolError } from "./helpers.js";
 
 export interface LoadedBotTurn {
   trigger: StoredMessage;
@@ -64,12 +58,13 @@ export function loadBotTurn(
     order: "asc",
   });
   const memory = store.getChatMemory(turn.chatId);
-  const replyTarget = trigger.replyToMessageId === undefined
-    ? undefined
-    : store.getMessagesByIds({
-        chatId: turn.chatId,
-        messageIds: [trigger.replyToMessageId],
-      })[0];
+  const replyTarget =
+    trigger.replyToMessageId === undefined
+      ? undefined
+      : store.getMessagesByIds({
+          chatId: turn.chatId,
+          messageIds: [trigger.replyToMessageId],
+        })[0];
   return {
     trigger,
     ...(replyTarget === undefined ? {} : { replyTarget }),
@@ -89,7 +84,7 @@ function hydrateBotApiTrigger(
   turn: StoredBotTurn,
   trigger: StoredMessage,
 ): StoredMessage {
-  const update = store.getBotUpdate(turn.updateId);
+  const update = store.getBotUpdate(turn.updateId, turn.transport);
   if (
     !update ||
     !update.addressed ||
@@ -98,6 +93,12 @@ function hydrateBotApiTrigger(
     update.rawJson.length === 0 ||
     update.rawJson.length > MAX_BOT_UPDATE_RAW_CHARS
   ) {
+    return trigger;
+  }
+  // Telegram-shaped rehydration only; VK's rawJson never matches this shape
+  // (no `message.chat.id`), so it always falls through to `trigger` below --
+  // acceptable v1 degradation, not a silent Telegram-only assumption bug.
+  if (turn.transport !== "telegram") {
     return trigger;
   }
   try {
@@ -122,7 +123,7 @@ function hydrateBotApiTrigger(
 
 function asObject(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : undefined;
 }
 
@@ -153,9 +154,7 @@ export function seedBotTurnReplay(
     replay.map((message) => ({
       messageId: durableMessageId(message),
       senderId: message.senderId ?? "unknown",
-      ...(message.senderName == null
-        ? {}
-        : { senderName: message.senderName }),
+      ...(message.senderName == null ? {} : { senderName: message.senderName }),
       text: message.text,
     })),
   );
@@ -171,10 +170,7 @@ export function createTurnFoldCollector(
   drainFold: (boundary: TurnBoundary) => FoldBatch;
 } {
   const drainFold = (boundary: TurnBoundary): FoldBatch => {
-    const result = coordinator.drainAtBoundary(
-      coordinatorTurnId,
-      boundary,
-    );
+    const result = coordinator.drainAtBoundary(coordinatorTurnId, boundary);
     if (result.status === "not_found") {
       throw new WorkerProtocolError("coordinator_turn_missing");
     }

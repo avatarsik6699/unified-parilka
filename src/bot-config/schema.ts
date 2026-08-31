@@ -64,6 +64,11 @@ const assistantCuriosityTriggerSchema = z
 const assistantBotDefinitionSchema = z
   .object({
     role: z.literal("assistant"),
+    /**
+     * Which transport this chatId belongs to. Defaults to `"telegram"` so
+     * every config file deployed before VK support keeps parsing unchanged.
+     */
+    transport: z.enum(["telegram", "vk"]).default("telegram"),
     chatId: z.string(),
     chatTitle: z.string(),
     personaPromptPath: z.string(),

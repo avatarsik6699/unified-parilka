@@ -12,6 +12,7 @@ export function safeBotRuntimeConfig(
     imageGeneration,
     voiceReply,
     newsBriefTrigger,
+    vk,
     ...safe
   } = config;
   return {
@@ -75,6 +76,15 @@ export function safeBotRuntimeConfig(
             timeoutMs: voiceReply.timeoutMs,
             maxRepliesPerTurn: voiceReply.maxRepliesPerTurn,
             maxRepliesPerChatPerDay: voiceReply.maxRepliesPerChatPerDay,
+          },
+        }),
+    ...(vk === undefined
+      ? {}
+      : {
+          vk: {
+            groupTokenConfigured: true,
+            groupId: vk.groupId,
+            apiVersion: vk.apiVersion,
           },
         }),
   };

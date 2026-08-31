@@ -1,5 +1,9 @@
 import { StoreCore } from "../core.js";
-import { SCHEMA_VERSION } from "../constants.js";
+import {
+  DEFAULT_BOT_MAX_ATTEMPTS,
+  MAX_BOT_ATTEMPTS,
+  SCHEMA_VERSION,
+} from "../constants.js";
 import type { MessageStoreOptions } from "../types.js";
 
 /**
@@ -156,6 +160,10 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
         this.applyAssistantCuriosityMigration();
         this.db.exec("PRAGMA user_version = 24");
       }
+      if (currentVersion < 25) {
+        this.applyBotUpdatesTransportMigration();
+        this.db.exec("PRAGMA user_version = 25");
+      }
       // This is a backwards-compatible performance index, not a data-model
       // change. Reconcile it for every writable compatible open so databases
       // created by an earlier build do not make one full corpus scan per day.
@@ -285,6 +293,7 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
     ]);
     this.assertColumns("bot_updates", [
       "update_id",
+      "transport",
       "raw_json",
       "status",
       "addressed",
@@ -300,6 +309,7 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
     this.assertColumns("bot_turns", [
       "id",
       "update_id",
+      "transport",
       "chat_id",
       "trigger_message_id",
       "status",
@@ -486,5 +496,128 @@ export abstract class SchemaLifecycleMethods extends StoreCore {
       "updated_at",
     ]);
     this.db.prepare("SELECT rowid FROM messages_fts LIMIT 1").all();
+  }
+
+  /**
+   * VK support (second transport alongside Telegram) reuses `bot_updates`/
+   * `bot_turns` for both -- but `update_id` was a single global numeric
+   * space, keyed only by Telegram's per-bot-token counter. VK has its own,
+   * independently-growing update identity (`message.id`), so a bare
+   * `INTEGER PRIMARY KEY`/`UNIQUE` on `update_id` alone could let a VK and a
+   * Telegram update collide. This is the first migration in this schema's
+   * history that changes a table's key shape rather than only adding a
+   * column, so both tables are rebuilt (create new, copy, drop, rename)
+   * rather than `ALTER TABLE ADD COLUMN`, which cannot change a PRIMARY KEY.
+   * `chat_id`/`trigger_message_id` are unaffected: chat ids are already
+   * namespaced per transport (`vk:<peer_id>` vs Telegram's numeric ids), so
+   * `bot_turns`'s `UNIQUE(chat_id, trigger_message_id)` stays collision-free
+   * without changes.
+   */
+  protected applyBotUpdatesTransportMigration(): void {
+    this.db.exec(`
+      CREATE TABLE bot_updates_new (
+        update_id INTEGER NOT NULL,
+        transport TEXT NOT NULL DEFAULT 'telegram' CHECK(transport IN ('telegram', 'vk')),
+        raw_json TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN (
+          'queued', 'running', 'drafted', 'sending', 'sent', 'skipped',
+          'failed', 'lost_ack', 'dead_letter'
+        )),
+        addressed INTEGER NOT NULL DEFAULT 0 CHECK(addressed IN (0, 1)),
+        chat_id TEXT,
+        trigger_message_id INTEGER,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT ${DEFAULT_BOT_MAX_ATTEMPTS}
+          CHECK(max_attempts BETWEEN 1 AND ${MAX_BOT_ATTEMPTS}),
+        error TEXT,
+        received_at_ms INTEGER NOT NULL,
+        updated_at_ms INTEGER NOT NULL,
+        completed_at_ms INTEGER,
+        PRIMARY KEY (transport, update_id),
+        CHECK(attempts >= 0 AND attempts <= max_attempts),
+        CHECK(
+          (chat_id IS NULL AND trigger_message_id IS NULL)
+          OR (chat_id IS NOT NULL AND trigger_message_id IS NOT NULL)
+        )
+      );
+      INSERT INTO bot_updates_new (
+        update_id, transport, raw_json, status, addressed, chat_id, trigger_message_id,
+        attempts, max_attempts, error, received_at_ms, updated_at_ms, completed_at_ms
+      )
+      SELECT
+        update_id, 'telegram', raw_json, status, addressed, chat_id, trigger_message_id,
+        attempts, max_attempts, error, received_at_ms, updated_at_ms, completed_at_ms
+      FROM bot_updates;
+      DROP TABLE bot_updates;
+      ALTER TABLE bot_updates_new RENAME TO bot_updates;
+      CREATE INDEX IF NOT EXISTS idx_bot_updates_status
+        ON bot_updates(status, update_id);
+
+      CREATE TABLE bot_turns_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        update_id INTEGER NOT NULL,
+        transport TEXT NOT NULL DEFAULT 'telegram' CHECK(transport IN ('telegram', 'vk')),
+        chat_id TEXT NOT NULL,
+        trigger_message_id INTEGER NOT NULL,
+        status TEXT NOT NULL CHECK(status IN (
+          'queued', 'running', 'drafted', 'sending', 'sent', 'skipped',
+          'failed', 'lost_ack', 'dead_letter'
+        )),
+        attempts INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT ${DEFAULT_BOT_MAX_ATTEMPTS}
+          CHECK(max_attempts BETWEEN 1 AND ${MAX_BOT_ATTEMPTS}),
+        lease_owner TEXT,
+        lease_expires_at_ms INTEGER,
+        retry_not_before_ms INTEGER,
+        draft_text TEXT,
+        telegram_message_id INTEGER,
+        progress_message_id INTEGER,
+        progress_state TEXT CHECK(progress_state IN ('none', 'dispatching', 'active', 'unknown')),
+        error TEXT,
+        created_at_ms INTEGER NOT NULL,
+        updated_at_ms INTEGER NOT NULL,
+        started_at_ms INTEGER,
+        completed_at_ms INTEGER,
+        UNIQUE(transport, update_id),
+        UNIQUE(chat_id, trigger_message_id),
+        CHECK(attempts >= 0 AND attempts <= max_attempts),
+        CHECK(
+          (
+            status IN ('running', 'drafted')
+            AND lease_owner IS NOT NULL
+            AND lease_expires_at_ms IS NOT NULL
+          )
+          OR (
+            status NOT IN ('running', 'drafted')
+            AND lease_owner IS NULL
+            AND lease_expires_at_ms IS NULL
+          )
+        )
+      );
+      INSERT INTO bot_turns_new (
+        id, update_id, transport, chat_id, trigger_message_id, status, attempts, max_attempts,
+        lease_owner, lease_expires_at_ms, retry_not_before_ms, draft_text, telegram_message_id,
+        progress_message_id, progress_state, error, created_at_ms, updated_at_ms, started_at_ms,
+        completed_at_ms
+      )
+      SELECT
+        id, update_id, 'telegram', chat_id, trigger_message_id, status, attempts, max_attempts,
+        lease_owner, lease_expires_at_ms, retry_not_before_ms, draft_text, telegram_message_id,
+        progress_message_id, progress_state, error, created_at_ms, updated_at_ms, started_at_ms,
+        completed_at_ms
+      FROM bot_turns;
+      DROP TABLE bot_turns;
+      ALTER TABLE bot_turns_new RENAME TO bot_turns;
+      DELETE FROM sqlite_sequence WHERE name IN ('bot_turns_new', 'bot_turns');
+      INSERT INTO sqlite_sequence (name, seq)
+        SELECT 'bot_turns', COALESCE(MAX(id), 0) FROM bot_turns;
+
+      CREATE INDEX IF NOT EXISTS idx_bot_turns_claim
+        ON bot_turns(status, lease_expires_at_ms, created_at_ms, id);
+      CREATE INDEX IF NOT EXISTS idx_bot_turns_chat_status
+        ON bot_turns(chat_id, status, created_at_ms, id);
+      CREATE INDEX IF NOT EXISTS idx_bot_turns_due
+        ON bot_turns(chat_id, status, retry_not_before_ms, created_at_ms, id);
+    `);
   }
 }

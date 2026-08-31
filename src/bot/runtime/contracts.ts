@@ -1,4 +1,5 @@
 import type {
+  BotTransport,
   HumanPersonaProposalStatus,
   MessageStore,
   BotUpdateFailureResult,
@@ -10,13 +11,17 @@ import type {
 } from "../../store.js";
 import type { ChatInfo } from "../../telegram/types.js";
 import type { TelegramUpdateOptions } from "../telegram-update.js";
+import type { VkUpdateOptions } from "../vk-update.js";
 import type { TurnCoordinator } from "../turn-coordinator.js";
 import type { JsonEventLogger } from "../worker.js";
 
 export const MAX_BOT_WORKER_CONCURRENCY = 3;
 
 export interface BotRuntimeStore {
-  getBotUpdate(updateId: number): StoredBotUpdate | undefined;
+  getBotUpdate(
+    updateId: number,
+    transport?: BotTransport,
+  ): StoredBotUpdate | undefined;
   getBotTurnByTrigger(
     chatId: string,
     triggerMessageId: number,
@@ -100,6 +105,8 @@ export interface BotUpdateProcessorOptions {
   coordinators: ReadonlyMap<string, TurnCoordinator>;
   workNotifier: BotWorkNotifier;
   telegram: TelegramUpdateOptions;
+  /** Undefined when BOT_VK_GROUP_TOKEN is unset -- `processVk` must not be called. */
+  vk?: VkUpdateOptions;
   triggerCooldownMs?: number;
   updateMaxAttempts?: number;
   logger?: JsonEventLogger;

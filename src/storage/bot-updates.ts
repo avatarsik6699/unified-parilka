@@ -17,9 +17,11 @@ import {
   botTriggerCooldownKey,
   normalizeBotMaxAttempts,
   normalizeBotStatuses,
+  normalizeBotTransport,
   normalizeBotTriggerCooldown,
   normalizeQueryLimit,
 } from "./validation.js";
+import type { BotTransport } from "./types.js";
 
 /**
  * Method module installed on MessageStore.prototype.
@@ -28,7 +30,7 @@ import {
  * DatabaseSync owned by MessageStore.
  */
 export abstract class BotUpdateMethods extends StoreCore {
-declare protected upsertChatLocked: (chat: ChatInfo) => void;
+  declare protected upsertChatLocked: (chat: ChatInfo) => void;
   declare protected getBotTurnByTriggerLocked: (
     chatId: string,
     triggerMessageId: number,
@@ -55,6 +57,7 @@ declare protected upsertChatLocked: (chat: ChatInfo) => void;
 
   ingestBotUpdate(params: {
     updateId: number;
+    transport?: BotTransport;
     rawJson: string;
     chat: ChatInfo;
     message: StoredMessage;
@@ -67,6 +70,7 @@ declare protected upsertChatLocked: (chat: ChatInfo) => void;
     nowMs?: number;
   }): BotUpdateIngestResult {
     assertBotUpdateId(params.updateId);
+    const transport = normalizeBotTransport(params.transport);
     const nowMs = params.nowMs ?? Date.now();
     assertTimestamp(nowMs, "nowMs");
     const maxAttempts = normalizeBotMaxAttempts(params.maxAttempts);
@@ -76,9 +80,7 @@ declare protected upsertChatLocked: (chat: ChatInfo) => void;
     if (!Number.isSafeInteger(params.message.messageId)) {
       throw new Error("Bot update trigger messageId must be a safe integer.");
     }
-    const triggerCooldown = normalizeBotTriggerCooldown(
-      params.triggerCooldown,
-    );
+    const triggerCooldown = normalizeBotTriggerCooldown(params.triggerCooldown);
     if (triggerCooldown) {
       assertTimestamp(
         nowMs + triggerCooldown.cooldownMs,
@@ -87,7 +89,7 @@ declare protected upsertChatLocked: (chat: ChatInfo) => void;
     }
 
     return this.immediateTransaction("ingestBotUpdate", () => {
-      const existing = this.getBotUpdateLocked(params.updateId);
+      const existing = this.getBotUpdateLocked(params.updateId, transport);
       const recoveringPoisonUpdate =
         existing?.status === "failed" &&
         existing.chatId == null &&
@@ -100,7 +102,10 @@ declare protected upsertChatLocked: (chat: ChatInfo) => void;
           turn:
             existing.chatId == null || existing.triggerMessageId == null
               ? undefined
-              : this.getBotTurnByTriggerLocked(existing.chatId, existing.triggerMessageId),
+              : this.getBotTurnByTriggerLocked(
+                  existing.chatId,
+                  existing.triggerMessageId,
+                ),
         };
       }
 
@@ -130,7 +135,7 @@ declare protected upsertChatLocked: (chat: ChatInfo) => void;
              SET raw_json = ?, status = ?, addressed = ?, chat_id = ?, trigger_message_id = ?,
                  attempts = 0, max_attempts = ?, error = ?, updated_at_ms = ?,
                  completed_at_ms = CASE WHEN ? = 'skipped' THEN ? ELSE NULL END
-             WHERE update_id = ? AND status = 'failed'
+             WHERE update_id = ? AND transport = ? AND status = 'failed'
                AND chat_id IS NULL AND trigger_message_id IS NULL`,
           )
           .run(
@@ -145,20 +150,22 @@ declare protected upsertChatLocked: (chat: ChatInfo) => void;
             initialStatus,
             nowMs,
             params.updateId,
+            transport,
           );
       } else {
         this.db
           .prepare(
             `INSERT INTO bot_updates (
-               update_id, raw_json, status, addressed, chat_id, trigger_message_id,
+               update_id, transport, raw_json, status, addressed, chat_id, trigger_message_id,
                attempts, max_attempts, error, received_at_ms, updated_at_ms,
                completed_at_ms
              )
-             VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?,
+             VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?,
                      CASE WHEN ? = 'skipped' THEN ? ELSE NULL END)`,
           )
           .run(
             params.updateId,
+            transport,
             params.rawJson,
             initialStatus,
             params.addressed ? 1 : 0,
@@ -178,14 +185,25 @@ declare protected upsertChatLocked: (chat: ChatInfo) => void;
         const reservation = this.db
           .prepare(
             `INSERT INTO bot_turns (
-               update_id, chat_id, trigger_message_id, status, attempts, max_attempts,
+               update_id, transport, chat_id, trigger_message_id, status, attempts, max_attempts,
                created_at_ms, updated_at_ms
              )
-             VALUES (?, ?, ?, 'queued', 0, ?, ?, ?)
+             VALUES (?, ?, ?, ?, 'queued', 0, ?, ?, ?)
              ON CONFLICT(chat_id, trigger_message_id) DO NOTHING`,
           )
-          .run(params.updateId, params.chat.chatId, params.message.messageId, maxAttempts, nowMs, nowMs);
-        turn = this.getBotTurnByTriggerLocked(params.chat.chatId, params.message.messageId);
+          .run(
+            params.updateId,
+            transport,
+            params.chat.chatId,
+            params.message.messageId,
+            maxAttempts,
+            nowMs,
+            nowMs,
+          );
+        turn = this.getBotTurnByTriggerLocked(
+          params.chat.chatId,
+          params.message.messageId,
+        );
         if (reservation.changes > 0 && triggerCooldown) {
           this.updateSendCooldownLocked(
             params.chat.chatId,
@@ -200,18 +218,22 @@ declare protected upsertChatLocked: (chat: ChatInfo) => void;
                SET status = 'skipped',
                    error = 'A bot turn is already reserved for this trigger message.',
                    updated_at_ms = ?, completed_at_ms = ?
-               WHERE update_id = ?`,
+               WHERE update_id = ? AND transport = ?`,
             )
-            .run(nowMs, nowMs, params.updateId);
+            .run(nowMs, nowMs, params.updateId, transport);
         }
       }
 
-      const update = this.getBotUpdateLocked(params.updateId);
+      const update = this.getBotUpdateLocked(params.updateId, transport);
       if (!update) {
-        throw new Error("Durable bot update disappeared before transaction commit.");
+        throw new Error(
+          "Durable bot update disappeared before transaction commit.",
+        );
       }
       if (reserveTurn && !turn) {
-        throw new Error("Addressed bot update committed without a durable bot turn reservation.");
+        throw new Error(
+          "Addressed bot update committed without a durable bot turn reservation.",
+        );
       }
       return {
         disposition: existing ? "recovered" : "ingested",
@@ -227,31 +249,35 @@ declare protected upsertChatLocked: (chat: ChatInfo) => void;
 
   recordBotUpdateFailure(params: {
     updateId: number;
+    transport?: BotTransport;
     rawJson: string;
     error: string;
     maxAttempts?: number;
     nowMs?: number;
   }): BotUpdateFailureResult {
     assertBotUpdateId(params.updateId);
+    const transport = normalizeBotTransport(params.transport);
     const nowMs = params.nowMs ?? Date.now();
     assertTimestamp(nowMs, "nowMs");
     const requestedMaxAttempts = normalizeBotMaxAttempts(params.maxAttempts);
     const error = params.error.trim() || "Bot update could not be decoded.";
 
     return this.immediateTransaction("recordBotUpdateFailure", () => {
-      const existing = this.getBotUpdateLocked(params.updateId);
+      const existing = this.getBotUpdateLocked(params.updateId, transport);
       if (!existing) {
-        const status: BotDurableStatus = requestedMaxAttempts === 1 ? "dead_letter" : "failed";
+        const status: BotDurableStatus =
+          requestedMaxAttempts === 1 ? "dead_letter" : "failed";
         this.db
           .prepare(
             `INSERT INTO bot_updates (
-               update_id, raw_json, status, addressed, attempts, max_attempts, error,
+               update_id, transport, raw_json, status, addressed, attempts, max_attempts, error,
                received_at_ms, updated_at_ms, completed_at_ms
              )
-             VALUES (?, ?, ?, 0, 1, ?, ?, ?, ?, CASE WHEN ? = 'dead_letter' THEN ? ELSE NULL END)`,
+             VALUES (?, ?, ?, ?, 0, 1, ?, ?, ?, ?, CASE WHEN ? = 'dead_letter' THEN ? ELSE NULL END)`,
           )
           .run(
             params.updateId,
+            transport,
             params.rawJson,
             status,
             requestedMaxAttempts,
@@ -261,23 +287,39 @@ declare protected upsertChatLocked: (chat: ChatInfo) => void;
             status,
             nowMs,
           );
-      } else if (existing.status === "failed" && existing.chatId == null && existing.triggerMessageId == null) {
+      } else if (
+        existing.status === "failed" &&
+        existing.chatId == null &&
+        existing.triggerMessageId == null
+      ) {
         const attempts = Math.min(existing.attempts + 1, existing.maxAttempts);
-        const status: BotDurableStatus = attempts >= existing.maxAttempts ? "dead_letter" : "failed";
+        const status: BotDurableStatus =
+          attempts >= existing.maxAttempts ? "dead_letter" : "failed";
         this.db
           .prepare(
             `UPDATE bot_updates
              SET status = ?, attempts = ?, error = ?, updated_at_ms = ?,
                  completed_at_ms = CASE WHEN ? = 'dead_letter' THEN ? ELSE NULL END
-             WHERE update_id = ? AND status = 'failed'
+             WHERE update_id = ? AND transport = ? AND status = 'failed'
                AND chat_id IS NULL AND trigger_message_id IS NULL`,
           )
-          .run(status, attempts, error, nowMs, status, nowMs, params.updateId);
+          .run(
+            status,
+            attempts,
+            error,
+            nowMs,
+            status,
+            nowMs,
+            params.updateId,
+            transport,
+          );
       }
 
-      const update = this.getBotUpdateLocked(params.updateId);
+      const update = this.getBotUpdateLocked(params.updateId, transport);
       if (!update) {
-        throw new Error("Durable poison-update row disappeared before transaction commit.");
+        throw new Error(
+          "Durable poison-update row disappeared before transaction commit.",
+        );
       }
       return {
         update,
@@ -294,23 +336,36 @@ declare protected upsertChatLocked: (chat: ChatInfo) => void;
     });
   }
 
-  getBotUpdate(updateId: number): StoredBotUpdate | undefined {
+  getBotUpdate(
+    updateId: number,
+    transport?: BotTransport,
+  ): StoredBotUpdate | undefined {
     assertBotUpdateId(updateId);
-    return this.getBotUpdateLocked(updateId);
+    return this.getBotUpdateLocked(updateId, normalizeBotTransport(transport));
   }
 
-  queryBotUpdates(params: { statuses?: BotDurableStatus[]; limit?: number } = {}): StoredBotUpdate[] {
+  queryBotUpdates(
+    params: { statuses?: BotDurableStatus[]; limit?: number } = {},
+  ): StoredBotUpdate[] {
     const limit = normalizeQueryLimit(params.limit);
     const statuses = normalizeBotStatuses(params.statuses);
-    const where = statuses.length > 0 ? `WHERE status IN (${statuses.map(() => "?").join(", ")})` : "";
+    const where =
+      statuses.length > 0
+        ? `WHERE status IN (${statuses.map(() => "?").join(", ")})`
+        : "";
     const rows = this.db
-      .prepare(`SELECT * FROM bot_updates ${where} ORDER BY update_id ASC LIMIT ?`)
+      .prepare(
+        `SELECT * FROM bot_updates ${where} ORDER BY transport ASC, update_id ASC LIMIT ?`,
+      )
       .all(...toSqlValues([...statuses, limit])) as Record<string, unknown>[];
     return rows.map(rowToStoredBotUpdate);
   }
 
   protected upsertBotMessageLocked(message: StoredMessage): void {
-    const previous = this.getMessageForDirtyCheck(message.chatId, message.messageId);
+    const previous = this.getMessageForDirtyCheck(
+      message.chatId,
+      message.messageId,
+    );
     this.db
       .prepare(
         `INSERT INTO messages (
@@ -341,18 +396,22 @@ declare protected upsertChatLocked: (chat: ChatInfo) => void;
         message.rawJson ?? null,
         message.deletedAt ?? null,
       );
-    if (
-      previous &&
-      embeddingMessageSourceChanged(previous, message)
-    ) {
-      this.markEmbeddingChunksDirtyForMessagesLocked(message.chatId, [message.messageId]);
+    if (previous && embeddingMessageSourceChanged(previous, message)) {
+      this.markEmbeddingChunksDirtyForMessagesLocked(message.chatId, [
+        message.messageId,
+      ]);
     }
   }
 
-  protected getBotUpdateLocked(updateId: number): StoredBotUpdate | undefined {
-    const row = this.db.prepare("SELECT * FROM bot_updates WHERE update_id = ?").get(updateId) as
-      | Record<string, unknown>
-      | undefined;
+  protected getBotUpdateLocked(
+    updateId: number,
+    transport: BotTransport,
+  ): StoredBotUpdate | undefined {
+    const row = this.db
+      .prepare(
+        "SELECT * FROM bot_updates WHERE update_id = ? AND transport = ?",
+      )
+      .get(updateId, transport) as Record<string, unknown> | undefined;
     return row == null ? undefined : rowToStoredBotUpdate(row);
   }
 }

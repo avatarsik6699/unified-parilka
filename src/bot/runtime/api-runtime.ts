@@ -5,6 +5,19 @@ import type { BotApiLongPoller } from "./long-poller.js";
 import type { BotWorkerDrainResult, BotWorkerPump } from "./worker-pump.js";
 import { boundedInteger, compact } from "./helpers.js";
 
+/**
+ * VK Bots Long Poll loop (`src/vk/long-poll-loop.ts`): a second, optional
+ * ingest source alongside the primary grammy poller. It never drives
+ * `BotWorkerPump.start()` itself -- `BOT_TOKEN` (and therefore the grammy
+ * poller) is unconditionally required, so the pump is always already
+ * started by the time a VK update could arrive; VK ingest only needs to
+ * `workNotifier.notify()` into the same already-running pump.
+ */
+export interface VkLongPollLoop {
+  run(signal?: AbortSignal): Promise<void>;
+  requestStop(): void;
+}
+
 export interface BotApiRuntimeOptions {
   poller: BotApiLongPoller;
   workers: BotWorkerPump;
@@ -24,6 +37,13 @@ export interface BotApiRuntimeOptions {
    * never affects the poller/workers.
    */
   curiosityTrigger?: CuriosityTriggerLoop;
+  /**
+   * VK second transport (undefined when BOT_VK_GROUP_TOKEN is unset). Same
+   * isolation contract as `approvalPoster`/`curiosityTrigger`: runs
+   * concurrently with the primary poller, a failure is logged and never
+   * affects it.
+   */
+  vkPoller?: VkLongPollLoop;
 }
 
 export class BotApiRuntime {
@@ -33,6 +53,7 @@ export class BotApiRuntime {
   readonly #logger: JsonEventLogger | undefined;
   readonly #approvalPoster: ApprovalPosterLoop | undefined;
   readonly #curiosityTrigger: CuriosityTriggerLoop | undefined;
+  readonly #vkPoller: VkLongPollLoop | undefined;
 
   constructor(options: BotApiRuntimeOptions) {
     this.#poller = options.poller;
@@ -46,6 +67,7 @@ export class BotApiRuntime {
     this.#logger = options.logger;
     this.#approvalPoster = options.approvalPoster;
     this.#curiosityTrigger = options.curiosityTrigger;
+    this.#vkPoller = options.vkPoller;
   }
 
   async run(signal?: AbortSignal): Promise<BotWorkerDrainResult> {
@@ -66,6 +88,13 @@ export class BotApiRuntime {
           failure: error instanceof Error ? error.message : String(error),
         });
       });
+    const vkPromise = this.#vkPoller
+      ?.run(posterController.signal)
+      .catch((error: unknown) => {
+        this.#log("warn", "vk.long_poll_loop_failed", {
+          failure: error instanceof Error ? error.message : String(error),
+        });
+      });
     let pollError: unknown;
     try {
       await this.#poller.run(signal, () => this.#workers.start());
@@ -73,10 +102,12 @@ export class BotApiRuntime {
       pollError = error;
     } finally {
       this.#poller.requestStop();
+      this.#vkPoller?.requestStop();
       posterController.abort();
       signal?.removeEventListener("abort", forwardAbort);
       await posterPromise;
       await curiosityPromise;
+      await vkPromise;
     }
     // Queued turns are already durable. Graceful shutdown stops admission and
     // waits only for in-flight workers; it does not begin fresh model calls
@@ -95,6 +126,7 @@ export class BotApiRuntime {
 
   requestStop(): void {
     this.#poller.requestStop();
+    this.#vkPoller?.requestStop();
   }
 
   #log(

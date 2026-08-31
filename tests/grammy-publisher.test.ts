@@ -3,9 +3,9 @@ import { test } from "node:test";
 import { GrammyError, HttpError } from "grammy";
 import {
   GrammyBotTurnPublisher,
-  type GrammyBotApiPort,
-  type GrammyRichMessageOptions,
-  type GrammySendMessageOptions,
+  type BotApiPort,
+  type BotApiRichMessageOptions,
+  type BotApiSendMessageOptions,
 } from "../src/bot/grammy-publisher.js";
 import type { TelegramPublication } from "../src/bot/telegram-publication.js";
 
@@ -18,14 +18,14 @@ const SCREENSHOT_MARKDOWN = [
   "$$\\int_a^b f(x)\\,dx$$",
 ].join("\n");
 
-const BASE_RICH_OPTIONS: GrammyRichMessageOptions = {
+const BASE_RICH_OPTIONS: BotApiRichMessageOptions = {
   reply_parameters: {
     message_id: 99,
     allow_sending_without_reply: false,
   },
 };
 
-const BASE_PLAIN_OPTIONS: GrammySendMessageOptions = {
+const BASE_PLAIN_OPTIONS: BotApiSendMessageOptions = {
   reply_parameters: {
     message_id: 99,
     allow_sending_without_reply: false,
@@ -37,14 +37,14 @@ interface RichCall {
   chatId: string;
   richMessage: { markdown: string; skip_entity_detection: true };
   plainText: string;
-  options: GrammyRichMessageOptions;
+  options: BotApiRichMessageOptions;
   signal: AbortSignal;
 }
 
 interface PlainCall {
   chatId: string;
   text: string;
-  options: GrammySendMessageOptions;
+  options: BotApiSendMessageOptions;
   signal: AbortSignal;
 }
 
@@ -56,7 +56,7 @@ interface FakeApiOptions {
 function makeFakeApi(fakeOptions: FakeApiOptions = {}) {
   const richCalls: RichCall[] = [];
   const plainCalls: PlainCall[] = [];
-  const api: GrammyBotApiPort = {
+  const api: BotApiPort = {
     async sendRichMessage(input) {
       richCalls.push({
         chatId: input.chatId,
@@ -148,7 +148,7 @@ test("screenshot fixture reaches the fake port untouched and never calls the cla
 test("a parser-related 400 before ACK opens exactly one classic plain fallback", async () => {
   let richCalls = 0;
   let plainCalls = 0;
-  const api: GrammyBotApiPort = {
+  const api: BotApiPort = {
     async sendRichMessage() {
       richCalls += 1;
       throw telegramError(400, "Bad Request: can't parse markdown");
@@ -179,7 +179,7 @@ test("a parser-related 400 before ACK opens exactly one classic plain fallback",
 test("a long canonical plain text is losslessly split across fallback chunks at the guarded limit", async () => {
   const plainText = "x".repeat(200);
   const sentTexts: string[] = [];
-  const api: GrammyBotApiPort = {
+  const api: BotApiPort = {
     async sendRichMessage() {
       throw telegramError(400, "can't parse markdown");
     },
@@ -207,7 +207,7 @@ test("a long canonical plain text is losslessly split across fallback chunks at 
 
 test("the fallback is attempted at most once: a second parse 400 never resends", async () => {
   let plainCalls = 0;
-  const api: GrammyBotApiPort = {
+  const api: BotApiPort = {
     async sendRichMessage() {
       throw telegramError(400, "can't parse markdown");
     },
@@ -235,7 +235,7 @@ test("the fallback is attempted at most once: a second parse 400 never resends",
 
 test("a generic 400 is not masked as a parse failure and never opens the fallback", async () => {
   let plainCalls = 0;
-  const api: GrammyBotApiPort = {
+  const api: BotApiPort = {
     async sendRichMessage() {
       throw telegramError(400, "Bad Request: message is too long");
     },
@@ -266,7 +266,7 @@ test("timeout, network and aborted signals never resend", async (t) => {
     const socketError = Object.assign(new Error("socket details"), {
       code: "ECONNRESET",
     });
-    const api: GrammyBotApiPort = {
+    const api: BotApiPort = {
       async sendRichMessage() {
         throw new HttpError("network request failed", socketError);
       },
@@ -285,7 +285,7 @@ test("timeout, network and aborted signals never resend", async (t) => {
   });
 
   await t.test("timeout code stays timeout", async () => {
-    const api: GrammyBotApiPort = {
+    const api: BotApiPort = {
       async sendRichMessage() {
         throw Object.assign(new Error("timed out"), {
           code: "ETIMEDOUT",
@@ -307,7 +307,7 @@ test("timeout, network and aborted signals never resend", async (t) => {
 
   await t.test("pre-aborted signal makes no API call at all", async () => {
     let calls = 0;
-    const api: GrammyBotApiPort = {
+    const api: BotApiPort = {
       async sendRichMessage() {
         calls += 1;
         return { message_id: 1 };
@@ -334,7 +334,7 @@ test("timeout, network and aborted signals never resend", async (t) => {
 
 test("a malformed rich ACK is an unknown failure without resend", async () => {
   let plainCalls = 0;
-  const api: GrammyBotApiPort = {
+  const api: BotApiPort = {
     async sendRichMessage() {
       return { ok: true };
     },
@@ -376,7 +376,7 @@ test("a plain publication goes straight through classic sendMessage", async () =
 test("a rejection on the second fallback chunk reports partial delivery", async () => {
   const plainText = "x".repeat(5_000);
   let plainCalls = 0;
-  const api: GrammyBotApiPort = {
+  const api: BotApiPort = {
     async sendRichMessage() {
       throw telegramError(400, "can't parse markdown");
     },
@@ -403,7 +403,7 @@ test("a rejection on the second fallback chunk reports partial delivery", async 
 
 test("a definitive Telegram 429 on the rich path stays retryable", async () => {
   let plainCalls = 0;
-  const api: GrammyBotApiPort = {
+  const api: BotApiPort = {
     async sendRichMessage() {
       throw telegramError(429, "flood wait");
     },
@@ -451,7 +451,7 @@ test("extracts and clamps retry_after from a raw 429 rejection on the fallback p
     description: "Too Many Requests",
     parameters: { retry_after: 61 },
   };
-  const api: GrammyBotApiPort = {
+  const api: BotApiPort = {
     async sendRichMessage() {
       throw telegramError(400, "can't parse markdown");
     },

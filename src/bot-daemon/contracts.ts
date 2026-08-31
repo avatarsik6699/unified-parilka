@@ -1,4 +1,5 @@
 import type { Api } from "grammy";
+import type { VK } from "vk-io";
 import type { AppConfig } from "../config.js";
 import type { AiSdkBotTurnAgent, TurnModelRouter } from "../bot/ai-agent.js";
 import type {
@@ -22,6 +23,7 @@ import type {
 import type {
   BotRuntimeConfig,
   BotResearchGatewayRuntimeConfig,
+  BotVkRuntimeConfig,
   BotWebSearchRuntimeConfig,
 } from "../bot/runtime-config.js";
 import type { TurnCoordinator } from "../bot/turn-coordinator.js";
@@ -58,6 +60,8 @@ export interface ComposeBotDaemonOptions {
   chats: readonly AssistantChatConfig[];
   store: MessageStore;
   api: BotDaemonApi;
+  /** Pre-constructed VK client (undefined when no chat has transport: "vk"). */
+  vkApi?: VK;
   router: TurnModelRouter;
   vector?: BotVectorSearchPort;
   webSearch?: WebSearchProvider;
@@ -120,6 +124,7 @@ export interface ProductionBotDaemonFactories {
   createResearchGateway(
     config: Readonly<BotResearchGatewayRuntimeConfig>,
   ): ResearchGatewayProvider;
+  createVk(config: Readonly<BotVkRuntimeConfig>): VK;
 }
 
 export interface CreateProductionBotDaemonOptions {

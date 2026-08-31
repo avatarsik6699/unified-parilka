@@ -5,7 +5,7 @@ import type { ChatInfo } from "../../telegram/types.js";
 import type { StoredMessage } from "../../store.js";
 import {
   GrammyBotTurnPublisher,
-  type GrammyBotApiPort,
+  type BotApiPort,
 } from "../grammy-publisher.js";
 import type { BotRuntimeConfig } from "../runtime-config.js";
 import type { ToolProgressBotApiPort } from "../tool-progress.js";
@@ -65,7 +65,7 @@ export function createDurableGrammyBotTurnPublisher(
 ): GrammyBotTurnPublisher {
   const botId = positiveTelegramId(options.botId, "botId");
   const botUsername = normalizeExpectedUsername(options.botUsername);
-  const port: GrammyBotApiPort = {
+  const port: BotApiPort = {
     async sendPhoto(input) {
       const response = await api.sendPhoto(
         input.chatId,
