@@ -11,6 +11,7 @@ import type {
   TelegramPublisherResult,
 } from "../worker.js";
 import { peerIdFromVkChatId } from "../../vk/types.js";
+import { renderVkPlainText } from "./vk-text.js";
 
 type PublisherFailure = Extract<
   TelegramPublisherResult,
@@ -26,10 +27,10 @@ const RETRYABLE_VK_CODES: ReadonlySet<number> = new Set([
  * VK's `messages.send` -- same message-length limit as Telegram (4096 UTF-16
  * code units, confirmed via dev.vk.com), so the existing chunk splitter is
  * reused rather than duplicated. VK has no Telegram-style native "rich
- * message"/entity API, so `rich` publications degrade to plain text (visible
- * markdown syntax is an accepted v1 limitation, not a bug); `photo`/`voice`
- * degrade to their caption as plain text -- VK media upload (a multi-step
- * `vk.upload` flow) is out of scope for v1.
+ * message"/entity API, so `rich` publications degrade through
+ * `renderVkPlainText` (strips Markdown syntax rather than showing it
+ * literally); `photo`/`voice` degrade to their caption the same way -- VK
+ * media upload (a multi-step `vk.upload` flow) is out of scope for v1.
  */
 export class VkBotTurnPublisher implements BotTurnPublisher {
   readonly #vk: VK;
@@ -45,15 +46,15 @@ export class VkBotTurnPublisher implements BotTurnPublisher {
     if (peerId === undefined) {
       return failure(0, { kind: "unknown", code: "INVALID_VK_CHAT_ID" });
     }
-    const plainText =
+    const sourceText =
       request.publication.mode === "photo" ||
       request.publication.mode === "voice"
         ? request.publication.caption
         : request.publication.plainText;
-    if (typeof plainText !== "string" || plainText.length === 0) {
+    if (typeof sourceText !== "string" || sourceText.length === 0) {
       return failure(0, { kind: "unknown", code: "INVALID_PUBLISH_REQUEST" });
     }
-    return this.#publishPlain(request, peerId, plainText);
+    return this.#publishPlain(request, peerId, renderVkPlainText(sourceText));
   }
 
   async #publishPlain(
