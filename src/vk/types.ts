@@ -39,12 +39,20 @@ export function peerIdFromVkChatId(chatId: string): number | undefined {
  * not globally -- so it can't be used alone as `bot_updates.update_id`
  * without colliding across different beседы. This encodes the
  * (peer_id, conversation_message_id) pair into one JavaScript-safe
- * integer: peer_id stays near 2_000_000_000 + a small per-community chat
- * counter, so multiplying by 1_000_000 and adding conversationMessageId
- * (headroom to 999_999 messages in a single beседа) stays well under
- * Number.MAX_SAFE_INTEGER (~9.007e15).
+ * integer.
+ *
+ * `conversation_message_id` counts every message ever sent in that
+ * conversation by anyone, not just ones this bot processed -- confirmed
+ * empirically at 391_131 in an established беседа on day one of this
+ * integration, so the original 1_000_000 headroom was already too tight.
+ * 4_000_000 keeps `peer_id * multiplier` under Number.MAX_SAFE_INTEGER
+ * (~9.007e15) even for a generous peer_id upper bound (~2.1e9, i.e. a
+ * community that has joined on the order of 100 million беседы), while
+ * giving ~10x today's observed value. If a single беседа ever exceeds
+ * this many total messages, synthesis fails closed (returns undefined,
+ * see below) rather than silently colliding with another chat's ids.
  */
-const VK_UPDATE_ID_CONVERSATION_MULTIPLIER = 1_000_000;
+const VK_UPDATE_ID_CONVERSATION_MULTIPLIER = 4_000_000;
 
 export function vkSyntheticUpdateId(
   peerId: number,

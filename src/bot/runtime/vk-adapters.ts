@@ -74,15 +74,21 @@ export class VkBotTurnPublisher implements BotTurnPublisher {
 
       let response: unknown;
       try {
-        // No `reply_to`: VK rejects it ("cannot reply this message",
-        // error_code 100) for the conversation_message_id we have -- VK's
-        // own message-identity gaps for community-received messages (see
-        // vkSyntheticUpdateId) make reply-threading unreliable here.
-        // Replies land as plain new messages in the beседа instead.
+        // `reply_to` rejects our conversation_message_id outright
+        // ("cannot reply this message", error_code 100) -- confirmed
+        // directly against the live API that the documented replacement is
+        // `forward` with `is_reply: true` and `conversation_message_ids`
+        // (dev.vk.com's own messages_forward schema; `reply_to`'s expected
+        // id type is undocumented and empirically wrong for our case).
         response = await this.#vk.api.messages.send({
           peer_id: peerId,
           message: chunk,
           random_id: randomInt(-2_147_483_648, 2_147_483_647),
+          forward: JSON.stringify({
+            peer_id: peerId,
+            conversation_message_ids: [request.replyToMessageId],
+            is_reply: true,
+          }),
         });
       } catch (error) {
         return classifyThrownFailure(error, request.signal, chunksSent);
