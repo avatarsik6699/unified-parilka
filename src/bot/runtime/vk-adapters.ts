@@ -74,11 +74,15 @@ export class VkBotTurnPublisher implements BotTurnPublisher {
 
       let response: unknown;
       try {
+        // No `reply_to`: VK rejects it ("cannot reply this message",
+        // error_code 100) for the conversation_message_id we have -- VK's
+        // own message-identity gaps for community-received messages (see
+        // vkSyntheticUpdateId) make reply-threading unreliable here.
+        // Replies land as plain new messages in the beседа instead.
         response = await this.#vk.api.messages.send({
           peer_id: peerId,
           message: chunk,
           random_id: randomInt(-2_147_483_648, 2_147_483_647),
-          reply_to: request.replyToMessageId,
         });
       } catch (error) {
         return classifyThrownFailure(error, request.signal, chunksSent);
@@ -157,8 +161,12 @@ function failure(
 }
 
 function readVkMessageId(value: unknown): number | undefined {
-  // A single-peer `messages.send` resolves to a bare message_id number.
-  if (typeof value === "number" && Number.isSafeInteger(value) && value > 0) {
+  // A single-peer `messages.send` resolves to a bare message_id number --
+  // confirmed empirically that this is 0 on a real successful send (VK's
+  // own message-identity gaps strike again, see vkSyntheticUpdateId), so
+  // 0 is accepted as a valid (if uninformative) acknowledgment, not treated
+  // as a malformed response.
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
     return value;
   }
   return undefined;
