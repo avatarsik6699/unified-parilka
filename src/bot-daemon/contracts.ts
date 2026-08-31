@@ -31,6 +31,7 @@ import type { BotTurnWorker, JsonEventLogger } from "../bot/worker.js";
 import type { CuriosityTriggerLoop } from "../assistant-curiosity-loop.js";
 import type { ApprovalPosterLoop } from "../human-persona-approval-poster.js";
 import type { VkHistoryBackfillLoop } from "../vk/history-backfill.js";
+import type { VkSenderNameEnrichmentLoop } from "../vk/sender-name-enrichment.js";
 import type { MessageStore } from "../store.js";
 import type { AssistantChatConfig } from "../bot-config/assistant.js";
 
@@ -114,6 +115,7 @@ export interface BotDaemonComposition {
   approvalPoster?: ApprovalPosterLoop;
   curiosityTrigger?: CuriosityTriggerLoop;
   vkHistoryBackfill?: VkHistoryBackfillLoop;
+  vkSenderNameEnrichment?: VkSenderNameEnrichmentLoop;
 }
 
 export interface ProductionBotDaemonFactories {

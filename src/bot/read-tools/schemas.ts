@@ -21,7 +21,7 @@ export const ragBm25SearchArgsSchema = z
 
 export const keywordSearchArgsSchema = z
   .object({
-    query: querySchema,
+    query: z.string().trim().max(500).default(""),
     match: z.enum(["all", "any", "phrase", "prefix"]).default("all"),
     sender: z.string().trim().min(1).max(200).optional(),
     day_from: calendarDaySchema.optional(),
@@ -44,6 +44,13 @@ export const keywordSearchArgsSchema = z
         code: "custom",
         path: ["day_to"],
         message: "day_to requires day_from.",
+      });
+    }
+    if (value.query.length === 0 && value.sender === undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["query"],
+        message: "Provide query text or a sender filter.",
       });
     }
   });

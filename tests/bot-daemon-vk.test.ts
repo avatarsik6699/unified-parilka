@@ -181,6 +181,52 @@ test("VK history backfill is wired only when both a personal-account client and 
   assert.equal(telegramOnly.vkHistoryBackfill, undefined);
 });
 
+test("VK sender-name enrichment is wired from the community client alone, unlike history backfill", (t) => {
+  const { store, dbPath } = fixtureStore(t);
+  const vkChats: AssistantChatConfig[] = [
+    {
+      transport: "vk",
+      allowedChatId: "vk:2000000001",
+      chatTitle: "VK Chat",
+      personaPrompt: "persona",
+    },
+  ];
+  const config = botConfig(dbPath, {
+    BOT_VK_GROUP_TOKEN: "vk1.a-fake-token",
+    BOT_VK_GROUP_ID: "123456",
+  });
+
+  // Community client present and a VK chat configured -- no personal
+  // vkUserApi needed, unlike vkHistoryBackfill.
+  const composition = composeBotDaemon({
+    config,
+    chats: vkChats,
+    store,
+    api: noNetworkApi(),
+    vkApi: {} as unknown as VK,
+    router: noNetworkRouter(),
+  });
+  assert.notEqual(composition.vkSenderNameEnrichment, undefined);
+
+  // Community client present, but zero VK chats -- nothing to enrich.
+  const telegramOnly = composeBotDaemon({
+    config,
+    chats: [
+      {
+        transport: "telegram",
+        allowedChatId: CHAT_ID,
+        chatTitle: "Telegram Chat",
+        personaPrompt: "persona",
+      },
+    ],
+    store,
+    api: noNetworkApi(),
+    vkApi: {} as unknown as VK,
+    router: noNetworkRouter(),
+  });
+  assert.equal(telegramOnly.vkSenderNameEnrichment, undefined);
+});
+
 test("vk_search_history is wired per VK chat only when that chat has its own vkHistoryPeerId, using it (not the community peer_id)", async (t) => {
   const { store, dbPath } = fixtureStore(t);
   const config = botConfig(dbPath, {

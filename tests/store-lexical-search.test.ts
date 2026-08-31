@@ -168,6 +168,66 @@ test("sender filter matches id or name exactly, exclude list removes senders", (
   assert.deepEqual(ids(withoutBot), [1, 3, 7, 8]);
 });
 
+test("sender filter now matches a case-insensitive substring of sender_name", (t) => {
+  const store = fixtureStore(t);
+  const substring = store.searchLexical({
+    chatId: CHAT.chatId,
+    query: "релиз",
+    sender: "ALI",
+    order: "oldest",
+  });
+  assert.deepEqual(ids(substring), [1, 3]);
+});
+
+test("sender_id filter stays exact -- a substring of an id never matches", (t) => {
+  const store = fixtureStore(t);
+  const noMatch = store.searchLexical({
+    chatId: CHAT.chatId,
+    query: "релиз",
+    sender: "1",
+  });
+  assert.deepEqual(ids(noMatch), []);
+});
+
+test("a literal % or _ in the sender filter is escaped, not treated as a SQL wildcard", (t) => {
+  const store = fixtureStore(t);
+  const percent = store.searchLexical({
+    chatId: CHAT.chatId,
+    query: "релиз",
+    sender: "%",
+  });
+  assert.deepEqual(ids(percent), []);
+  const underscore = store.searchLexical({
+    chatId: CHAT.chatId,
+    query: "релиз",
+    sender: "_",
+  });
+  assert.deepEqual(ids(underscore), []);
+});
+
+test("sender-only lookup with no query text returns that sender's recent messages", (t) => {
+  const store = fixtureStore(t);
+  const bySender = store.searchLexical({
+    chatId: CHAT.chatId,
+    sender: "alice",
+  });
+  // Newest-first by message_id, deleted message 5 excluded, no BM25 rank.
+  assert.deepEqual(ids(bySender), [3, 1]);
+  assert.ok(bySender.every((hit) => hit.rank === 0));
+
+  const byPartialName = store.searchLexical({
+    chatId: CHAT.chatId,
+    sender: "bob",
+  });
+  assert.deepEqual(ids(byPartialName), [7, 2]);
+});
+
+test("query omitted and sender omitted both together returns empty, never the whole chat", (t) => {
+  const store = fixtureStore(t);
+  assert.deepEqual(store.searchLexical({ chatId: CHAT.chatId }), []);
+  assert.deepEqual(store.searchLexical({ chatId: CHAT.chatId, query: "" }), []);
+});
+
 test("date bounds are UTC half-open and id bounds stay exclusive", (t) => {
   const store = fixtureStore(t);
   const from = store.searchLexical({

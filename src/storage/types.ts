@@ -94,9 +94,10 @@ export type LexicalSearchOrder = "relevance" | "newest" | "oldest";
  */
 export type LexicalSearchParams = {
   chatId: string;
-  query: string;
+  /** Omit/empty allowed only when `sender` is set -- otherwise the search is empty. */
+  query?: string;
   match?: LexicalSearchMatchMode;
-  /** Exact filter: sender_id or sender_name equals this value. */
+  /** sender_id: exact match. sender_name: case-insensitive substring match. */
   sender?: string;
   excludeSenderIds?: readonly string[];
   dateFromInclusive?: string;

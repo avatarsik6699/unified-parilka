@@ -41,14 +41,9 @@ import {
 } from "./storage/sparse-postings.js";
 import { StatusMethods, type StatusApi } from "./storage/status.js";
 import { SyncOpsMethods, type SyncOpsApi } from "./storage/sync-ops.js";
-import {
-  TranscriptMethods,
-  TranscriptCursorError,
-  MAX_TRANSCRIPT_PAGE_ROWS,
-  MAX_TRANSCRIPT_RECENT_COUNT,
-  type TranscriptApi,
-} from "./storage/transcript.js";
+import { TranscriptMethods, type TranscriptApi } from "./storage/transcript.js";
 import type { MessageStoreOptions } from "./storage/types.js";
+import { VkSenderMethods, type VkSenderApi } from "./storage/vk-senders.js";
 export * from "./storage/message-adapter.js";
 export type * from "./storage/types.js";
 export {
@@ -100,7 +95,8 @@ export interface MessageStore
     StatusApi,
     TranscriptApi,
     HumanPersonaApi,
-    AssistantCuriosityApi {}
+    AssistantCuriosityApi,
+    VkSenderApi {}
 /**
  * Compatibility facade: exactly one StoreCore/DatabaseSync per MessageStore.
  * Modules below contribute methods to this prototype and never instantiate
@@ -140,6 +136,7 @@ const domains = [
   TranscriptMethods,
   HumanPersonaMethods,
   AssistantCuriosityMethods,
+  VkSenderMethods,
 ] as const;
 for (const domain of domains) {
   installStoreDomain(

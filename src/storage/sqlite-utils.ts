@@ -5,10 +5,10 @@ export function escapeFtsQuery(query: string): string {
   const terms = query
     .trim()
     .split(/\s+/)
-    .map((term) => term.replace(/"/g, "\"\""))
+    .map((term) => term.replace(/"/g, '""'))
     .filter(Boolean);
   if (terms.length === 0) {
-    return "\"\"";
+    return '""';
   }
   return terms.map((term) => `"${term}"`).join(" AND ");
 }
@@ -27,7 +27,7 @@ export function splitFtsTerms(query: string): string[] {
 }
 
 function quoteFtsTerm(term: string): string {
-  return `"${term.replace(/"/g, "\"\"")}"`;
+  return `"${term.replace(/"/g, '""')}"`;
 }
 
 /**
@@ -44,7 +44,7 @@ export function buildFtsMatchExpression(
 ): string {
   const terms = splitFtsTerms(query);
   if (terms.length === 0) {
-    return "\"\"";
+    return '""';
   }
   if (mode === "phrase") {
     return quoteFtsTerm(terms.join(" "));
@@ -53,6 +53,14 @@ export function buildFtsMatchExpression(
     mode === "prefix" ? `${quoteFtsTerm(term)}*` : quoteFtsTerm(term),
   );
   return quoted.join(mode === "any" ? " OR " : " AND ");
+}
+
+/**
+ * Escapes `%`/`_`/the escape character itself so untrusted input used inside
+ * a `LIKE '%' || ? || '%' ESCAPE '\'` pattern can't act as a wildcard.
+ */
+export function escapeLikeWildcards(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
 export function toSqlValues(values: readonly unknown[]): SQLInputValue[] {
@@ -78,17 +86,28 @@ export function hashSql(sql: string): string {
   return createHash("sha256").update(normalizeSql(sql)).digest("hex");
 }
 
-export function normalizeChunkMessageIds(messageIds: number[] | undefined, startMessageId: number, endMessageId: number): number[] {
+export function normalizeChunkMessageIds(
+  messageIds: number[] | undefined,
+  startMessageId: number,
+  endMessageId: number,
+): number[] {
   const ids = messageIds?.length
     ? messageIds
-    : Array.from({ length: Math.max(0, endMessageId - startMessageId + 1) }, (_, index) => startMessageId + index);
+    : Array.from(
+        { length: Math.max(0, endMessageId - startMessageId + 1) },
+        (_, index) => startMessageId + index,
+      );
   return [...new Set(ids.filter((id) => Number.isSafeInteger(id)))];
 }
 
 export function isSqliteBusy(error: unknown): boolean {
   const anyError = error as { code?: string; message?: string };
   const message = String(anyError?.message ?? error ?? "").toUpperCase();
-  return anyError?.code === "SQLITE_BUSY" || message.includes("SQLITE_BUSY") || message.includes("DATABASE IS LOCKED");
+  return (
+    anyError?.code === "SQLITE_BUSY" ||
+    message.includes("SQLITE_BUSY") ||
+    message.includes("DATABASE IS LOCKED")
+  );
 }
 
 export function sleepSync(ms: number): void {

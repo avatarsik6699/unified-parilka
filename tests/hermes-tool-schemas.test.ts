@@ -12,9 +12,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import {
-  BOT_READ_TOOL_DEFINITIONS,
-} from "../src/bot/read-tools.js";
+import { BOT_READ_TOOL_DEFINITIONS } from "../src/bot/read-tools.js";
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -79,7 +77,11 @@ test("checked-in tool-schemas.json matches BOT_READ_TOOL_DEFINITIONS", () => {
       parameters: {
         type: "object",
         properties: filtered,
-        required: filteredRequired.length > 0 ? filteredRequired : undefined,
+        // Matches JSON.stringify dropping an undefined property: an empty
+        // required array must be an absent key here too, not an explicit
+        // `required: undefined` own-property, or deepStrictEqual against the
+        // JSON.parse'd artifact (which never has the key at all) fails.
+        ...(filteredRequired.length > 0 ? { required: filteredRequired } : {}),
         additionalProperties: false,
       },
     });

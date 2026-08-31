@@ -10,11 +10,13 @@ import {
 import {
   buildFtsMatchExpression,
   escapeFtsQuery,
+  escapeLikeWildcards,
   FTS_MATCH_MODES,
   splitFtsTerms,
   toSqlValues,
   type FtsMatchMode,
 } from "./sqlite-utils.js";
+import { runLexicalSearch } from "./lexical-search-query.js";
 import {
   assertIsoDateTime,
   assertNonEmptyBounded,
@@ -34,7 +36,7 @@ import type {
  * DatabaseSync owned by MessageStore.
  */
 export abstract class MessageMethods extends StoreCore {
-declare protected assertMaintenanceJobReady: (
+  declare protected assertMaintenanceJobReady: (
     name: MaintenanceJobName,
     message: string,
   ) => void;
@@ -55,7 +57,13 @@ declare protected assertMaintenanceJobReady: (
            is_forum = excluded.is_forum,
            updated_at = excluded.updated_at`,
       )
-      .run(chat.chatId, chat.title ?? null, chat.username ?? null, chat.kind, chat.isForum ? 1 : 0);
+      .run(
+        chat.chatId,
+        chat.title ?? null,
+        chat.username ?? null,
+        chat.kind,
+        chat.isForum ? 1 : 0,
+      );
     for (const alias of chatAliases(chat)) {
       this.db
         .prepare(
@@ -90,7 +98,10 @@ declare protected assertMaintenanceJobReady: (
            updated_at = excluded.updated_at`,
       );
       for (const row of messages) {
-        const previous = this.getMessageForDirtyCheck(row.chatId, row.messageId);
+        const previous = this.getMessageForDirtyCheck(
+          row.chatId,
+          row.messageId,
+        );
         const textAvailable = row.textAvailable !== false;
         stmt.run(
           row.chatId,
@@ -106,22 +117,23 @@ declare protected assertMaintenanceJobReady: (
           textAvailable ? 1 : 0,
         );
         const effectiveRow =
-          !textAvailable && previous
-            ? { ...row, text: previous.text }
-            : row;
-        if (
-          previous &&
-          embeddingMessageSourceChanged(previous, effectiveRow)
-        ) {
-          this.markEmbeddingChunksDirtyForMessagesLocked(row.chatId, [row.messageId]);
+          !textAvailable && previous ? { ...row, text: previous.text } : row;
+        if (previous && embeddingMessageSourceChanged(previous, effectiveRow)) {
+          this.markEmbeddingChunksDirtyForMessagesLocked(row.chatId, [
+            row.messageId,
+          ]);
         }
       }
-      return new Set(messages.map((message) => `${message.chatId}:${message.messageId}`)).size;
+      return new Set(
+        messages.map((message) => `${message.chatId}:${message.messageId}`),
+      ).size;
     });
   }
 
   getCachedChat(chatId: string): ChatInfo | undefined {
-    const row = this.db.prepare("SELECT * FROM chats WHERE chat_id = ?").get(chatId) as Record<string, unknown> | undefined;
+    const row = this.db
+      .prepare("SELECT * FROM chats WHERE chat_id = ?")
+      .get(chatId) as Record<string, unknown> | undefined;
     if (!row) {
       return undefined;
     }
@@ -217,16 +229,32 @@ declare protected assertMaintenanceJobReady: (
     });
   }
 
-  search(params: { chatId: string; query: string; limit: number; beforeId?: number; afterId?: number }): StoredMessage[] {
+  search(params: {
+    chatId: string;
+    query: string;
+    limit: number;
+    beforeId?: number;
+    afterId?: number;
+  }): StoredMessage[] {
     return this.searchWithRank(params).map((hit) => hit.message);
   }
 
-  searchWithRank(params: { chatId: string; query: string; limit: number; beforeId?: number; afterId?: number }): KeywordSearchHit[] {
+  searchWithRank(params: {
+    chatId: string;
+    query: string;
+    limit: number;
+    beforeId?: number;
+    afterId?: number;
+  }): KeywordSearchHit[] {
     this.assertMaintenanceJobReady(
       "messages_fts_rebuild",
       "Keyword search is temporarily unavailable while the FTS index rebuild is pending. Run state maintenance with --apply.",
     );
-    const clauses = ["m.chat_id = ?", "m.deleted_at IS NULL", "messages_fts MATCH ?"];
+    const clauses = [
+      "m.chat_id = ?",
+      "m.deleted_at IS NULL",
+      "messages_fts MATCH ?",
+    ];
     const values: unknown[] = [params.chatId, escapeFtsQuery(params.query)];
     if (params.beforeId != null) {
       clauses.push("m.message_id < ?");
@@ -268,14 +296,16 @@ declare protected assertMaintenanceJobReady: (
     const match = normalizeLexicalMatchMode(params.match);
     const order = normalizeLexicalOrder(params.order);
     const limit = normalizeLexicalLimit(params.limit);
-    if (typeof params.query !== "string" || params.query.length > 500) {
+    const query = params.query ?? "";
+    if (query.length > 500) {
       throw new Error("query must contain at most 500 characters.");
-    }
-    if (splitFtsTerms(params.query).length === 0) {
-      return [];
     }
     if (params.sender !== undefined) {
       assertNonEmptyBounded(params.sender, 200, "sender");
+    }
+    const terms = splitFtsTerms(query);
+    if (terms.length === 0 && params.sender === undefined) {
+      return [];
     }
     const excludeSenderIds = normalizeExcludeSenderIds(params.excludeSenderIds);
     if (params.dateFromInclusive !== undefined) {
@@ -291,18 +321,18 @@ declare protected assertMaintenanceJobReady: (
       assertPositiveSafeInteger(params.afterId, "afterId");
     }
 
-    const clauses = [
-      "m.chat_id = ?",
-      "m.deleted_at IS NULL",
-      "messages_fts MATCH ?",
-    ];
-    const values: unknown[] = [
-      params.chatId,
-      buildFtsMatchExpression(params.query, match),
-    ];
+    const hasQuery = terms.length > 0;
+    const clauses = ["m.chat_id = ?", "m.deleted_at IS NULL"];
+    const values: unknown[] = [params.chatId];
+    if (hasQuery) {
+      clauses.push("messages_fts MATCH ?");
+      values.push(buildFtsMatchExpression(query, match));
+    }
     if (params.sender !== undefined) {
-      clauses.push("(m.sender_id = ? OR m.sender_name = ?)");
-      values.push(params.sender, params.sender);
+      clauses.push(
+        "(m.sender_id = ? OR m.sender_name LIKE '%' || ? || '%' ESCAPE '\\' COLLATE NOCASE)",
+      );
+      values.push(params.sender, escapeLikeWildcards(params.sender));
     }
     if (excludeSenderIds.length > 0) {
       clauses.push(
@@ -329,34 +359,7 @@ declare protected assertMaintenanceJobReady: (
       values.push(params.afterId);
     }
     values.push(limit);
-
-    if (order === "relevance") {
-      const rows = this.db
-        .prepare(
-          `SELECT m.*, bm25(messages_fts) AS fts_rank
-           FROM messages_fts
-           JOIN messages m ON m.id = messages_fts.rowid
-           WHERE ${clauses.join(" AND ")}
-           ORDER BY fts_rank ASC, m.message_id DESC
-           LIMIT ?`,
-        )
-        .all(...toSqlValues(values)) as Record<string, unknown>[];
-      return rows.map((row) => ({
-        message: rowToStoredMessage(row),
-        rank: Number(row.fts_rank ?? 0),
-      }));
-    }
-    const rows = this.db
-      .prepare(
-        `SELECT m.*
-         FROM messages_fts
-         JOIN messages m ON m.id = messages_fts.rowid
-         WHERE ${clauses.join(" AND ")}
-         ORDER BY m.message_id ${order === "newest" ? "DESC" : "ASC"}
-         LIMIT ?`,
-      )
-      .all(...toSqlValues(values)) as Record<string, unknown>[];
-    return rows.map((row) => ({ message: rowToStoredMessage(row), rank: 0 }));
+    return runLexicalSearch(this.db, clauses, values, hasQuery, order);
   }
 
   getThreadContext(params: {
@@ -388,7 +391,11 @@ declare protected assertMaintenanceJobReady: (
     return rows.map(rowToStoredMessage);
   }
 
-  getMessagesForEmbedding(params: { chatId: string; afterId?: number; limit: number }): StoredMessage[] {
+  getMessagesForEmbedding(params: {
+    chatId: string;
+    afterId?: number;
+    limit: number;
+  }): StoredMessage[] {
     const clauses = ["chat_id = ?", "length(trim(text)) > 0"];
     const values: unknown[] = [params.chatId];
     if (params.afterId != null) {
@@ -494,7 +501,12 @@ declare protected assertMaintenanceJobReady: (
     return rows.map(rowToStoredMessage);
   }
 
-  getMessagesInRange(params: { chatId: string; startMessageId: number; endMessageId: number; limit?: number }): StoredMessage[] {
+  getMessagesInRange(params: {
+    chatId: string;
+    startMessageId: number;
+    endMessageId: number;
+    limit?: number;
+  }): StoredMessage[] {
     const limit = params.limit ?? 100;
     const rows = this.db
       .prepare(
@@ -503,31 +515,48 @@ declare protected assertMaintenanceJobReady: (
          ORDER BY message_id ASC
          LIMIT ?`,
       )
-      .all(params.chatId, params.startMessageId, params.endMessageId, limit) as Record<string, unknown>[];
+      .all(
+        params.chatId,
+        params.startMessageId,
+        params.endMessageId,
+        limit,
+      ) as Record<string, unknown>[];
     return rows.map(rowToStoredMessage);
   }
 
-  getMessagesByIds(params: { chatId: string; messageIds: number[] }): StoredMessage[] {
+  getMessagesByIds(params: {
+    chatId: string;
+    messageIds: number[];
+  }): StoredMessage[] {
     if (params.messageIds.length === 0) {
       return [];
     }
     const uniqueIds = [...new Set(params.messageIds)];
     const placeholders = uniqueIds.map(() => "?").join(", ");
     const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE chat_id = ? AND message_id IN (${placeholders})`)
+      .prepare(
+        `SELECT * FROM messages WHERE chat_id = ? AND message_id IN (${placeholders})`,
+      )
       .all(params.chatId, ...uniqueIds) as Record<string, unknown>[];
-    const byId = new Map(rows.map((row) => [Number(row.message_id), rowToStoredMessage(row)]));
-    return params.messageIds.map((id) => byId.get(id)).filter((message): message is StoredMessage => message != null);
+    const byId = new Map(
+      rows.map((row) => [Number(row.message_id), rowToStoredMessage(row)]),
+    );
+    return params.messageIds
+      .map((id) => byId.get(id))
+      .filter((message): message is StoredMessage => message != null);
   }
 
   countMessages(chatId: string): number {
-    const row = this.db.prepare("SELECT COUNT(*) AS count FROM messages WHERE chat_id = ?").get(chatId) as
-      | Record<string, unknown>
-      | undefined;
+    const row = this.db
+      .prepare("SELECT COUNT(*) AS count FROM messages WHERE chat_id = ?")
+      .get(chatId) as Record<string, unknown> | undefined;
     return Number(row?.count ?? 0);
   }
 
-  protected getMessageForDirtyCheck(chatId: string, messageId: number): StoredMessage | undefined {
+  protected getMessageForDirtyCheck(
+    chatId: string,
+    messageId: number,
+  ): StoredMessage | undefined {
     // Must carry every field embeddingMessageSourceChanged/formatEmbeddingMessage
     // compare (message_id, date, sender, text, deleted_at); a partial row made
     // identical re-upserts look like source edits and re-dirtied clean chunks.
@@ -544,7 +573,10 @@ declare protected assertMaintenanceJobReady: (
     return rowToStoredMessage(row);
   }
 
-  protected markEmbeddingChunksDirtyForMessagesLocked(chatId: string, messageIds: number[]): void {
+  protected markEmbeddingChunksDirtyForMessagesLocked(
+    chatId: string,
+    messageIds: number[],
+  ): void {
     const stmt = this.db.prepare(
       `UPDATE message_embedding_chunks
        SET dirty_at = COALESCE(dirty_at, datetime('now')), updated_at = datetime('now')
@@ -570,9 +602,7 @@ function normalizeLexicalMatchMode(
     return "all";
   }
   if (!(FTS_MATCH_MODES as readonly string[]).includes(value)) {
-    throw new Error(
-      'match must be one of "all", "any", "phrase" or "prefix".',
-    );
+    throw new Error('match must be one of "all", "any", "phrase" or "prefix".');
   }
   return value;
 }

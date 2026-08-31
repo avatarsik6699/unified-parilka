@@ -1,6 +1,7 @@
 import type { MessageContext } from "vk-io";
 import type { StoredMessage } from "../store.js";
 import type { ChatInfo } from "../telegram/types.js";
+import type { VkSenderNameCache } from "../vk/sender-name-cache.js";
 import { vkChatId, vkSyntheticUpdateId } from "../vk/types.js";
 import type { TelegramUpdateReason } from "./telegram-update.js";
 
@@ -9,6 +10,13 @@ export interface VkUpdateOptions {
   allowedChatIds: ReadonlySet<string>;
   /** Numeric VK community id (not the peer_id namespacing prefix). */
   groupId: number;
+  /**
+   * Optional: when present and already warm for this sender, stamps
+   * `senderName` on the stored message so keyword_search's sender filter
+   * can find it immediately. Absent/cold-cache senders stay unresolved
+   * until `VkSenderNameEnrichmentLoop`'s next tick backfills them.
+   */
+  senderNameCache?: VkSenderNameCache;
 }
 
 export interface NormalizedVkUpdate {
@@ -102,6 +110,7 @@ export function normalizeVkUpdate(
   const photo = extractVkPhoto(context);
   const voice = extractVkVoice(context);
   const rawJson = vkAttachmentsRawJson(photo, voice);
+  const senderName = options.senderNameCache?.get(senderId);
   const message: StoredMessage = {
     chatId,
     messageId,
@@ -115,6 +124,7 @@ export function normalizeVkUpdate(
         }),
     ...(replyToMessageId === undefined ? {} : { replyToMessageId }),
     ...(rawJson === undefined ? {} : { rawJson }),
+    ...(senderName === undefined ? {} : { senderName }),
   };
 
   const base = {

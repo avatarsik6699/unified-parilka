@@ -1,6 +1,7 @@
 import type { CuriosityTriggerLoop } from "../../assistant-curiosity-loop.js";
 import type { ApprovalPosterLoop } from "../../human-persona-approval-poster.js";
 import type { VkHistoryBackfillLoop } from "../../vk/history-backfill.js";
+import type { VkSenderNameEnrichmentLoop } from "../../vk/sender-name-enrichment.js";
 import type { JsonEventLogger } from "../worker.js";
 import type { BotApiLongPoller } from "./long-poller.js";
 import type { BotWorkerDrainResult, BotWorkerPump } from "./worker-pump.js";
@@ -52,6 +53,11 @@ export interface BotApiRuntimeOptions {
    * never affects it.
    */
   vkHistoryBackfill?: VkHistoryBackfillLoop;
+  /**
+   * VK sender display-name enrichment (undefined when no VK chat is
+   * configured). Same isolation contract as the other optional VK loops.
+   */
+  vkSenderNameEnrichment?: VkSenderNameEnrichmentLoop;
 }
 
 export class BotApiRuntime {
@@ -63,6 +69,7 @@ export class BotApiRuntime {
   readonly #curiosityTrigger: CuriosityTriggerLoop | undefined;
   readonly #vkPoller: VkLongPollLoop | undefined;
   readonly #vkHistoryBackfill: VkHistoryBackfillLoop | undefined;
+  readonly #vkSenderNameEnrichment: VkSenderNameEnrichmentLoop | undefined;
 
   constructor(options: BotApiRuntimeOptions) {
     this.#poller = options.poller;
@@ -78,6 +85,7 @@ export class BotApiRuntime {
     this.#curiosityTrigger = options.curiosityTrigger;
     this.#vkPoller = options.vkPoller;
     this.#vkHistoryBackfill = options.vkHistoryBackfill;
+    this.#vkSenderNameEnrichment = options.vkSenderNameEnrichment;
   }
 
   async run(signal?: AbortSignal): Promise<BotWorkerDrainResult> {
@@ -112,6 +120,13 @@ export class BotApiRuntime {
           failure: error instanceof Error ? error.message : String(error),
         });
       });
+    const vkSenderNameEnrichmentPromise = this.#vkSenderNameEnrichment
+      ?.run(posterController.signal)
+      .catch((error: unknown) => {
+        this.#log("warn", "vk.sender_name_enrichment_loop_failed", {
+          failure: error instanceof Error ? error.message : String(error),
+        });
+      });
     let pollError: unknown;
     try {
       await this.#poller.run(signal, () => this.#workers.start());
@@ -126,6 +141,7 @@ export class BotApiRuntime {
       await curiosityPromise;
       await vkPromise;
       await vkHistoryBackfillPromise;
+      await vkSenderNameEnrichmentPromise;
     }
     // Queued turns are already durable. Graceful shutdown stops admission and
     // waits only for in-flight workers; it does not begin fresh model calls

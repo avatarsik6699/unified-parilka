@@ -44,6 +44,8 @@ import {
   createVkHistoryBackfillPort,
 } from "../vk/history-backfill.js";
 import { createVkLiveSearchProvider } from "../vk/live-search.js";
+import { VkSenderNameCache } from "../vk/sender-name-cache.js";
+import { VkSenderNameEnrichmentLoop } from "../vk/sender-name-enrichment.js";
 import { ApprovalPosterLoop } from "../human-persona-approval-poster.js";
 import type {
   BotDaemonChatComposition,
@@ -284,6 +286,9 @@ export function composeBotDaemon(
       .filter((chat) => chat.transport === "vk")
       .map((chat) => chat.allowedChatId),
   );
+  // Cheap to construct even when no VK chat is configured -- only the
+  // enrichment loop and update normalization actually use it.
+  const vkSenderNameCache = new VkSenderNameCache();
   const processor = new BotUpdateProcessor({
     store: options.store,
     coordinators,
@@ -298,7 +303,13 @@ export function composeBotDaemon(
     },
     ...(config.vk === undefined
       ? {}
-      : { vk: { allowedChatIds: vkChatIds, groupId: config.vk.groupId } }),
+      : {
+          vk: {
+            allowedChatIds: vkChatIds,
+            groupId: config.vk.groupId,
+            senderNameCache: vkSenderNameCache,
+          },
+        }),
     triggerCooldownMs: config.triggerCooldownMs,
     updateMaxAttempts: config.updateMaxAttempts,
     logger: options.logger,
@@ -331,6 +342,11 @@ export function composeBotDaemon(
       : undefined;
   const curiosityTrigger = buildCuriosityTriggerLoop(options, config);
   const vkHistoryBackfill = buildVkHistoryBackfillLoop(options, config);
+  const vkSenderNameEnrichment = buildVkSenderNameEnrichmentLoop(
+    options,
+    vkChatIds,
+    vkSenderNameCache,
+  );
   const runtime = new BotApiRuntime({
     poller,
     workers: workerPump,
@@ -340,6 +356,7 @@ export function composeBotDaemon(
     ...(curiosityTrigger === undefined ? {} : { curiosityTrigger }),
     ...(vkPoller === undefined ? {} : { vkPoller }),
     ...(vkHistoryBackfill === undefined ? {} : { vkHistoryBackfill }),
+    ...(vkSenderNameEnrichment === undefined ? {} : { vkSenderNameEnrichment }),
   });
 
   return {
@@ -349,6 +366,7 @@ export function composeBotDaemon(
     ...(approvalPoster === undefined ? {} : { approvalPoster }),
     ...(curiosityTrigger === undefined ? {} : { curiosityTrigger }),
     ...(vkHistoryBackfill === undefined ? {} : { vkHistoryBackfill }),
+    ...(vkSenderNameEnrichment === undefined ? {} : { vkSenderNameEnrichment }),
     workers,
     processor,
     chats,
@@ -400,6 +418,29 @@ function buildVkHistoryBackfillLoop(
     port: createVkHistoryBackfillPort(options.vkUserApi),
     chats: vkChats,
     totalLimit: config.vk.historyBackfillLimit,
+    logger: options.logger,
+  });
+}
+
+/**
+ * Builds the VK sender display-name enrichment loop (undefined unless a
+ * community token and at least one `transport: "vk"` chat are configured).
+ * Unlike history backfill this needs only the community token -- `users.get`
+ * works fine with it, no personal-account `vkUserApi` required.
+ */
+function buildVkSenderNameEnrichmentLoop(
+  options: ComposeBotDaemonOptions,
+  vkChatIds: ReadonlySet<string>,
+  cache: VkSenderNameCache,
+): VkSenderNameEnrichmentLoop | undefined {
+  if (options.vkApi === undefined || vkChatIds.size === 0) {
+    return undefined;
+  }
+  return new VkSenderNameEnrichmentLoop({
+    store: options.store,
+    vk: options.vkApi,
+    cache,
+    chatIds: [...vkChatIds],
     logger: options.logger,
   });
 }
