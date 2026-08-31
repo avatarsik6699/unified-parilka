@@ -47,6 +47,21 @@ test("system prompt preserves the persona and executable agent contract", () => 
   assert.equal("skipSentinel" in BOT_AGENT_CONTRACT, false);
 });
 
+test("system prompt biases toward brevity by default without imposing a hard cap", () => {
+  const prompt = buildBotSystemPrompt({
+    chatTitle: "Test Chat",
+    personaPrompt: "# Кто ты\nТестовая персона для юнит-тестов.",
+    botUsername: "testbot",
+    botName: "Test Bot",
+    modelLabel: "provider/model",
+  });
+
+  assert.match(prompt, /# Длина ответа/);
+  assert.match(prompt, /Жёсткого лимита на длину ответа нет/);
+  assert.match(prompt, /тяготей к более короткому ответу/);
+  assert.match(prompt, /Наращивай длину только когда вопрос сам её требует/);
+});
+
 test("VK transport gets a plain-text-only prompt with no Telegram identity or markdown contract", () => {
   const prompt = buildBotSystemPrompt({
     chatTitle: "Test VK Chat",
