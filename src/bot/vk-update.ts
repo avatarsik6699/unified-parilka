@@ -1,7 +1,7 @@
 import type { MessageContext } from "vk-io";
 import type { StoredMessage } from "../store.js";
 import type { ChatInfo } from "../telegram/types.js";
-import { vkChatId } from "../vk/types.js";
+import { vkChatId, vkSyntheticUpdateId } from "../vk/types.js";
 import type { TelegramUpdateReason } from "./telegram-update.js";
 
 export interface VkUpdateOptions {
@@ -18,10 +18,10 @@ export interface NormalizedVkUpdate {
   replyToBot?: boolean;
   /**
    * Synthesized `bot_updates.update_id` for the `transport: "vk"` identity
-   * space -- VK's own `message.id` is monotonic per community (confirmed:
-   * the Long Poll stream never redelivers the bot's own outgoing sends as
-   * `message_new`, so this is incoming-message-only, same shape Telegram's
-   * per-bot-token `update_id` counter has).
+   * space -- see `vkSyntheticUpdateId`: VK's `message.id` is 0 for messages
+   * delivered to a community (confirmed empirically, not the monotonic
+   * per-community counter this codebase originally assumed), so this is
+   * derived from `(peer_id, conversation_message_id)` instead.
    */
   updateId?: number;
   chat?: ChatInfo;
@@ -77,8 +77,16 @@ export function normalizeVkUpdate(
     };
   }
 
-  const messageId = context.id;
-  if (!Number.isSafeInteger(messageId) || messageId <= 0) {
+  // `conversation_message_id`, not `id`: `id` is 0 for messages this
+  // community receives (see vkSyntheticUpdateId's doc comment), but
+  // conversation_message_id is populated and, scoped to this one peer_id,
+  // matches Telegram's own per-chat message_id semantics exactly.
+  const messageId = context.conversationMessageId;
+  const updateId =
+    messageId === undefined
+      ? undefined
+      : vkSyntheticUpdateId(context.peerId, messageId);
+  if (messageId === undefined || updateId === undefined) {
     return { ingest: false, addressed: false, reason: "malformed_message" };
   }
 
@@ -89,7 +97,7 @@ export function normalizeVkUpdate(
     kind: "chat",
   };
   const replyToMessageId = context.hasReplyMessage
-    ? context.replyMessage?.id
+    ? context.replyMessage?.conversationMessageId
     : undefined;
   const message: StoredMessage = {
     chatId,
@@ -103,7 +111,7 @@ export function normalizeVkUpdate(
   const base = {
     ingest: true,
     addressed: false,
-    updateId: messageId,
+    updateId,
     chat,
     message,
   } as const;

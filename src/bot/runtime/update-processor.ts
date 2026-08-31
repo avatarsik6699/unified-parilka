@@ -24,6 +24,7 @@ import type {
   NormalizedTelegramUpdate,
 } from "../telegram-update.js";
 import type { VkUpdateOptions } from "../vk-update.js";
+import { vkSyntheticUpdateId } from "../../vk/types.js";
 import type { BotTransport } from "../../store.js";
 import type { JsonEventLogger } from "../worker.js";
 
@@ -91,10 +92,13 @@ export class BotUpdateProcessor {
 
   /**
    * VK counterpart of `process()`: `context` is an already-parsed vk-io
-   * `MessageContext` (from `message_new`/`message_edit`), never raw bytes
-   * that might fail to parse -- vk-io wouldn't construct a context without a
-   * valid `id`, so there is no Telegram-style "updateId unreadable" pre-check
-   * here. Must only be called when `options.vk` was configured.
+   * `MessageContext` (from `message_new`/`message_edit`). Unlike Telegram's
+   * `update_id`, VK gives no usable global identifier directly on the
+   * context (`context.id` is 0 for messages a community receives, see
+   * `vkSyntheticUpdateId`) -- if `(peer_id, conversation_message_id)` can't
+   * be synthesized into one, that is this transport's equivalent of
+   * Telegram's "updateId unreadable", handled the same way (fatal, not
+   * silently dropped). Must only be called when `options.vk` was configured.
    */
   processVk(context: MessageContext): BotUpdateProcessingResult {
     if (this.#vk === undefined) {
@@ -103,7 +107,14 @@ export class BotUpdateProcessor {
       );
     }
     const vk = this.#vk;
-    return this.#commit("vk", context.id, {
+    const updateId = vkSyntheticUpdateId(
+      context.peerId,
+      context.conversationMessageId ?? 0,
+    );
+    if (updateId === undefined) {
+      throw new BotRuntimeProtocolError("VK_UPDATE_ID_MISSING");
+    }
+    return this.#commit("vk", updateId, {
       computeRawJson: () => stringifyUpdate(context),
       normalize: () => normalizeVkUpdate(context, vk),
     });
