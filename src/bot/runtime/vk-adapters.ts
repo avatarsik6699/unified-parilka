@@ -4,6 +4,7 @@ import {
   splitTelegramText,
   TELEGRAM_TEXT_LIMIT_UTF16,
 } from "../telegram-publication.js";
+import type { ToolProgressBotApiPort } from "../tool-progress.js";
 import type {
   BotTurnPublisher,
   TelegramPublishRequest,
@@ -113,6 +114,93 @@ export class VkBotTurnPublisher implements BotTurnPublisher {
         : { telegramMessageId: firstMessageId }),
     };
   }
+}
+
+/**
+ * Ephemeral "печатает…" substitute for VK: `messages.setActivity` was tried
+ * and reverted (reproducible `[10] Internal server error` for a community
+ * token in a beседа, confirmed directly against the live API -- see
+ * `bot-daemon/composition.ts`'s history). This reuses the same visible-
+ * progress-message mechanism Telegram already has (`ToolProgressPublisher`):
+ * send a placeholder, edit it as tool calls progress, delete it before the
+ * final answer.
+ *
+ * VK's own `message_id` is unusable here -- like `context.id` on incoming
+ * messages (see `vkSyntheticUpdateId`), a community-token send resolves to a
+ * literal `0` (confirmed empirically), and `messages.delete`/`messages.edit`
+ * both reject a `0` id as "undefined". The fix mirrors the receive-side
+ * workaround: request the array-shaped response via `peer_ids` (plural, not
+ * `peer_id`) to get back a real, populated `conversation_message_id`
+ * (`cmid`), and address every subsequent edit/delete by that instead.
+ */
+export function createVkToolProgressBotApiPort(
+  vk: VK,
+  groupId: number,
+): ToolProgressBotApiPort {
+  return {
+    async sendMessage(chatId, text) {
+      const peerId = peerIdFromVkChatId(chatId);
+      if (peerId === undefined) {
+        return { ok: false };
+      }
+      try {
+        const response = (await vk.api.messages.send({
+          peer_ids: [peerId],
+          message: text,
+          random_id: randomInt(-2_147_483_648, 2_147_483_647),
+          group_id: groupId,
+        })) as unknown as ReadonlyArray<{
+          peer_id: number;
+          conversation_message_id?: number;
+        }>;
+        const cmid = Array.isArray(response)
+          ? response.find((entry) => entry.peer_id === peerId)
+              ?.conversation_message_id
+          : undefined;
+        return typeof cmid === "number" &&
+          Number.isSafeInteger(cmid) &&
+          cmid > 0
+          ? { ok: true, messageId: cmid }
+          : { ok: false };
+      } catch {
+        return { ok: false };
+      }
+    },
+    async editMessageText(chatId, messageId, text) {
+      const peerId = peerIdFromVkChatId(chatId);
+      if (peerId === undefined) {
+        return { ok: false };
+      }
+      try {
+        await vk.api.messages.edit({
+          peer_id: peerId,
+          cmid: messageId,
+          message: text,
+          group_id: groupId,
+        });
+        return { ok: true };
+      } catch {
+        return { ok: false };
+      }
+    },
+    async deleteMessage(chatId, messageId) {
+      const peerId = peerIdFromVkChatId(chatId);
+      if (peerId === undefined) {
+        return { ok: false };
+      }
+      try {
+        await vk.api.messages.delete({
+          peer_id: peerId,
+          cmids: [messageId],
+          delete_for_all: true,
+          group_id: groupId,
+        });
+        return { ok: true };
+      } catch {
+        return { ok: false };
+      }
+    },
+  };
 }
 
 function classifyThrownFailure(

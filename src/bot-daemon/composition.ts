@@ -29,7 +29,10 @@ import {
   createReactionGrammyBotApiPort,
   createToolProgressGrammyBotApiPort,
 } from "../bot/runtime.js";
-import { VkBotTurnPublisher } from "../bot/runtime/vk-adapters.js";
+import {
+  VkBotTurnPublisher,
+  createVkToolProgressBotApiPort,
+} from "../bot/runtime/vk-adapters.js";
 import { TurnCoordinator } from "../bot/turn-coordinator.js";
 import type { TypingPort } from "../bot/typing.js";
 import type { BotTurnPublisher } from "../bot/worker.js";
@@ -95,17 +98,23 @@ export function composeBotDaemon(
         )
         .then(() => undefined),
   };
-  // VK typing indicator was tried and reverted: `messages.setActivity`
+  // VK typing indicator (`messages.setActivity`) was tried and reverted: it
   // reproducibly returns `[10] Internal server error` for this community
   // token/beседа (confirmed directly against the live VK API with and
   // without `group_id`, outside this codebase, before wiring anything) --
-  // a VK-side limitation, not a bug here. Calling it on every typing-
+  // a VK-side limitation, not a bug here, and calling it on every typing-
   // heartbeat tick risked tripping VK's flood control on the whole token,
-  // which would also break real message sends, so it stays unwired rather
-  // than shipped as a silently-broken best-effort call.
+  // which would also break real message sends. Instead, VK gets the same
+  // visible-progress-message substitute Telegram already has
+  // (`createVkToolProgressBotApiPort`): a placeholder message, edited as
+  // tool calls progress, deleted before the final answer.
   const toolProgressBotApiPort = createToolProgressGrammyBotApiPort(
     options.api,
   );
+  const vkToolProgressBotApiPort =
+    options.vkApi === undefined || config.vk === undefined
+      ? undefined
+      : createVkToolProgressBotApiPort(options.vkApi, config.vk.groupId);
   const reactionBotApiPort = createReactionGrammyBotApiPort(options.api);
   const newsBriefTrigger =
     config.newsBriefTrigger === undefined
@@ -197,15 +206,14 @@ export function composeBotDaemon(
         ? {}
         : { voiceReply: config.voiceReply }),
     });
-    // VK chats get no typing indicator, ephemeral tool-progress message, or
-    // message-reaction port: all three are Bot-API-specific UI affordances
-    // (`src/bot/typing.ts`, `src/bot/tool-progress.ts`,
-    // `src/bot/web-tools/reaction-contracts.ts`) with no working VK
-    // equivalent -- `messages.setActivity` was tried and reverted (see the
-    // comment above `toolProgressBotApiPort`) -- each is optional on
-    // `BotTurnWorkerOptions`, so the worker simply skips them. VK does get,
-    // as a v1 experiment requested by the operator, no telemetry footer
-    // under its answers.
+    // VK chats get no Bot-API-only typing indicator or message-reaction port
+    // (`src/bot/typing.ts`, `src/bot/web-tools/reaction-contracts.ts`) --
+    // `messages.setActivity` was tried and reverted (see the comment above
+    // `toolProgressBotApiPort`) and VK has no reaction equivalent wired in
+    // v1; both are optional on `BotTurnWorkerOptions`, so the worker simply
+    // skips them. VK does get its own ephemeral progress message
+    // (`vkToolProgressBotApiPort`) and, as a v1 experiment requested by the
+    // operator, no telemetry footer under its answers.
     const chatPublisher =
       chat.transport === "vk" ? requireVkPublisher(vkPublisher) : publisher;
     const workers = Array.from(
@@ -223,7 +231,12 @@ export function composeBotDaemon(
           logger: options.logger,
           botSenderId: config.botId,
           ...(chat.transport === "vk"
-            ? { telemetryFooter: false }
+            ? {
+                telemetryFooter: false,
+                ...(vkToolProgressBotApiPort === undefined
+                  ? {}
+                  : { toolProgressBotApiPort: vkToolProgressBotApiPort }),
+              }
             : { typingPort, toolProgressBotApiPort, reactionBotApiPort }),
         }),
     );
