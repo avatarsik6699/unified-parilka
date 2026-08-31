@@ -46,7 +46,7 @@ export const BOT_AGENT_CONTRACT = Object.freeze({
 export type BotResearchMode = "standard" | "research";
 
 const RESEARCH_REQUEST_PATTERN =
-  /(?:исслед\p{L}*|изуч\p{L}*|разбер\p{L}*|проанализир\p{L}*|покопа\p{L}*|поищ\p{L}*|проверь\p{L}*|сравн\p{L}*|сопостав\p{L}*|выбер\p{L}*|справ\p{L}*|обзор\p{L}*|подроб\p{L}*|развернут\p{L}*|глубок\p{L}*|требован\p{L}*|ваканси\p{L}*|что\s+(?:надо|нужно)\s+знать|как\s+(?:работает|устроен\p{L}*)|research|investigat|deep[\s-]*dive|analy[sz]e)/iu;
+  /(?:исслед\p{L}*|изуч\p{L}*|разбер\p{L}*|проанализир\p{L}*|покопа\p{L}*|сравн\p{L}*|сопостав\p{L}*|обзор\p{L}*|развернут\p{L}*|глубок\p{L}*|требован\p{L}*|ваканси\p{L}*|что\s+(?:надо|нужно)\s+знать|research|investigat|deep[\s-]*dive|analy[sz]e)/iu;
 
 /**
  * Only the authoritative trigger selects research mode. Folded chat context

@@ -161,6 +161,31 @@ test("explicit research requests receive a bounded evidence-first prompt", () =>
   );
 });
 
+test("research mode no longer over-triggers on ordinary chat vocabulary", () => {
+  const ordinary = [
+    "проверь погоду",
+    "справишься с этим?",
+    "расскажи подробнее",
+    "выбери мне фильм",
+    "поищи, что вчера писали",
+    "как работает этот API",
+    "как устроена эта система",
+  ];
+  for (const text of ordinary) {
+    assert.equal(botResearchModeForText(text), "standard", text);
+  }
+
+  const genuine = [
+    "исследуй рынок труда для Python-разработчиков",
+    "сравни зарплаты в Москве и Питере",
+    "покопайся, почему проект встал",
+    "проведи глубокий анализ конкурентов",
+  ];
+  for (const text of genuine) {
+    assert.equal(botResearchModeForText(text), "research", text);
+  }
+});
+
 test("prompt routes login-gated and JS-rendered pages away from static_page_fetch", () => {
   const prompt = buildBotSystemPrompt({
     chatTitle: "Test Chat",
@@ -269,7 +294,7 @@ test("prompt keeps external research out of chat history unless the user asks to
   );
   assert.match(
     prompt,
-    /Не ходи в `rag_bm25_search` или `keyword_search` «на всякий[\s\S]+внешней справке/,
+    /Не ходи в `rag_bm25_search`,[\s\S]+`keyword_search` или `vk_search_history` «на всякий[\s\S]+внешней справке/,
   );
   assert.match(
     prompt,
