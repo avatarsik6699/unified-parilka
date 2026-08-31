@@ -93,6 +93,88 @@ test("worker budget is split across a Telegram chat and a VK chat, not multiplie
   assert.equal(vkWorkers, 3);
 });
 
+test("VK history backfill is wired only when both a personal-account client and a VK chat are present", (t) => {
+  const { store, dbPath } = fixtureStore(t);
+  const vkChats: AssistantChatConfig[] = [
+    {
+      transport: "vk",
+      allowedChatId: "vk:2000000001",
+      chatTitle: "VK Chat",
+      personaPrompt: "persona",
+    },
+  ];
+
+  // BOT_VK_USER_TOKEN configured, but no vkUserApi client supplied to
+  // composeBotDaemon (mirrors how it would look if the operator hadn't
+  // actually restarted the daemon with the new token wired through
+  // production.ts's factories) -- must not build the loop.
+  const configWithUserToken = botConfig(dbPath, {
+    BOT_VK_GROUP_TOKEN: "vk1.a-fake-token",
+    BOT_VK_GROUP_ID: "123456",
+    BOT_VK_USER_TOKEN: "vk1.a-fake-user-token",
+  });
+  const withoutClient = composeBotDaemon({
+    config: configWithUserToken,
+    chats: vkChats,
+    store,
+    api: noNetworkApi(),
+    vkApi: {} as unknown as VK,
+    router: noNetworkRouter(),
+  });
+  assert.equal(withoutClient.vkHistoryBackfill, undefined);
+
+  // vkUserApi supplied, but BOT_VK_USER_TOKEN never configured -- config.vk
+  // itself is present (group token is set), but this still must not build
+  // the loop: composeBotDaemon only wires it when both sides agree.
+  const configWithoutUserToken = botConfig(dbPath, {
+    BOT_VK_GROUP_TOKEN: "vk1.a-fake-token",
+    BOT_VK_GROUP_ID: "123456",
+  });
+  const withClientOnly = composeBotDaemon({
+    config: configWithoutUserToken,
+    chats: vkChats,
+    store,
+    api: noNetworkApi(),
+    vkApi: {} as unknown as VK,
+    vkUserApi: {} as unknown as VK,
+    router: noNetworkRouter(),
+  });
+  assert.equal(withClientOnly.vkHistoryBackfill, undefined);
+
+  // Both present, VK chat configured -- the loop is built.
+  const composition = composeBotDaemon({
+    config: configWithUserToken,
+    chats: vkChats,
+    store,
+    api: noNetworkApi(),
+    vkApi: {} as unknown as VK,
+    vkUserApi: {} as unknown as VK,
+    router: noNetworkRouter(),
+  });
+  assert.notEqual(composition.vkHistoryBackfill, undefined);
+
+  // Both present, but zero VK chats configured (Telegram-only deployment) --
+  // nothing to back-fill, so the loop stays unbuilt even though the token
+  // is set.
+  const telegramOnly = composeBotDaemon({
+    config: configWithUserToken,
+    chats: [
+      {
+        transport: "telegram",
+        allowedChatId: CHAT_ID,
+        chatTitle: "Telegram Chat",
+        personaPrompt: "persona",
+      },
+    ],
+    store,
+    api: noNetworkApi(),
+    vkApi: {} as unknown as VK,
+    vkUserApi: {} as unknown as VK,
+    router: noNetworkRouter(),
+  });
+  assert.equal(telegramOnly.vkHistoryBackfill, undefined);
+});
+
 test("worker budget is split proportionally once chat count pushes past it", (t) => {
   const { store, dbPath } = fixtureStore(t);
   const config = botConfig(dbPath, { BOT_WORKERS: "3" });

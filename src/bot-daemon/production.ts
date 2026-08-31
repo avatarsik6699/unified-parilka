@@ -5,7 +5,7 @@ import type { VK } from "vk-io";
 import { loadConfig, type AppConfig } from "../config.js";
 import type { BotRuntimeConfig } from "../bot/runtime-config.js";
 import { parseBotRuntimeConfig } from "../bot/runtime-config.js";
-import { createVkClient } from "../vk/client.js";
+import { createVkClient, createVkUserClient } from "../vk/client.js";
 import { ModelRouter } from "../providers/model-router.js";
 import { MessageStore } from "../store.js";
 import { VectorRag } from "../vector-rag.js";
@@ -90,6 +90,13 @@ export function createProductionBotDaemon(
   // deployment with no BOT_VK_GROUP_TOKEN never touches VK at all.
   const vkApi: VK | undefined =
     config.vk === undefined ? undefined : factories.createVk(config.vk);
+  // Only constructed when the operator supplied a personal-account token --
+  // see BotVkRuntimeConfig.userToken's doc comment for why this can't reuse
+  // the community/group vkApi client above.
+  const vkUserApi: VK | undefined =
+    config.vk?.userToken === undefined
+      ? undefined
+      : factories.createVkUser(config.vk);
   const store = factories.createStore(config.dbPath);
   store.reconcileActiveSendsOnStartup();
 
@@ -142,6 +149,7 @@ export function createProductionBotDaemon(
       store,
       api,
       ...(vkApi === undefined ? {} : { vkApi }),
+      ...(vkUserApi === undefined ? {} : { vkUserApi }),
       router,
       appConfig,
       ...(vector === undefined ? {} : { vector }),
@@ -253,6 +261,14 @@ const DEFAULT_PRODUCTION_FACTORIES: ProductionBotDaemonFactories = {
   },
   createVk(config) {
     return createVkClient(config);
+  },
+  createVkUser(config) {
+    if (config.userToken === undefined) {
+      throw new Error(
+        "createVkUser called without BOT_VK_USER_TOKEN configured.",
+      );
+    }
+    return createVkUserClient(config.userToken, config.apiVersion);
   },
 };
 

@@ -81,6 +81,21 @@ export interface BotVkRuntimeConfig {
   /** Numeric VK community id, positive (not the peer_id namespacing prefix). */
   groupId: number;
   apiVersion: string;
+  /**
+   * A personal VK account's own access token (`messages` scope), member of
+   * every `transport: "vk"` beседа. Optional: absent means no history
+   * backfill runs, same opt-in shape as `groupToken` itself. Required
+   * because `messages.getHistory` rejects a community/group token outright
+   * (`[15] Access denied`, confirmed against the live API) -- see
+   * `src/vk/history-backfill.ts`.
+   */
+  userToken?: string;
+  /**
+   * Total per-chat cap on how many historic messages `userToken` backfill
+   * ever pulls in, mirroring `TELEGRAM_SYNC_BACKFILL_LIMIT`'s own default
+   * order of magnitude. Meaningless (never read) when `userToken` is unset.
+   */
+  historyBackfillLimit: number;
 }
 
 export interface BotRuntimeConfig {
@@ -153,6 +168,8 @@ export type SafeBotRuntimeConfig = Omit<
     groupTokenConfigured: true;
     groupId: number;
     apiVersion: string;
+    userTokenConfigured: boolean;
+    historyBackfillLimit: number;
   };
   webSearch?:
     | {

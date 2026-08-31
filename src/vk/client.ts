@@ -15,3 +15,16 @@ export function createVkClient(auth: VkAuthConfig): VK {
     pollingGroupId: auth.groupId,
   });
 }
+
+/**
+ * A community (group) access token cannot call `messages.getHistory` -- VK
+ * returns `[15] Access denied` regardless of scope, confirmed directly
+ * against the live API (see `src/vk/history-backfill.ts`). Reading a
+ * beседа's history requires a personal VK account's own token instead, same
+ * relationship Telegram has between its Bot API token and the MTProto user
+ * session `bot-agi-sync` uses for full history sync. No `pollingGroupId`:
+ * this client only ever makes bounded REST calls, never starts Long Poll.
+ */
+export function createVkUserClient(userToken: string, apiVersion: string): VK {
+  return new VK({ token: userToken, apiVersion });
+}

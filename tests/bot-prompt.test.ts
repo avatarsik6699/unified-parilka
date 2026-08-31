@@ -47,6 +47,35 @@ test("system prompt preserves the persona and executable agent contract", () => 
   assert.equal("skipSentinel" in BOT_AGENT_CONTRACT, false);
 });
 
+test("VK transport gets a plain-text-only prompt with no Telegram identity or markdown contract", () => {
+  const prompt = buildBotSystemPrompt({
+    chatTitle: "Test VK Chat",
+    personaPrompt: "# Кто ты\nТестовая персона для юнит-тестов.",
+    botUsername: "@bichiycepenstotri_bot",
+    botName: "БычийЦепень103",
+    modelLabel: "provider/model-v2",
+    transport: "vk",
+    approximateMemberCount: 42,
+  });
+
+  assert.match(prompt, /участник чата «Test VK Chat» во ВКонтакте/);
+  assert.doesNotMatch(prompt, /Telegram-чата/);
+  assert.doesNotMatch(prompt, /Твой ник/);
+  assert.doesNotMatch(prompt, /@bichiycepenstotri_bot/);
+  assert.match(prompt, /Отображаешься как «БычийЦепень103»/);
+  assert.match(prompt, /обычное текстовое сообщение ВКонтакте/);
+  assert.doesNotMatch(prompt, /нативное Telegram Rich Message/);
+  assert.doesNotMatch(prompt, /\*\*жирный\*\*/);
+  assert.doesNotMatch(prompt, /`# H1`/);
+  // The rest of the contract (persona, tool budget, evidence rules) is
+  // transport-independent and must still be present.
+  assert.match(prompt, /Тестовая персона для юнит-тестов/);
+  assert.match(prompt, /Фиксированного лимита на model\/tool ходы нет/);
+  for (const toolName of BOT_AGENT_CONTRACT.toolNames) {
+    assert.ok(prompt.includes(`\`${toolName}\``), toolName);
+  }
+});
+
 test("system prompt keeps GFM tables compact, header-first and bounded", () => {
   const prompt = buildBotSystemPrompt({
     chatTitle: "Test Chat",

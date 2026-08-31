@@ -30,6 +30,7 @@ import type { TurnCoordinator } from "../bot/turn-coordinator.js";
 import type { BotTurnWorker, JsonEventLogger } from "../bot/worker.js";
 import type { CuriosityTriggerLoop } from "../assistant-curiosity-loop.js";
 import type { ApprovalPosterLoop } from "../human-persona-approval-poster.js";
+import type { VkHistoryBackfillLoop } from "../vk/history-backfill.js";
 import type { MessageStore } from "../store.js";
 import type { AssistantChatConfig } from "../bot-config/assistant.js";
 
@@ -62,6 +63,13 @@ export interface ComposeBotDaemonOptions {
   api: BotDaemonApi;
   /** Pre-constructed VK client (undefined when no chat has transport: "vk"). */
   vkApi?: VK;
+  /**
+   * Pre-constructed VK client authenticated with a personal account's own
+   * token (undefined when BOT_VK_USER_TOKEN is unset) -- see
+   * `src/vk/history-backfill.ts` for why this must be a different token
+   * from `vkApi`.
+   */
+  vkUserApi?: VK;
   router: TurnModelRouter;
   vector?: BotVectorSearchPort;
   webSearch?: WebSearchProvider;
@@ -105,6 +113,7 @@ export interface BotDaemonComposition {
   memoryTools: BotMemoryTools;
   approvalPoster?: ApprovalPosterLoop;
   curiosityTrigger?: CuriosityTriggerLoop;
+  vkHistoryBackfill?: VkHistoryBackfillLoop;
 }
 
 export interface ProductionBotDaemonFactories {
@@ -125,6 +134,8 @@ export interface ProductionBotDaemonFactories {
     config: Readonly<BotResearchGatewayRuntimeConfig>,
   ): ResearchGatewayProvider;
   createVk(config: Readonly<BotVkRuntimeConfig>): VK;
+  /** Only called when `config.vk.userToken` is set -- see `vkUserApi`. */
+  createVkUser(config: Readonly<BotVkRuntimeConfig>): VK;
 }
 
 export interface CreateProductionBotDaemonOptions {

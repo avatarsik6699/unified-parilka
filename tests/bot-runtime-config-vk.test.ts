@@ -86,6 +86,41 @@ test("a non-positive or non-integer group id is rejected", () => {
   );
 });
 
+test("BOT_VK_USER_TOKEN is absent by default and historyBackfillLimit still gets its default", () => {
+  const config = parseBotRuntimeConfig({
+    ...VALID_ENV,
+    BOT_VK_GROUP_TOKEN: "vk1.a-fake-token",
+    BOT_VK_GROUP_ID: "123456",
+  });
+  assert.equal(config.vk?.userToken, undefined);
+  assert.equal(config.vk?.historyBackfillLimit, 1_000);
+});
+
+test("a malformed BOT_VK_USER_TOKEN is rejected the same way as the group token", () => {
+  assert.throws(
+    () =>
+      parseBotRuntimeConfig({
+        ...VALID_ENV,
+        BOT_VK_GROUP_TOKEN: "vk1.a-fake-token",
+        BOT_VK_GROUP_ID: "123456",
+        BOT_VK_USER_TOKEN: "not safe\nvalue",
+      }),
+    /BOT_VK_USER_TOKEN must be a non-empty safe HTTP header value/u,
+  );
+});
+
+test("BOT_VK_HISTORY_BACKFILL_LIMIT overrides the default", () => {
+  const config = parseBotRuntimeConfig({
+    ...VALID_ENV,
+    BOT_VK_GROUP_TOKEN: "vk1.a-fake-token",
+    BOT_VK_GROUP_ID: "123456",
+    BOT_VK_USER_TOKEN: "vk1.a-fake-user-token",
+    BOT_VK_HISTORY_BACKFILL_LIMIT: "50",
+  });
+  assert.equal(config.vk?.userToken, "vk1.a-fake-user-token");
+  assert.equal(config.vk?.historyBackfillLimit, 50);
+});
+
 test("safe config never leaks the raw group token, only whether it is configured", () => {
   const config = parseBotRuntimeConfig({
     ...VALID_ENV,
@@ -97,9 +132,33 @@ test("safe config never leaks the raw group token, only whether it is configured
     groupTokenConfigured: true,
     groupId: 123_456,
     apiVersion: "5.199",
+    userTokenConfigured: false,
+    historyBackfillLimit: 1_000,
   });
   assert.equal(
     JSON.stringify(safe).includes("vk1.super-secret-token-value"),
+    false,
+  );
+});
+
+test("safe config reports userTokenConfigured without leaking the raw personal-account token", () => {
+  const config = parseBotRuntimeConfig({
+    ...VALID_ENV,
+    BOT_VK_GROUP_TOKEN: "vk1.super-secret-token-value",
+    BOT_VK_GROUP_ID: "123456",
+    BOT_VK_USER_TOKEN: "vk1.another-super-secret-value",
+    BOT_VK_HISTORY_BACKFILL_LIMIT: "2500",
+  });
+  const safe = safeBotRuntimeConfig(config);
+  assert.deepEqual(safe.vk, {
+    groupTokenConfigured: true,
+    groupId: 123_456,
+    apiVersion: "5.199",
+    userTokenConfigured: true,
+    historyBackfillLimit: 2_500,
+  });
+  assert.equal(
+    JSON.stringify(safe).includes("vk1.another-super-secret-value"),
     false,
   );
 });

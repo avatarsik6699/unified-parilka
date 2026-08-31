@@ -38,6 +38,11 @@ import type { TypingPort } from "../bot/typing.js";
 import type { BotTurnPublisher } from "../bot/worker.js";
 import { BotTurnWorker } from "../bot/worker.js";
 import { VkLongPollLoop } from "../vk/long-poll-loop.js";
+import {
+  VkHistoryBackfillLoop,
+  createVkHistoryBackfillPort,
+} from "../vk/history-backfill.js";
+import { peerIdFromVkChatId } from "../vk/types.js";
 import { ApprovalPosterLoop } from "../human-persona-approval-poster.js";
 import type {
   BotDaemonChatComposition,
@@ -182,6 +187,7 @@ export function composeBotDaemon(
       prompt: {
         botUsername: config.botUsername,
         botName: config.botDisplayName,
+        transport: chat.transport,
         chatTitle: chat.chatTitle,
         personaPrompt: chat.personaPrompt,
         historyDescription: config.historyDescription,
@@ -307,6 +313,7 @@ export function composeBotDaemon(
         })
       : undefined;
   const curiosityTrigger = buildCuriosityTriggerLoop(options, config);
+  const vkHistoryBackfill = buildVkHistoryBackfillLoop(options, config);
   const runtime = new BotApiRuntime({
     poller,
     workers: workerPump,
@@ -315,6 +322,7 @@ export function composeBotDaemon(
     ...(approvalPoster === undefined ? {} : { approvalPoster }),
     ...(curiosityTrigger === undefined ? {} : { curiosityTrigger }),
     ...(vkPoller === undefined ? {} : { vkPoller }),
+    ...(vkHistoryBackfill === undefined ? {} : { vkHistoryBackfill }),
   });
 
   return {
@@ -323,6 +331,7 @@ export function composeBotDaemon(
     workerPump,
     ...(approvalPoster === undefined ? {} : { approvalPoster }),
     ...(curiosityTrigger === undefined ? {} : { curiosityTrigger }),
+    ...(vkHistoryBackfill === undefined ? {} : { vkHistoryBackfill }),
     workers,
     processor,
     chats,
@@ -330,6 +339,44 @@ export function composeBotDaemon(
     mediaTools,
     memoryTools,
   };
+}
+
+/**
+ * Builds the VK pre-join history backfill loop (undefined unless both
+ * `BOT_VK_USER_TOKEN` is set and at least one `transport: "vk"` chat is
+ * configured) -- see `src/vk/history-backfill.ts` for why this needs a
+ * separate personal-account client from the community `vkApi`.
+ */
+function buildVkHistoryBackfillLoop(
+  options: ComposeBotDaemonOptions,
+  config: ComposeBotDaemonOptions["config"],
+): VkHistoryBackfillLoop | undefined {
+  if (
+    options.vkUserApi === undefined ||
+    config.vk === undefined ||
+    config.vk.userToken === undefined
+  ) {
+    return undefined;
+  }
+  const vkChats = options.chats
+    .filter((chat) => chat.transport === "vk")
+    .map((chat) => {
+      const peerId = peerIdFromVkChatId(chat.allowedChatId);
+      return peerId === undefined
+        ? undefined
+        : { chatId: chat.allowedChatId, peerId, chatTitle: chat.chatTitle };
+    })
+    .filter((chat): chat is NonNullable<typeof chat> => chat !== undefined);
+  if (vkChats.length === 0) {
+    return undefined;
+  }
+  return new VkHistoryBackfillLoop({
+    store: options.store,
+    port: createVkHistoryBackfillPort(options.vkUserApi),
+    chats: vkChats,
+    totalLimit: config.vk.historyBackfillLimit,
+    logger: options.logger,
+  });
 }
 
 /**

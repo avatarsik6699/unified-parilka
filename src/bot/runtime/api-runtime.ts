@@ -1,5 +1,6 @@
 import type { CuriosityTriggerLoop } from "../../assistant-curiosity-loop.js";
 import type { ApprovalPosterLoop } from "../../human-persona-approval-poster.js";
+import type { VkHistoryBackfillLoop } from "../../vk/history-backfill.js";
 import type { JsonEventLogger } from "../worker.js";
 import type { BotApiLongPoller } from "./long-poller.js";
 import type { BotWorkerDrainResult, BotWorkerPump } from "./worker-pump.js";
@@ -44,6 +45,13 @@ export interface BotApiRuntimeOptions {
    * affects it.
    */
   vkPoller?: VkLongPollLoop;
+  /**
+   * VK pre-join history backfill (undefined when BOT_VK_USER_TOKEN is
+   * unset). Same isolation contract as `approvalPoster`/`curiosityTrigger`:
+   * runs concurrently with the primary poller, a failure is logged and
+   * never affects it.
+   */
+  vkHistoryBackfill?: VkHistoryBackfillLoop;
 }
 
 export class BotApiRuntime {
@@ -54,6 +62,7 @@ export class BotApiRuntime {
   readonly #approvalPoster: ApprovalPosterLoop | undefined;
   readonly #curiosityTrigger: CuriosityTriggerLoop | undefined;
   readonly #vkPoller: VkLongPollLoop | undefined;
+  readonly #vkHistoryBackfill: VkHistoryBackfillLoop | undefined;
 
   constructor(options: BotApiRuntimeOptions) {
     this.#poller = options.poller;
@@ -68,6 +77,7 @@ export class BotApiRuntime {
     this.#approvalPoster = options.approvalPoster;
     this.#curiosityTrigger = options.curiosityTrigger;
     this.#vkPoller = options.vkPoller;
+    this.#vkHistoryBackfill = options.vkHistoryBackfill;
   }
 
   async run(signal?: AbortSignal): Promise<BotWorkerDrainResult> {
@@ -95,6 +105,13 @@ export class BotApiRuntime {
           failure: error instanceof Error ? error.message : String(error),
         });
       });
+    const vkHistoryBackfillPromise = this.#vkHistoryBackfill
+      ?.run(posterController.signal)
+      .catch((error: unknown) => {
+        this.#log("warn", "vk.history_backfill_loop_failed", {
+          failure: error instanceof Error ? error.message : String(error),
+        });
+      });
     let pollError: unknown;
     try {
       await this.#poller.run(signal, () => this.#workers.start());
@@ -108,6 +125,7 @@ export class BotApiRuntime {
       await posterPromise;
       await curiosityPromise;
       await vkPromise;
+      await vkHistoryBackfillPromise;
     }
     // Queued turns are already durable. Graceful shutdown stops admission and
     // waits only for in-flight workers; it does not begin fresh model calls

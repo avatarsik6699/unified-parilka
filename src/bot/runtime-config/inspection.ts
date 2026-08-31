@@ -85,6 +85,8 @@ export function safeBotRuntimeConfig(
             groupTokenConfigured: true,
             groupId: vk.groupId,
             apiVersion: vk.apiVersion,
+            userTokenConfigured: vk.userToken !== undefined,
+            historyBackfillLimit: vk.historyBackfillLimit,
           },
         }),
   };
