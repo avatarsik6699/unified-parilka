@@ -103,18 +103,25 @@ PR.
 3. ~~Исходящий rich text → VK-совместимая деградация.~~ **Сделано**: новый
    `renderVkPlainText` (`src/bot/runtime/vk-text.ts`) снимает заголовки,
    `**жирный**`/`*курсив*`/`~~зачёркнутый~~`, inline- и fenced-код, цитаты,
-   горизонтальные линии, `$$...$$` и превращает `[текст](url)` в
-   `текст (url)`; не полный CommonMark-парсер, а bounded strip именно тех
+   горизонтальные линии, `$$...$$` и превращает markdown-ссылку вида
+   `текст + круглые скобки со ссылкой` в обычный `текст (ссылка)`; не полный
+   CommonMark-парсер, а bounded strip именно тех
    конструкций, которым учит Telegram Rich Message контракт.
    `VkBotTurnPublisher.publish` (`src/bot/runtime/vk-adapters.ts`) применяет
    его ко всем режимам публикации (`rich`/`plain`/`photo`/`voice`), не
    только к `rich`, — важно, потому что `createTelegramPublication`
    транспорт-агностичен и его wide-table fallback безусловно вставляет
    `**жирный**` ordinals независимо от промпт-контракта модели.
-4. **Отправка сгенерированных изображений в VK.** Реализовать
-   `vk.upload`-путь для `photo`-publication в `VkBotTurnPublisher`, чтобы
-   `generate_image` результат приходил в VK реальным фото-вложением, а не
-   текстовой подписью. Целевой файл: `src/bot/runtime/vk-adapters.ts`.
+4. ~~Отправка сгенерированных изображений в VK.~~ **Сделано**:
+   `VkBotTurnPublisher.publish` (`src/bot/runtime/vk-adapters.ts`) для
+   `mode: "photo"` больше не деградирует до текста — грузит байты через
+   `vk.upload.messagePhoto` (vk-io уже несёт весь multi-step upload-flow:
+   `getMessagesUploadServer` → multipart POST → `saveMessagesPhoto`),
+   присоединяет вернувшийся `photo<owner_id>_<id>` как `attachment` в
+   `messages.send` вместе с markdown-очищенной подписью через
+   `renderVkPlainText`. В отличие от прежнего text-only пути пустая подпись
+   теперь разрешена — фото само по себе содержательно, как и у Telegram-
+   стороны (`sendPhoto` тоже не требует непустой caption).
 5. **VK Callback API (последняя очередь).** Отдельное исследование заново:
    миграция с Long Poll на Callback API (или их сосуществование) ради
    реакций, событий состава/названия беседы, статусов прочтения. Единственный
@@ -158,10 +165,9 @@ slice (например `npx tsx --test tests/vk-update.test.ts` и смежны
 
 ## Copy-Ready Goal Prompt
 
-Продолжи backlog `006-todo.md`: реализуй следующий незакрытый пункт
-Implementation Checklist по порядку (пункты 1-3 уже сделаны — начни с пункта 4,
-отправка сгенерированных изображений в VK, если явно не указано иное), с
-собственной верификацией и явным запросом авторизации на commit/deploy. Не
-реализовывай inline-кнопки/keyboard или отправку голоса для VK — это исключено
-пользователем. Пункт 5 (Callback API) не начинай без отдельного нового
-research-прохода.
+Пункты 1-4 сделаны. Единственное, что осталось в этом backlog — пункт 5,
+VK Callback API, намеренно отложенный в самую последнюю очередь. Не начинай
+его без отдельного нового research-прохода (Source Research Summary с нуля:
+Callback API требует нового HTTP-приёмника рядом с `bot-agi-bot`, а не
+просто нового адаптера, как пункты 1-4). Не реализовывай inline-кнопки/
+keyboard или отправку голоса для VK — это исключено пользователем навсегда.

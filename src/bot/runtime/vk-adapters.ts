@@ -29,8 +29,10 @@ const RETRYABLE_VK_CODES: ReadonlySet<number> = new Set([
  * reused rather than duplicated. VK has no Telegram-style native "rich
  * message"/entity API, so `rich` publications degrade through
  * `renderVkPlainText` (strips Markdown syntax rather than showing it
- * literally); `photo`/`voice` degrade to their caption the same way -- VK
- * media upload (a multi-step `vk.upload` flow) is out of scope for v1.
+ * literally); `voice` degrades to its caption the same way -- VK voice-
+ * message send is explicitly out of scope (see `loop-develop/current-todo/
+ * 006-todo.md`, excluded by the operator, not a v1 gap). `photo` uploads the
+ * bytes as a real VK photo attachment via `vk.upload.messagePhoto`.
  */
 export class VkBotTurnPublisher implements BotTurnPublisher {
   readonly #vk: VK;
@@ -46,8 +48,22 @@ export class VkBotTurnPublisher implements BotTurnPublisher {
     if (peerId === undefined) {
       return failure(0, { kind: "unknown", code: "INVALID_VK_CHAT_ID" });
     }
+    if (request.publication.mode === "photo") {
+      const { photoBytes, caption } = request.publication;
+      if (!Buffer.isBuffer(photoBytes) || photoBytes.length === 0) {
+        return failure(0, {
+          kind: "unknown",
+          code: "INVALID_PUBLISH_REQUEST",
+        });
+      }
+      return this.#publishPhoto(
+        request,
+        peerId,
+        photoBytes,
+        renderVkPlainText(caption),
+      );
+    }
     const sourceText =
-      request.publication.mode === "photo" ||
       request.publication.mode === "voice"
         ? request.publication.caption
         : request.publication.plainText;
@@ -55,6 +71,56 @@ export class VkBotTurnPublisher implements BotTurnPublisher {
       return failure(0, { kind: "unknown", code: "INVALID_PUBLISH_REQUEST" });
     }
     return this.#publishPlain(request, peerId, renderVkPlainText(sourceText));
+  }
+
+  async #publishPhoto(
+    request: TelegramPublishRequest,
+    peerId: number,
+    photoBytes: Buffer,
+    caption: string,
+  ): Promise<TelegramPublisherResult> {
+    if (request.signal.aborted) {
+      return failure(0, { kind: "timeout", code: "ABORTED" });
+    }
+    let attachment: string;
+    try {
+      const photo = await this.#vk.upload.messagePhoto({
+        peer_id: peerId,
+        source: {
+          value: photoBytes,
+          filename: "image.jpg",
+          contentType: "image/jpeg",
+        },
+      });
+      attachment = photo.toString();
+    } catch (error) {
+      return classifyThrownFailure(error, request.signal, 0);
+    }
+    try {
+      const response = await this.#vk.api.messages.send({
+        peer_id: peerId,
+        message: caption,
+        attachment,
+        random_id: randomInt(-2_147_483_648, 2_147_483_647),
+        // Same `forward`/`is_reply` replacement for `reply_to` documented on
+        // #publishPlain below.
+        forward: JSON.stringify({
+          peer_id: peerId,
+          conversation_message_ids: [request.replyToMessageId],
+          is_reply: true,
+        }),
+      });
+      const messageId = readVkMessageId(response);
+      if (messageId === undefined) {
+        return failure(0, {
+          kind: "unknown",
+          code: "MALFORMED_SUCCESS_RESPONSE",
+        });
+      }
+      return { ok: true, chunksSent: 1, telegramMessageId: messageId };
+    } catch (error) {
+      return classifyThrownFailure(error, request.signal, 0);
+    }
   }
 
   async #publishPlain(
