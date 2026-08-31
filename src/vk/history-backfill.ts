@@ -36,6 +36,16 @@ export interface VkHistoryPort {
 
 export interface VkHistoryBackfillChat {
   chatId: string;
+  /**
+   * The beседа's `peer_id` as seen by the *personal* account behind
+   * `BOT_VK_USER_TOKEN` -- NOT the same number as `chatId`'s own
+   * `vk:<peer_id>` (that one is the community/group token's view).
+   * Confirmed directly against the live API that these can differ for the
+   * very same beседа; see `AssistantChatConfig.vkHistoryPeerId`'s doc
+   * comment (`src/bot-config/assistant.ts`) for the incident that made
+   * this an explicit, separately-configured field rather than an assumed
+   * equality.
+   */
   peerId: number;
   chatTitle: string;
 }

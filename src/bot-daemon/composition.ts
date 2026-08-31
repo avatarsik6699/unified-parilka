@@ -42,7 +42,6 @@ import {
   VkHistoryBackfillLoop,
   createVkHistoryBackfillPort,
 } from "../vk/history-backfill.js";
-import { peerIdFromVkChatId } from "../vk/types.js";
 import { ApprovalPosterLoop } from "../human-persona-approval-poster.js";
 import type {
   BotDaemonChatComposition,
@@ -358,15 +357,23 @@ function buildVkHistoryBackfillLoop(
   ) {
     return undefined;
   }
+  // `vkHistoryPeerId` (the operator-configured, personal-account view of
+  // this beседа's peer_id), never `peerIdFromVkChatId(chat.allowedChatId)`
+  // (the community/group-token view) -- the two are NOT the same number
+  // for the same beседа (confirmed against the live API), and assuming
+  // otherwise previously caused backfill to pull and store an unrelated
+  // beседа's messages under this chat's local cache. A VK chat with no
+  // vkHistoryPeerId configured is simply skipped, not backfilled with a
+  // guessed id.
   const vkChats = options.chats
-    .filter((chat) => chat.transport === "vk")
-    .map((chat) => {
-      const peerId = peerIdFromVkChatId(chat.allowedChatId);
-      return peerId === undefined
-        ? undefined
-        : { chatId: chat.allowedChatId, peerId, chatTitle: chat.chatTitle };
-    })
-    .filter((chat): chat is NonNullable<typeof chat> => chat !== undefined);
+    .filter(
+      (chat) => chat.transport === "vk" && chat.vkHistoryPeerId !== undefined,
+    )
+    .map((chat) => ({
+      chatId: chat.allowedChatId,
+      peerId: chat.vkHistoryPeerId!,
+      chatTitle: chat.chatTitle,
+    }));
   if (vkChats.length === 0) {
     return undefined;
   }

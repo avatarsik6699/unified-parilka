@@ -101,6 +101,12 @@ test("VK history backfill is wired only when both a personal-account client and 
       allowedChatId: "vk:2000000001",
       chatTitle: "VK Chat",
       personaPrompt: "persona",
+      // The personal (BOT_VK_USER_TOKEN) account's own view of this
+      // beседа's peer_id -- deliberately different from the community-
+      // token peer_id (2000000001) encoded in allowedChatId, to prove the
+      // composition actually threads this field through rather than
+      // re-deriving the (wrong) community one.
+      vkHistoryPeerId: 2000000901,
     },
   ];
 

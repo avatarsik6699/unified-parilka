@@ -55,6 +55,14 @@ export interface AssistantChatConfig {
   approximateMemberCount?: number;
   personaPrompt: string;
   curiosityTrigger?: AssistantCuriosityChatConfig;
+  /**
+   * VK only -- the beседа's `peer_id` as seen by the *personal* account
+   * behind `BOT_VK_USER_TOKEN`, independent of `allowedChatId`'s own
+   * `vk:<peer_id>` (the community/group token's view). See the schema's
+   * doc comment on `vkHistoryPeerId` for why these two numbers can differ
+   * for the very same beседа.
+   */
+  vkHistoryPeerId?: number;
 }
 
 /**
@@ -139,6 +147,9 @@ function parseAssistantEntry(
     ...(entry.curiosityTrigger === undefined
       ? {}
       : { curiosityTrigger: parseCuriosityTrigger(entry.curiosityTrigger) }),
+    ...(entry.vkHistoryPeerId === undefined
+      ? {}
+      : { vkHistoryPeerId: entry.vkHistoryPeerId }),
   };
 }
 

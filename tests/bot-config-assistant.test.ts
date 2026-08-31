@@ -278,3 +278,43 @@ test('a "vk:" chatId is rejected without transport: "vk"', (t) => {
   ]);
   assert.throws(() => loadChats(configPath), /Telegram integer id/u);
 });
+
+test('a "vk:" chat without vkHistoryPeerId parses with the field simply absent', (t) => {
+  const directory = fixtureDir(t);
+  const persona = writePersona(directory, "p.md", "# Кто ты\nПерсона.");
+  const configPath = writeConfig(directory, [
+    {
+      role: "assistant",
+      transport: "vk",
+      chatId: "vk:2000000001",
+      chatTitle: "VK Chat",
+      personaPromptPath: persona,
+    },
+  ]);
+  const chats = loadChats(configPath);
+  assert.equal(chats[0]!.vkHistoryPeerId, undefined);
+});
+
+test(
+  "vkHistoryPeerId is threaded through distinctly from the community-token " +
+    "peer_id encoded in chatId -- the exact confusion that caused an " +
+    "unrelated беседа's messages to be backfilled into this chat's cache",
+  (t) => {
+    const directory = fixtureDir(t);
+    const persona = writePersona(directory, "p.md", "# Кто ты\nПерсона.");
+    const configPath = writeConfig(directory, [
+      {
+        role: "assistant",
+        transport: "vk",
+        chatId: "vk:2000000002",
+        chatTitle: "VK Chat",
+        personaPromptPath: persona,
+        vkHistoryPeerId: 2000000117,
+      },
+    ]);
+    const chats = loadChats(configPath);
+    assert.equal(chats[0]!.allowedChatId, "vk:2000000002");
+    assert.equal(chats[0]!.vkHistoryPeerId, 2000000117);
+    assert.notEqual(chats[0]!.vkHistoryPeerId, 2000000002);
+  },
+);

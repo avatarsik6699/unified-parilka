@@ -72,6 +72,23 @@ const assistantBotDefinitionSchema = z
     chatId: z.string(),
     chatTitle: z.string(),
     personaPromptPath: z.string(),
+    /**
+     * VK only, and independent of `chatId`'s own `vk:<peer_id>` -- VK's
+     * `peer_id` numbering for a given beседа is NOT global: it differs
+     * between how the community/group (bot) token sees it (encoded in
+     * `chatId`) and how a personal account's own token sees the very same
+     * beседа (confirmed directly against the live API: a chat that is
+     * `chatId: "vk:2000000002"` from the community's view was `peer_id:
+     * 2000000117` from one member's own account). `src/vk/history-
+     * backfill.ts`'s `messages.getHistory` calls use the personal
+     * (BOT_VK_USER_TOKEN) account, so they need this account's own view of
+     * the peer_id, not `chatId`'s. Absent means history backfill is simply
+     * skipped for this chat (fails closed, never assumes the two numbers
+     * are equal -- that exact assumption previously caused a real incident:
+     * backfill silently pulled and stored an unrelated beседа's messages
+     * under this chat's local cache).
+     */
+    vkHistoryPeerId: z.number().int().positive().optional(),
     approximateMemberCount: z.number().int().positive().optional(),
     /** Off unless explicitly enabled -- see AGENTS.md's assistant curiosity trigger note. */
     curiosityTrigger: assistantCuriosityTriggerSchema.optional(),
