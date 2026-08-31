@@ -62,6 +62,20 @@ test("system prompt biases toward brevity by default without imposing a hard cap
   assert.match(prompt, /Наращивай длину только когда вопрос сам её требует/);
 });
 
+test("system prompt steers away from canceralite and AI-text clichés", () => {
+  const prompt = buildBotSystemPrompt({
+    chatTitle: "Test Chat",
+    personaPrompt: "# Кто ты\nТестовая персона для юнит-тестов.",
+    botUsername: "testbot",
+    botName: "Test Bot",
+    modelLabel: "provider/model",
+  });
+
+  assert.match(prompt, /# Живой стиль/);
+  assert.match(prompt, /канцелярит/);
+  assert.match(prompt, /не просто X, а Y/);
+});
+
 test("VK transport gets a plain-text-only prompt with no Telegram identity or markdown contract", () => {
   const prompt = buildBotSystemPrompt({
     chatTitle: "Test VK Chat",

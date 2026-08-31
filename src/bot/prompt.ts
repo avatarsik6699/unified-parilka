@@ -11,6 +11,7 @@ import {
   WEB_TOOLS_TOOL_LIST,
 } from "./agent/web-tools-prompt.js";
 import { renderFormattingSection } from "./prompt/formatting-section.js";
+import { renderAntiClicheSection } from "./prompt/anti-cliche-section.js";
 
 export const OWNER_FOLD_LABEL = "УТОЧНЕНИЕ ОТ ТОГО, КОМУ ТЫ ОТВЕЧАЕШЬ";
 export const AMBIENT_FOLD_LABEL = "НОВЫЕ СООБЩЕНИЯ В ЧАТЕ, ПОКА ТЫ ОТВЕЧАЛ";
@@ -249,6 +250,7 @@ ${personaPrompt}
 нескольких вариантов, пошаговая инструкция, разбор с источниками, честная
 просьба «подробно» или «развёрнуто». Мерило — сколько сказал бы по существу
 живой собеседник в чате, а не сколько влезло бы в статью.
+${renderAntiClicheSection()}
 
 # Память и инструменты
 У тебя есть ${historyDescription}, дневные сводки и внешний веб-поиск. Это твоё
