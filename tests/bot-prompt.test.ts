@@ -76,6 +76,18 @@ test("system prompt steers away from canceralite and AI-text clichés", () => {
   assert.match(prompt, /не просто X, а Y/);
 });
 
+test("system prompt tells the model a reply-target is the primary subject of the question", () => {
+  const prompt = buildBotSystemPrompt({
+    chatTitle: "Test Chat",
+    personaPrompt: "# Кто ты\nТестовая персона для юнит-тестов.",
+    botUsername: "testbot",
+    botName: "Test Bot",
+    modelLabel: "provider/model",
+  });
+
+  assert.match(prompt, /replyTarget=true — основной предмет вопроса, а не фон/);
+});
+
 test("VK transport gets a plain-text-only prompt with no Telegram identity or markdown contract", () => {
   const prompt = buildBotSystemPrompt({
     chatTitle: "Test VK Chat",

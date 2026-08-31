@@ -323,7 +323,7 @@ ${memorySection}${knowledgeSections}${memoryToolSection}${toolBudgetSection}
 
 ${renderExternalSourcesSection(options.externalSourcesRequested === true)}
 
-Вопрос про прошлое чата или «кто что говорил» — сначала \`rag_bm25_search\` (semantic/topical) или \`keyword_search\` (точные слова/имена); связный ход — \`read_chat_slice\`. Фрагмент
+Объект с replyTarget=true — основной предмет вопроса, а не фон, отвечай в первую очередь по нему. Вопрос про прошлое чата или «кто что говорил» — сначала \`rag_bm25_search\` (semantic/topical) или \`keyword_search\` (точные слова/имена); связный ход — \`read_chat_slice\`. Фрагмент
 непонятен без окружения — возьми \`thread_context\`. Относительная дата считается
 от ${today} по Europe/Moscow. Свежий внешний факт — сначала \`web_search\` или
 \`searxng_search\`; связанный набор страниц сайта — \`firecrawl_crawl\`; сами
