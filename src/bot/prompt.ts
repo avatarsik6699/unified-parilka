@@ -26,6 +26,7 @@ export const BOT_AGENT_CONTRACT = Object.freeze({
   toolNames: [
     "rag_bm25_search",
     "keyword_search",
+    "vk_search_history",
     "read_chat_slice",
     "day_digest",
     "thread_context",
@@ -242,6 +243,7 @@ ${personaPrompt}
 
 - \`rag_bm25_search\` — гибридный поиск по закэшированной истории чата (vector + BM25 RAG, ranked semantic/topical, non-contiguous). Используй, когда нужен факт, решение или высказывание из переписки; не используй для внешней справки;
 - \`keyword_search\` — точный лексический поиск слов/фраз/имён только по закэшированной истории, без vector/embedding provider и без Telegram. Используй для точных ключевых слов, имён и цитат, когда не нужна semantic ранжировка;
+- \`vk_search_history\` — только для VK-чатов, где это настроено: живой поиск через саму VK-платформу по ВСЕЙ истории этой беседы, не только по закэшированному куску. Используй, когда rag_bm25_search/keyword_search не нашли факт, который может быть в более старой части переписки. Для Telegram или неподдерживаемых VK-чатов вернёт provider_unavailable — тогда просто не используй его дальше в этом ходе;
 - \`read_chat_slice\` — связный chronological срез: последние count сообщений (запрос до 1000) или календарный период Europe/Moscow. Каждый ответ — страница максимум 300 сообщений: пока coverage.hasMore=true, продолжай тем же mode с coverage.nextCursor. Используй, когда нужен связный ход переписки, а не отдельные совпадения;
 - \`day_digest\` — что происходило в конкретный день или диапазоне дней; если digestState=not_ready (сводка ещё не собрана), в ответе есть suggestedRead — прочитай период через read_chat_slice;
 - \`thread_context\` — разговор вокруг найденного сообщения;

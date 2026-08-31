@@ -1,7 +1,4 @@
-import {
-  assertTimeZone,
-  DEFAULT_TIME_ZONE,
-} from "./calendar.js";
+import { assertTimeZone, DEFAULT_TIME_ZONE } from "./calendar.js";
 import {
   executeDayDigest,
   executeKeywordSearch,
@@ -20,19 +17,18 @@ import {
   type BotReadToolsOptions,
   type PaperSearchProvider,
   type ResearchGatewayProvider,
+  type VkLiveSearchProvider,
   type WebFetchProvider,
   type WebSearchProvider,
 } from "./contracts.js";
-import {
-  failure,
-  normalizeReadToolError,
-} from "./payload.js";
+import { failure, normalizeReadToolError } from "./payload.js";
 import {
   executePaperSearch,
   DEFAULT_PAPER_RATE_LIMIT_MS,
   DEFAULT_PAPER_TIMEOUT_MS,
 } from "./paper-executor.js";
 import { executeResearchLookup } from "./research-executor.js";
+import { executeVkSearchHistory } from "./vk-live-search-executor.js";
 import {
   dayDigestArgsSchema,
   keywordSearchArgsSchema,
@@ -41,6 +37,7 @@ import {
   readChatSliceArgsSchema,
   researchLookupArgsSchema,
   threadContextArgsSchema,
+  vkSearchHistoryArgsSchema,
   webFetchArgsSchema,
   webSearchArgsSchema,
 } from "./schemas.js";
@@ -55,6 +52,7 @@ const DEFAULT_CHAT_SEARCH_TIMEOUT_MS = 15_000;
 const DEFAULT_WEB_TIMEOUT_MS = 60_000;
 const MAX_WEB_TIMEOUT_MS = 5 * 60_000;
 const DEFAULT_RESEARCH_GATEWAY_TIMEOUT_MS = 20_000;
+const DEFAULT_VK_LIVE_SEARCH_TIMEOUT_MS = 15_000;
 
 export class BotReadTools {
   readonly #cacheContext: CacheExecutorContext;
@@ -62,11 +60,15 @@ export class BotReadTools {
   readonly #webFetch: WebFetchProvider;
   readonly #paperSearch: PaperSearchProvider | undefined;
   readonly #researchGateway: ResearchGatewayProvider | undefined;
+  readonly #vkLiveSearch: VkLiveSearchProvider | undefined;
   readonly #webSearchTimeoutMs: number;
   readonly #webFetchTimeoutMs: number;
   readonly #paperSearchTimeoutMs: number;
   readonly #paperSearchRateLimitMs: number;
   readonly #researchGatewayTimeoutMs: number;
+  readonly #vkLiveSearchTimeoutMs: number;
+  readonly #chatId: string;
+  readonly #botSenderId: string | undefined;
 
   constructor(options: BotReadToolsOptions) {
     const chatId = requireNonEmpty(options.chatId, "chatId");
@@ -75,6 +77,9 @@ export class BotReadTools {
     this.#webFetch = options.webFetch ?? new PublicWebFetchProvider();
     this.#paperSearch = options.paperSearch;
     this.#researchGateway = options.researchGateway;
+    this.#vkLiveSearch = options.vkLiveSearch;
+    this.#chatId = chatId;
+    this.#botSenderId = options.botSenderId;
     const timeZone = options.timeZone ?? DEFAULT_TIME_ZONE;
     assertTimeZone(timeZone);
     const chatSearchTimeoutMs = boundedPositiveInteger(
@@ -106,6 +111,11 @@ export class BotReadTools {
       options.researchGatewayTimeoutMs ?? DEFAULT_RESEARCH_GATEWAY_TIMEOUT_MS,
       MAX_WEB_TIMEOUT_MS,
       "researchGatewayTimeoutMs",
+    );
+    this.#vkLiveSearchTimeoutMs = boundedPositiveInteger(
+      options.vkLiveSearchTimeoutMs ?? DEFAULT_VK_LIVE_SEARCH_TIMEOUT_MS,
+      MAX_WEB_TIMEOUT_MS,
+      "vkLiveSearchTimeoutMs",
     );
     this.#cacheContext = {
       chatId,
@@ -195,6 +205,15 @@ export class BotReadTools {
             this.#researchGatewayTimeoutMs,
             options.signal,
           );
+        case "vk_search_history":
+          return await executeVkSearchHistory(
+            this.#vkLiveSearch,
+            this.#chatId,
+            vkSearchHistoryArgsSchema.parse(rawArgs ?? {}),
+            this.#vkLiveSearchTimeoutMs,
+            options.signal,
+            this.#botSenderId,
+          );
       }
     } catch (error) {
       return failure(name, normalizeReadToolError(error));
@@ -219,14 +238,8 @@ function boundedPositiveInteger(
   maximum: number,
   name: string,
 ): number {
-  if (
-    !Number.isSafeInteger(value) ||
-    value <= 0 ||
-    value > maximum
-  ) {
-    throw new TypeError(
-      `${name} must be an integer from 1 to ${maximum}.`,
-    );
+  if (!Number.isSafeInteger(value) || value <= 0 || value > maximum) {
+    throw new TypeError(`${name} must be an integer from 1 to ${maximum}.`);
   }
   return value;
 }

@@ -50,64 +50,58 @@ export const keywordSearchArgsSchema = z
 
 const transcriptCursorSchema = z.string().trim().min(1).max(512);
 
-export const readChatSliceArgsSchema = z
-  .discriminatedUnion("mode", [
-    z
-      .object({
-        mode: z.literal("recent"),
-        count: z
-          .number()
-          .int()
-          .min(1)
-          .max(MAX_READ_CHAT_SLICE_COUNT)
-          .optional(),
-        cursor: transcriptCursorSchema.optional(),
-      })
-      .strict()
-      .superRefine((value, context) => {
-        if (value.count !== undefined && value.cursor !== undefined) {
+export const readChatSliceArgsSchema = z.discriminatedUnion("mode", [
+  z
+    .object({
+      mode: z.literal("recent"),
+      count: z.number().int().min(1).max(MAX_READ_CHAT_SLICE_COUNT).optional(),
+      cursor: transcriptCursorSchema.optional(),
+    })
+    .strict()
+    .superRefine((value, context) => {
+      if (value.count !== undefined && value.cursor !== undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["cursor"],
+          message: "Pass either count or cursor, not both.",
+        });
+      }
+      if (value.count === undefined && value.cursor === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["count"],
+          message: "recent requires count or a continuation cursor.",
+        });
+      }
+    }),
+  z
+    .object({
+      mode: z.literal("period"),
+      day_from: calendarDaySchema.optional(),
+      day_to: calendarDaySchema.optional(),
+      cursor: transcriptCursorSchema.optional(),
+    })
+    .strict()
+    .superRefine((value, context) => {
+      if (value.cursor !== undefined) {
+        if (value.day_from !== undefined || value.day_to !== undefined) {
           context.addIssue({
             code: "custom",
             path: ["cursor"],
-            message: "Pass either count or cursor, not both.",
+            message: "Pass either period days or cursor, not both.",
           });
         }
-        if (value.count === undefined && value.cursor === undefined) {
-          context.addIssue({
-            code: "custom",
-            path: ["count"],
-            message: "recent requires count or a continuation cursor.",
-          });
-        }
-      }),
-    z
-      .object({
-        mode: z.literal("period"),
-        day_from: calendarDaySchema.optional(),
-        day_to: calendarDaySchema.optional(),
-        cursor: transcriptCursorSchema.optional(),
-      })
-      .strict()
-      .superRefine((value, context) => {
-        if (value.cursor !== undefined) {
-          if (value.day_from !== undefined || value.day_to !== undefined) {
-            context.addIssue({
-              code: "custom",
-              path: ["cursor"],
-              message: "Pass either period days or cursor, not both.",
-            });
-          }
-          return;
-        }
-        if (value.day_from === undefined) {
-          context.addIssue({
-            code: "custom",
-            path: ["day_from"],
-            message: "period requires day_from or a continuation cursor.",
-          });
-        }
-      }),
-  ]);
+        return;
+      }
+      if (value.day_from === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["day_from"],
+          message: "period requires day_from or a continuation cursor.",
+        });
+      }
+    }),
+]);
 
 export const dayDigestArgsSchema = z
   .object({
@@ -124,8 +118,13 @@ export const threadContextArgsSchema = z
   })
   .strict();
 
-export const webSearchArgsSchema = z
-  .object({ query: querySchema })
+export const webSearchArgsSchema = z.object({ query: querySchema }).strict();
+
+export const vkSearchHistoryArgsSchema = z
+  .object({
+    query: querySchema,
+    limit: z.number().int().min(1).max(20).default(10),
+  })
   .strict();
 
 export const webFetchArgsSchema = z
@@ -185,8 +184,7 @@ export const webSearchResponseSchema = z
               .url()
               .refine(
                 (value) =>
-                  value.startsWith("https://") ||
-                  value.startsWith("http://"),
+                  value.startsWith("https://") || value.startsWith("http://"),
                 "Expected an HTTP(S) URL.",
               ),
             title: z.string().max(500).optional(),
@@ -231,8 +229,7 @@ export const paperSearchResponseSchema = z
               .url()
               .refine(
                 (value) =>
-                  value.startsWith("https://") ||
-                  value.startsWith("http://"),
+                  value.startsWith("https://") || value.startsWith("http://"),
                 "Expected an HTTP(S) URL.",
               ),
           })
@@ -283,10 +280,9 @@ export type RagBm25SearchArgs = z.infer<typeof ragBm25SearchArgsSchema>;
 export type KeywordSearchArgs = z.infer<typeof keywordSearchArgsSchema>;
 export type ReadChatSliceArgs = z.infer<typeof readChatSliceArgsSchema>;
 export type DayDigestArgs = z.infer<typeof dayDigestArgsSchema>;
-export type ThreadContextArgs = z.infer<
-  typeof threadContextArgsSchema
->;
+export type ThreadContextArgs = z.infer<typeof threadContextArgsSchema>;
 export type WebSearchArgs = z.infer<typeof webSearchArgsSchema>;
+export type VkSearchHistoryArgs = z.infer<typeof vkSearchHistoryArgsSchema>;
 export type WebFetchArgs = z.infer<typeof webFetchArgsSchema>;
 export type PaperSearchArgs = z.infer<typeof paperSearchArgsSchema>;
 export type ResearchLookupArgs = z.infer<typeof researchLookupArgsSchema>;
@@ -298,7 +294,11 @@ function publicHttpsResponseUrlSchema() {
     .max(2_048)
     .refine((value) => {
       const url = new URL(value);
-      return url.protocol === "https:" && !url.username && !url.password &&
-        (!url.port || url.port === "443");
+      return (
+        url.protocol === "https:" &&
+        !url.username &&
+        !url.password &&
+        (!url.port || url.port === "443")
+      );
     }, "Expected a credential-free default-port HTTPS URL.");
 }

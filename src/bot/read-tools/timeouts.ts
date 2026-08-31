@@ -1,6 +1,8 @@
 import type { StoredMessage } from "../../store.js";
 import type {
   CachedChatSearchResult,
+  VkLiveSearchProvider,
+  VkSearchHit,
   WebFetchProvider,
   WebFetchResponse,
   WebSearchProvider,
@@ -14,9 +16,7 @@ export async function callCacheSearch(params: {
   ) =>
     | readonly StoredMessage[]
     | CachedChatSearchResult
-    | Promise<
-        readonly StoredMessage[] | CachedChatSearchResult
-      >;
+    | Promise<readonly StoredMessage[] | CachedChatSearchResult>;
   timeoutMs: number;
   externalSignal?: AbortSignal;
 }): Promise<readonly StoredMessage[] | CachedChatSearchResult> {
@@ -25,9 +25,7 @@ export async function callCacheSearch(params: {
     throw new ReadToolExecutionError(
       timedOut ? "timeout" : "aborted",
       timedOut,
-      timedOut
-        ? "Chat search timed out."
-        : "Chat search was aborted.",
+      timedOut ? "Chat search timed out." : "Chat search was aborted.",
     );
   }
   const controller = new AbortController();
@@ -39,11 +37,9 @@ export async function callCacheSearch(params: {
       abortSignalTimedOut(params.externalSignal);
     controller.abort(params.externalSignal?.reason);
   };
-  params.externalSignal?.addEventListener(
-    "abort",
-    onExternalAbort,
-    { once: true },
-  );
+  params.externalSignal?.addEventListener("abort", onExternalAbort, {
+    once: true,
+  });
   const timeout = setTimeout(() => {
     timedOut = true;
     controller.abort();
@@ -67,9 +63,7 @@ export async function callCacheSearch(params: {
 
   try {
     return await Promise.race([
-      Promise.resolve().then(() =>
-        params.operation(controller.signal),
-      ),
+      Promise.resolve().then(() => params.operation(controller.signal)),
       aborted,
     ]);
   } catch (error) {
@@ -83,10 +77,7 @@ export async function callCacheSearch(params: {
     );
   } finally {
     clearTimeout(timeout);
-    params.externalSignal?.removeEventListener(
-      "abort",
-      onExternalAbort,
-    );
+    params.externalSignal?.removeEventListener("abort", onExternalAbort);
   }
 }
 
@@ -101,9 +92,7 @@ export async function callWebProvider(params: {
     throw new ReadToolExecutionError(
       timedOut ? "timeout" : "aborted",
       timedOut,
-      timedOut
-        ? "Web search timed out."
-        : "Web search was aborted.",
+      timedOut ? "Web search timed out." : "Web search was aborted.",
     );
   }
 
@@ -116,11 +105,9 @@ export async function callWebProvider(params: {
       abortSignalTimedOut(params.externalSignal);
     controller.abort(params.externalSignal?.reason);
   };
-  params.externalSignal?.addEventListener(
-    "abort",
-    onExternalAbort,
-    { once: true },
-  );
+  params.externalSignal?.addEventListener("abort", onExternalAbort, {
+    once: true,
+  });
   const timeout = setTimeout(() => {
     timedOut = true;
     controller.abort(
@@ -170,9 +157,7 @@ export async function callWebProvider(params: {
       throw new ReadToolExecutionError(
         externalTimedOut ? "timeout" : "aborted",
         externalTimedOut,
-        externalTimedOut
-          ? "Web search timed out."
-          : "Web search was aborted.",
+        externalTimedOut ? "Web search timed out." : "Web search was aborted.",
       );
     }
     if (error instanceof ReadToolExecutionError) {
@@ -185,10 +170,106 @@ export async function callWebProvider(params: {
     );
   } finally {
     clearTimeout(timeout);
-    params.externalSignal?.removeEventListener(
-      "abort",
-      onExternalAbort,
+    params.externalSignal?.removeEventListener("abort", onExternalAbort);
+  }
+}
+
+export async function callVkLiveSearchProvider(params: {
+  provider: VkLiveSearchProvider;
+  query: string;
+  limit: number;
+  timeoutMs: number;
+  externalSignal?: AbortSignal;
+}): Promise<{ hits: readonly VkSearchHit[] }> {
+  if (params.externalSignal?.aborted) {
+    const timedOut = abortSignalTimedOut(params.externalSignal);
+    throw new ReadToolExecutionError(
+      timedOut ? "timeout" : "aborted",
+      timedOut,
+      timedOut
+        ? "VK history search timed out."
+        : "VK history search was aborted.",
     );
+  }
+
+  const controller = new AbortController();
+  let timedOut = false;
+  let externalTimedOut = false;
+  const onExternalAbort = () => {
+    externalTimedOut =
+      params.externalSignal != null &&
+      abortSignalTimedOut(params.externalSignal);
+    controller.abort(params.externalSignal?.reason);
+  };
+  params.externalSignal?.addEventListener("abort", onExternalAbort, {
+    once: true,
+  });
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort(
+      new ReadToolExecutionError(
+        "timeout",
+        true,
+        `VK history search exceeded ${params.timeoutMs} ms.`,
+      ),
+    );
+  }, params.timeoutMs);
+  const aborted = new Promise<never>((_resolve, reject) => {
+    controller.signal.addEventListener(
+      "abort",
+      () => {
+        reject(
+          controller.signal.reason ??
+            new ReadToolExecutionError(
+              "aborted",
+              false,
+              "VK history search was aborted.",
+            ),
+        );
+      },
+      { once: true },
+    );
+  });
+
+  try {
+    return await Promise.race([
+      Promise.resolve().then(() =>
+        params.provider.search({
+          query: params.query,
+          limit: params.limit,
+          signal: controller.signal,
+        }),
+      ),
+      aborted,
+    ]);
+  } catch (error) {
+    if (timedOut) {
+      throw new ReadToolExecutionError(
+        "timeout",
+        true,
+        `VK history search exceeded ${params.timeoutMs} ms.`,
+      );
+    }
+    if (params.externalSignal?.aborted) {
+      throw new ReadToolExecutionError(
+        externalTimedOut ? "timeout" : "aborted",
+        externalTimedOut,
+        externalTimedOut
+          ? "VK history search timed out."
+          : "VK history search was aborted.",
+      );
+    }
+    if (error instanceof ReadToolExecutionError) {
+      throw error;
+    }
+    throw new ReadToolExecutionError(
+      "provider_error",
+      true,
+      "VK history search failed.",
+    );
+  } finally {
+    clearTimeout(timeout);
+    params.externalSignal?.removeEventListener("abort", onExternalAbort);
   }
 }
 
@@ -219,11 +300,9 @@ export async function callWebFetchProvider(params: {
       abortSignalTimedOut(params.externalSignal);
     controller.abort(params.externalSignal?.reason);
   };
-  params.externalSignal?.addEventListener(
-    "abort",
-    onExternalAbort,
-    { once: true },
-  );
+  params.externalSignal?.addEventListener("abort", onExternalAbort, {
+    once: true,
+  });
   const timeout = setTimeout(() => {
     timedOut = true;
     controller.abort(
@@ -289,10 +368,7 @@ export async function callWebFetchProvider(params: {
     );
   } finally {
     clearTimeout(timeout);
-    params.externalSignal?.removeEventListener(
-      "abort",
-      onExternalAbort,
-    );
+    params.externalSignal?.removeEventListener("abort", onExternalAbort);
   }
 }
 
@@ -303,7 +379,6 @@ function abortSignalTimedOut(signal: AbortSignal): boolean {
     reason !== null &&
     (("name" in reason &&
       (reason as { name?: unknown }).name === "TimeoutError") ||
-      ("code" in reason &&
-        (reason as { code?: unknown }).code === "timeout"))
+      ("code" in reason && (reason as { code?: unknown }).code === "timeout"))
   );
 }

@@ -196,6 +196,7 @@ export function createBotToolSet(options: CreateBotToolSetOptions): BotToolSet {
   const tools: ToolSet = {
     rag_bm25_search: makeReadTool("rag_bm25_search"),
     keyword_search: makeReadTool("keyword_search"),
+    vk_search_history: makeReadTool("vk_search_history"),
     read_chat_slice: makeReadTool("read_chat_slice"),
     day_digest: makeReadTool("day_digest"),
     thread_context: makeReadTool("thread_context"),

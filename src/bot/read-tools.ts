@@ -33,6 +33,8 @@ export {
   type ResearchGatewayFinding,
   type ResearchGatewayResponse,
   type ResearchGatewayProvider,
+  type VkSearchHit,
+  type VkLiveSearchProvider,
   type BotReadToolsOptions,
   type BotReadToolCallOptions,
 } from "./read-tools/contracts.js";

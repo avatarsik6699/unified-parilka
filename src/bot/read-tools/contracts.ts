@@ -10,6 +10,7 @@ export const BOT_READ_TOOL_NAMES = [
   "static_page_fetch",
   "paper_search",
   "research_lookup",
+  "vk_search_history",
 ] as const;
 export const MAX_BOT_READ_TOOL_OUTPUT_CHARS = 4_000;
 /** Moderate cap for the purpose-built lexical search tool. */
@@ -123,6 +124,28 @@ export const BOT_READ_TOOL_DEFINITIONS: readonly BotReadToolDefinition[] = [
           minimum: 1,
           maximum: MAX_FIND_CHAT_MESSAGES_LIMIT,
           description: "Количество сообщений, по умолчанию 10.",
+        },
+      },
+      ["query"],
+    ),
+  },
+  {
+    name: "vk_search_history",
+    description:
+      "Только для VK-чатов, где это настроено: живой поиск по слову/фразе через саму VK-платформу, охватывает ВСЮ историю этой конкретной беседы, а не только локально закэшированный кусок (в отличие от keyword_search/rag_bm25_search). Используй, когда нужен факт из старой переписки этого чата, которого нет в локальном кэше. Недоступен для Telegram-чатов и для VK-чатов без настроенного личного токена -- в этом случае вернётся provider_unavailable, попробуй keyword_search/rag_bm25_search вместо этого.",
+    inputSchema: objectSchema(
+      {
+        query: {
+          type: "string",
+          minLength: 1,
+          maxLength: 500,
+          description: "Слово или фраза для поиска, как в самом VK-клиенте.",
+        },
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: 20,
+          description: "Количество найденных сообщений, по умолчанию 10.",
         },
       },
       ["query"],
@@ -269,8 +292,7 @@ export const BOT_READ_TOOL_DEFINITIONS: readonly BotReadToolDefinition[] = [
         source: {
           type: "string",
           enum: ["arxiv", "europepmc"],
-          description:
-            "Источник: arxiv (по умолчанию) или europepmc.",
+          description: "Источник: arxiv (по умолчанию) или europepmc.",
         },
         max_results: {
           type: "integer",
@@ -526,12 +548,7 @@ export interface BotReadToolCache {
  * budget 0); `unavailable`/`failed` mean it degraded at query time.
  */
 export type RetrievalChannelState =
-  | "ok"
-  | "failed"
-  | "unavailable"
-  | "disabled"
-  | "unsupported"
-  | "skipped";
+  "ok" | "failed" | "unavailable" | "disabled" | "unsupported" | "skipped";
 
 export interface RetrievalChannelStatus {
   bm25: RetrievalChannelState;
@@ -566,6 +583,31 @@ export interface WebSearchProvider {
   }): Promise<WebSearchResponse>;
 }
 
+/** One raw hit from `VkLiveSearchProvider.search`, before it is projected
+ * into a `StoredMessage`/`ReadToolEvidence` shape by the executor. */
+export interface VkSearchHit {
+  messageId: number;
+  fromId: string;
+  text: string;
+  /** ISO 8601; absent when VK's own timestamp was missing or invalid. */
+  date?: string;
+}
+
+/**
+ * Live, on-demand search of one VK беседа's full server-side history (via
+ * `messages.search`), independent of what has locally backfilled. Bound to
+ * exactly one беседа at construction (composition.ts, from that chat's own
+ * `vkHistoryPeerId`) -- the model never supplies or controls the target
+ * peer/chat, only the query. See `src/vk/live-search.ts`.
+ */
+export interface VkLiveSearchProvider {
+  search(request: {
+    query: string;
+    limit?: number;
+    signal: AbortSignal;
+  }): Promise<{ hits: readonly VkSearchHit[] }>;
+}
+
 /**
  * Public-page fetch is intentionally separate from WebSearchProvider: it does
  * not use a model/provider credential and never receives chat context.
@@ -597,6 +639,8 @@ export interface BotReadToolsOptions {
   webFetch?: WebFetchProvider;
   paperSearch?: PaperSearchProvider;
   researchGateway?: ResearchGatewayProvider;
+  /** Only set for VK chats with a configured personal-account backfill token. */
+  vkLiveSearch?: VkLiveSearchProvider;
   timeZone?: string;
   chatSearchTimeoutMs?: number;
   webSearchTimeoutMs?: number;
@@ -604,6 +648,7 @@ export interface BotReadToolsOptions {
   paperSearchTimeoutMs?: number;
   paperSearchRateLimitMs?: number;
   researchGatewayTimeoutMs?: number;
+  vkLiveSearchTimeoutMs?: number;
   /** Durable sender id of this bot's own published messages. */
   botSenderId?: string;
 }

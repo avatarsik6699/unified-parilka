@@ -181,6 +181,66 @@ test("VK history backfill is wired only when both a personal-account client and 
   assert.equal(telegramOnly.vkHistoryBackfill, undefined);
 });
 
+test("vk_search_history is wired per VK chat only when that chat has its own vkHistoryPeerId, using it (not the community peer_id)", async (t) => {
+  const { store, dbPath } = fixtureStore(t);
+  const config = botConfig(dbPath, {
+    BOT_VK_GROUP_TOKEN: "vk1.a-fake-token",
+    BOT_VK_GROUP_ID: "123456",
+    BOT_VK_USER_TOKEN: "vk1.a-fake-user-token",
+  });
+  let capturedPeerId: number | undefined;
+  const vkUserApi = {
+    api: {
+      messages: {
+        search: (params: { peer_id: number }) => {
+          capturedPeerId = params.peer_id;
+          return Promise.resolve({ items: [] });
+        },
+      },
+    },
+  } as unknown as VK;
+  const chats: AssistantChatConfig[] = [
+    {
+      transport: "vk",
+      allowedChatId: "vk:2000000002",
+      chatTitle: "With personal peer id",
+      personaPrompt: "persona",
+      vkHistoryPeerId: 2000000117,
+    },
+    {
+      transport: "vk",
+      allowedChatId: "vk:2000000003",
+      chatTitle: "Without personal peer id",
+      personaPrompt: "persona",
+    },
+  ];
+
+  const composition = composeBotDaemon({
+    config,
+    chats,
+    store,
+    api: noNetworkApi(),
+    vkApi: {} as unknown as VK,
+    vkUserApi,
+    router: noNetworkRouter(),
+  });
+
+  const withPeerId = await composition.chats
+    .get("vk:2000000002")!
+    .readTools.callTool("vk_search_history", { query: "test" });
+  assert.equal(withPeerId.ok, true);
+  assert.equal(capturedPeerId, 2000000117);
+  assert.notEqual(capturedPeerId, 2000000002);
+
+  const withoutPeerId = await composition.chats
+    .get("vk:2000000003")!
+    .readTools.callTool("vk_search_history", { query: "test" });
+  assert.equal(withoutPeerId.ok, false);
+  if (!withoutPeerId.ok) {
+    assert.equal(withoutPeerId.error.code, "provider_unavailable");
+  }
+});
+
 test("worker budget is split proportionally once chat count pushes past it", (t) => {
   const { store, dbPath } = fixtureStore(t);
   const config = botConfig(dbPath, { BOT_WORKERS: "3" });

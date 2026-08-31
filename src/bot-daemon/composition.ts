@@ -42,6 +42,7 @@ import {
   VkHistoryBackfillLoop,
   createVkHistoryBackfillPort,
 } from "../vk/history-backfill.js";
+import { createVkLiveSearchProvider } from "../vk/live-search.js";
 import { ApprovalPosterLoop } from "../human-persona-approval-poster.js";
 import type {
   BotDaemonChatComposition,
@@ -159,6 +160,17 @@ export function composeBotDaemon(
       capacityPolicy: "refuse",
       ...coordinatorTraceOptions(options.logger),
     });
+    // Live VK history search (`vk_search_history`) needs the exact same
+    // (vkUserApi, vkHistoryPeerId) pair the backfill loop requires -- see
+    // buildVkHistoryBackfillLoop's comment for why the two peer_id numbers
+    // must never be conflated. One provider instance per chat, bound to
+    // that chat's own peerId; never shared or parameterizable by the model.
+    const vkLiveSearch =
+      chat.transport === "vk" &&
+      options.vkUserApi !== undefined &&
+      chat.vkHistoryPeerId !== undefined
+        ? createVkLiveSearchProvider(options.vkUserApi, chat.vkHistoryPeerId)
+        : undefined;
     const readTools = new BotReadTools({
       chatId: chat.allowedChatId,
       cache,
@@ -176,6 +188,7 @@ export function composeBotDaemon(
                   researchGatewayTimeoutMs: config.researchGateway.timeoutMs,
                 }),
           }),
+      ...(vkLiveSearch === undefined ? {} : { vkLiveSearch }),
       timeZone: "Europe/Moscow",
     });
     const agent = new AiSdkBotTurnAgent({
