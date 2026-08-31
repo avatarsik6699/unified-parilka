@@ -35,12 +35,10 @@ interface WorkerOverrides {
   agent: (request: BotAgentRequest) => Promise<BotAgentFinalResult>;
   publisher: BotTurnPublisher["publish"];
   toolProgressBotApiPort?: ToolProgressBotApiPort;
+  telemetryFooter?: boolean;
 }
 
-export function makeFixture(
-  t: TestContext,
-  options: FixtureOptions = {},
-) {
+export function makeFixture(t: TestContext, options: FixtureOptions = {}) {
   const directory = mkdtempSync(join(tmpdir(), "parilka-worker-"));
   const store = new MessageStore(join(directory, "cache.sqlite"));
   const coordinator = new TurnCoordinator({
@@ -52,7 +50,7 @@ export function makeFixture(
   const logger = captureLogger(logs);
   const ingested = store.ingestBotUpdate({
     updateId: 77,
-    rawJson: "{\"update_id\":77,\"trigger\":\"trigger secret\"}",
+    rawJson: '{"update_id":77,"trigger":"trigger secret"}',
     chat: CHAT,
     message: message(TRIGGER_ID, "@bot trigger secret", "owner"),
     addressed: true,
@@ -92,6 +90,9 @@ export function makeFixture(
         mode: options.mode ?? "live",
         leaseMs: 1_000,
         heartbeatMs: 100,
+        ...(overrides.telemetryFooter === undefined
+          ? {}
+          : { telemetryFooter: overrides.telemetryFooter }),
       });
     },
   };
@@ -197,18 +198,14 @@ export function message(
     chatId: CHAT.chatId,
     messageId,
     date: "2026-07-30T12:00:00.000Z",
-    senderId:
-      senderName === "owner" ? "42" : `id:${senderName}`,
+    senderId: senderName === "owner" ? "42" : `id:${senderName}`,
     senderName,
     text,
   };
 }
 
 export function range(start: number, end: number): number[] {
-  return Array.from(
-    { length: end - start + 1 },
-    (_, index) => start + index,
-  );
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
 }
 
 export function deferredFinal(): {
@@ -227,9 +224,7 @@ export async function turnStarted(): Promise<void> {
   await Promise.resolve();
 }
 
-export async function waitUntil(
-  predicate: () => boolean,
-): Promise<void> {
+export async function waitUntil(predicate: () => boolean): Promise<void> {
   for (let attempt = 0; attempt < 50; attempt += 1) {
     if (predicate()) {
       return;

@@ -68,14 +68,8 @@ test("agent final guard rejects missing or malformed telemetry", () => {
     }),
     true,
   );
-  assert.equal(
-    isAgentFinal({ ...valid, responseOrigin: "remote" }),
-    false,
-  );
-  assert.equal(
-    isAgentFinal({ kind: "final", text: "answer" }),
-    false,
-  );
+  assert.equal(isAgentFinal({ ...valid, responseOrigin: "remote" }), false);
+  assert.equal(isAgentFinal({ kind: "final", text: "answer" }), false);
 });
 
 test("live success uses bounded context/replay, exact draft, and no raw streaming", async (t) => {
@@ -117,7 +111,10 @@ test("live success uses bounded context/replay, exact draft, and no raw streamin
       assert.equal(fixture.store.getBotTurn(fixture.turnId)?.status, "sending");
       assert.match(
         fixture.store.getBotTurn(fixture.turnId)?.draftText ?? "",
-        new RegExp(`^${finalText}\\n\\ntest-model 🧠 · 10/1\\.0m · 0 tool calls · 0с$`, "u"),
+        new RegExp(
+          `^${finalText}\\n\\ntest-model 🧠 · 10/1\\.0m · 0 tool calls · 0с$`,
+          "u",
+        ),
       );
       publisherCalls.push(request);
       return {
@@ -145,7 +142,10 @@ test("live success uses bounded context/replay, exact draft, and no raw streamin
   assert.equal(publisherCalls[0]?.publication.mode, "rich");
   assert.match(
     publisherCalls[0]?.publication.markdown ?? "",
-    new RegExp(`^${finalText}\\n\\ntest-model 🧠 · 10/1\\.0m · 0 tool calls · 0с$`, "u"),
+    new RegExp(
+      `^${finalText}\\n\\ntest-model 🧠 · 10/1\\.0m · 0 tool calls · 0с$`,
+      "u",
+    ),
   );
   assert.equal(
     publisherCalls[0]?.publication.plainText,
@@ -153,7 +153,10 @@ test("live success uses bounded context/replay, exact draft, and no raw streamin
   );
   assert.match(
     fixture.store.getBotTurn(fixture.turnId)?.draftText ?? "",
-    new RegExp(`^${finalText}\\n\\ntest-model 🧠 · 10/1\\.0m · 0 tool calls · 0с$`, "u"),
+    new RegExp(
+      `^${finalText}\\n\\ntest-model 🧠 · 10/1\\.0m · 0 tool calls · 0с$`,
+      "u",
+    ),
   );
   assert.equal(fixture.store.getBotTurn(fixture.turnId)?.status, "sent");
   const serializedLogs = JSON.stringify(fixture.logs);
@@ -253,7 +256,8 @@ test("exact SKIP is durably drafted and published like every other model reply",
 
 test("model text with mentions and think tags is published and drafted unmodified", async (t) => {
   const fixture = makeFixture(t);
-  const modelText = "@mallory посмотри сюда\n<think>не прячь этот текст</think>";
+  const modelText =
+    "@mallory посмотри сюда\n<think>не прячь этот текст</think>";
   const expected = `${modelText}\n\ntest-model 🧠 · 10/1.0m · 0 tool calls · 0с`;
   const publisherCalls: TelegramPublication[] = [];
   const worker = fixture.worker({
@@ -387,8 +391,7 @@ test("shadow mode saves the unmodified draft and terminates without publisher", 
   const fixture = makeFixture(t, { mode: "shadow" });
   let publisherCalls = 0;
   const worker = fixture.worker({
-    agent: async () =>
-      final("<think>private chain</think>\nПубличный ответ"),
+    agent: async () => final("<think>private chain</think>\nПубличный ответ"),
     publisher: async () => {
       publisherCalls += 1;
       throw new Error("shadow must not publish");
@@ -415,7 +418,9 @@ test("provider failure before send is retryable through durable failed state", a
   let publisherCalls = 0;
   const worker = fixture.worker({
     agent: async () => {
-      const error = new Error("provider response contained SECRET_PROVIDER_TEXT");
+      const error = new Error(
+        "provider response contained SECRET_PROVIDER_TEXT",
+      );
       error.name = "ProviderUnavailable";
       throw error;
     },
@@ -476,7 +481,13 @@ test("worker passes tool progress port and cleans up before durable final", asyn
 
   assert.equal(result.status, "sent");
   assert.ok(receivedPort, "agent must receive tool progress port");
-  assert.equal(portCalls.some((call) => call.kind === "send"), true);
+  assert.equal(
+    portCalls.some((call) => call.kind === "send"),
+    true,
+  );
   const deleteCall = portCalls.find((call) => call.kind === "delete");
-  assert.ok(deleteCall, "progress message must be deleted before durable final");
+  assert.ok(
+    deleteCall,
+    "progress message must be deleted before durable final",
+  );
 });

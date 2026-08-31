@@ -132,6 +132,13 @@ export interface BotTurnWorkerOptions {
   botSenderId?: string;
   /** Live Bot API port for `react_to_message`, forwarded into each turn's request. */
   reactionBotApiPort?: BotReactionApiPort;
+  /**
+   * Whether the `model 🧠 · tokens · tool calls · duration` diagnostics
+   * footer (`buildTelemetryFooter`) is appended to the published answer.
+   * Defaults to true (existing Telegram behavior); set false to publish the
+   * bare model text with no footer.
+   */
+  telemetryFooter?: boolean;
 }
 
 export type BotTurnWorkerResult =

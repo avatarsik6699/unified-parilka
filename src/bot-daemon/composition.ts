@@ -35,6 +35,7 @@ import type { TypingPort } from "../bot/typing.js";
 import type { BotTurnPublisher } from "../bot/worker.js";
 import { BotTurnWorker } from "../bot/worker.js";
 import { VkLongPollLoop } from "../vk/long-poll-loop.js";
+import { peerIdFromVkChatId } from "../vk/types.js";
 import { ApprovalPosterLoop } from "../human-persona-approval-poster.js";
 import type {
   BotDaemonChatComposition,
@@ -95,6 +96,27 @@ export function composeBotDaemon(
         )
         .then(() => undefined),
   };
+  const vkTypingPort: TypingPort | undefined =
+    options.vkApi === undefined
+      ? undefined
+      : {
+          sendChatAction: (chatId) => {
+            const peerId = peerIdFromVkChatId(chatId);
+            if (peerId === undefined) {
+              return Promise.resolve();
+            }
+            // `messages.setActivity` has no AbortSignal parameter in vk-io's
+            // API surface -- typing is best-effort and the heartbeat that
+            // calls this already stops on turn completion, so an in-flight
+            // call is simply left to resolve on its own.
+            return options
+              .vkApi!.api.messages.setActivity({
+                peer_id: peerId,
+                type: "typing",
+              })
+              .then(() => undefined);
+          },
+        };
   const toolProgressBotApiPort = createToolProgressGrammyBotApiPort(
     options.api,
   );
@@ -189,12 +211,14 @@ export function composeBotDaemon(
         ? {}
         : { voiceReply: config.voiceReply }),
     });
-    // VK chats get no typing indicator, ephemeral tool-progress message, or
-    // message-reaction port: all three are Bot-API-specific UI affordances
-    // (`src/bot/typing.ts`, `src/bot/tool-progress.ts`,
-    // `src/bot/web-tools/reaction-contracts.ts`) with no VK equivalent wired
-    // in v1 -- each is optional on `BotTurnWorkerOptions`, so the worker
-    // simply skips them, same as any Telegram deployment missing one.
+    // VK chats get no ephemeral tool-progress message or message-reaction
+    // port: both are Bot-API-specific UI affordances (`src/bot/tool-
+    // progress.ts`, `src/bot/web-tools/reaction-contracts.ts`) with no VK
+    // equivalent wired in v1 -- each is optional on `BotTurnWorkerOptions`,
+    // so the worker simply skips them, same as any Telegram deployment
+    // missing one. VK does get its own typing indicator (`vkTypingPort`,
+    // `messages.setActivity`) and, as a v1 experiment requested by the
+    // operator, no telemetry footer under its answers.
     const chatPublisher =
       chat.transport === "vk" ? requireVkPublisher(vkPublisher) : publisher;
     const workers = Array.from(
@@ -212,7 +236,12 @@ export function composeBotDaemon(
           logger: options.logger,
           botSenderId: config.botId,
           ...(chat.transport === "vk"
-            ? {}
+            ? {
+                telemetryFooter: false,
+                ...(vkTypingPort === undefined
+                  ? {}
+                  : { typingPort: vkTypingPort }),
+              }
             : { typingPort, toolProgressBotApiPort, reactionBotApiPort }),
         }),
     );

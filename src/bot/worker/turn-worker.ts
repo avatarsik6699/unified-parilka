@@ -53,6 +53,7 @@ export class BotTurnWorker {
   readonly #now: () => number;
   readonly #botSenderId: string | undefined;
   readonly #reactionBotApiPort: BotReactionApiPort | undefined;
+  readonly #telemetryFooter: boolean;
 
   constructor(options: BotTurnWorkerOptions) {
     this.#store = options.store;
@@ -74,6 +75,7 @@ export class BotTurnWorker {
     this.#now = settings.now;
     this.#botSenderId = options.botSenderId;
     this.#reactionBotApiPort = options.reactionBotApiPort;
+    this.#telemetryFooter = options.telemetryFooter ?? true;
   }
 
   async runOnce(): Promise<BotTurnWorkerResult> {
@@ -253,7 +255,9 @@ export class BotTurnWorker {
         // A persisted fence lets the next attempt recover a failed cleanup.
       }
 
-      const draftText = `${final.text}\n\n${buildTelemetryFooter(final.telemetry)}`;
+      const draftText = this.#telemetryFooter
+        ? `${final.text}\n\n${buildTelemetryFooter(final.telemetry)}`
+        : final.text;
       const publication: TelegramPublication = createTelegramPublication(
         draftText,
         final.responseOrigin,
