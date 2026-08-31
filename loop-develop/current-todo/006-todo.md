@@ -84,17 +84,22 @@ PR.
 
 Пункты в порядке приоритета (кроме явно последнего пункта 5):
 
-1. **Входящее фото → vision.** В `src/bot/vk-update.ts` перестать сводить
-   фото-вложение к `[вложение]`; скачать/передать изображение так, чтобы
-   `imageAttached`/`visionAvailable`/`imageDelivered` в `src/bot/prompt.ts`
-   заработали для VK-хода так же, как для Telegram. Целевые файлы:
-   `src/bot/vk-update.ts`, `src/vk/` (возможно новый `src/vk/media.ts`),
-   `src/bot-daemon/composition.ts` (проводка).
-2. **Входящее голосовое → `audio_transcribe`.** Аналогично для голосовых
-   вложений VK: нормализовать так, чтобы существующий локальный
-   Flov-транскрайбер обрабатывал их так же, как Telegram voice/кружки.
-   Целевые файлы: `src/bot/vk-update.ts`, media-порт, `src/bot/media-tools.ts`
-   (проверить контракт на предмет transport-агностичности).
+1. ~~Входящее фото → vision.~~ **Сделано** (коммит `e4db30c`): VK-фото
+   (триггер или прямой reply) хранится как `vkPhoto` в `messages.raw_json`
+   (`src/bot/vk-update.ts`), новый транспорт-параллельный
+   `src/bot/media/{vk-contracts,vk-media,vk-downloader}.ts`, `findPhoto`/
+   `resolveVision` в `src/bot/media-tools.ts` пробуют Telegram-парсер, затем
+   VK — `ai-agent.ts` не менялся, `imageAttached`/`visionAvailable`/
+   `imageDelivered` заработали для VK автоматически. Скачивание — прямой
+   HTTPS GET по URL из VK CDN, без токена и без `getFile`-шага.
+2. ~~Входящее голосовое → `audio_transcribe`.~~ **Сделано** (тот же slice,
+   пункт 2): VK voice-сообщения (`audio_message` attachment, `link_ogg`/
+   `link_mp3`) хранятся как `vkVoice` в том же `rawJson`-поле; `findAudio`/
+   `transcribeAudio`/`transcribeAudioDirect` в `media-tools.ts` обобщены на
+   `TelegramMediaTarget | VkAudioTarget`, переиспользуют тот же
+   `VkMediaDownloader` и тот же Flov-транскрайбер без изменений (формат
+   контейнера транспорт-агностичен для ffmpeg-конвертации). Плейсхолдер
+   текста для голосового без подписи — `[голосовое]`.
 3. **Исходящий rich text → VK-совместимая деградация.** Вместо сырого
    markdown-синтаксиса в чате — конвертировать `rich`-публикацию в
    VK-приемлемый plain text (снять маркеры оформления, а не показывать их
@@ -149,8 +154,9 @@ slice (например `npx tsx --test tests/vk-update.test.ts` и смежны
 ## Copy-Ready Goal Prompt
 
 Продолжи backlog `006-todo.md`: реализуй следующий незакрытый пункт
-Implementation Checklist по порядку (начни с пункта 1, входящее фото → vision,
-если явно не указано иное), с собственной верификацией и явным запросом
-авторизации на commit/deploy. Не реализовывай inline-кнопки/keyboard или
-отправку голоса для VK — это исключено пользователем. Пункт 5 (Callback API)
-не начинай без отдельного нового research-прохода.
+Implementation Checklist по порядку (пункты 1-2 уже сделаны — начни с пункта 3,
+исходящий rich text → VK-совместимая деградация, если явно не указано иное), с
+собственной верификацией и явным запросом авторизации на commit/deploy. Не
+реализовывай inline-кнопки/keyboard или отправку голоса для VK — это исключено
+пользователем. Пункт 5 (Callback API) не начинай без отдельного нового
+research-прохода.

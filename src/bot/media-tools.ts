@@ -13,8 +13,8 @@ import {
 } from "./media/telegram-downloader.js";
 import { selectTelegramMediaTarget } from "./media/telegram-media.js";
 import type { VkMediaDownloader } from "./media/vk-downloader.js";
-import type { VkMediaTarget } from "./media/vk-contracts.js";
-import { selectVkPhotoTarget } from "./media/vk-media.js";
+import type { VkAudioTarget, VkMediaTarget } from "./media/vk-contracts.js";
+import { selectVkPhotoTarget, selectVkVoiceTarget } from "./media/vk-media.js";
 
 const MAX_VISION_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_AUDIO_DURATION_SECONDS = 600;
@@ -106,17 +106,17 @@ export interface BotMediaToolsPort {
   findAudio(
     trigger: StoredMessage,
     replyTarget?: StoredMessage,
-  ): TelegramMediaTarget | undefined;
+  ): TelegramMediaTarget | VkAudioTarget | undefined;
   resolveVision(
     target: TelegramMediaTarget | VkMediaTarget,
     signal: AbortSignal,
   ): Promise<VisionAttachment>;
   transcribeAudio(
-    target: TelegramMediaTarget,
+    target: TelegramMediaTarget | VkAudioTarget,
     signal: AbortSignal,
   ): Promise<AudioTranscribeToolResult>;
   transcribeAudioDirect(
-    target: TelegramMediaTarget,
+    target: TelegramMediaTarget | VkAudioTarget,
     signal: AbortSignal,
   ): Promise<DirectAudioTranscriptionResult>;
 }
@@ -154,12 +154,14 @@ export class BotMediaTools implements BotMediaToolsPort {
   findAudio(
     trigger: StoredMessage,
     replyTarget?: StoredMessage,
-  ): TelegramMediaTarget | undefined {
-    return selectTelegramMediaTarget(trigger, replyTarget, [
-      "voice",
-      "video_note",
-      "audio",
-    ]);
+  ): TelegramMediaTarget | VkAudioTarget | undefined {
+    return (
+      selectTelegramMediaTarget(trigger, replyTarget, [
+        "voice",
+        "video_note",
+        "audio",
+      ]) ?? selectVkVoiceTarget(trigger, replyTarget)
+    );
   }
 
   async resolveVision(
@@ -218,7 +220,7 @@ export class BotMediaTools implements BotMediaToolsPort {
   }
 
   async transcribeAudio(
-    target: TelegramMediaTarget,
+    target: TelegramMediaTarget | VkAudioTarget,
     signal: AbortSignal,
   ): Promise<AudioTranscribeToolResult> {
     const direct = await this.transcribeAudioDirect(target, signal);
@@ -229,15 +231,43 @@ export class BotMediaTools implements BotMediaToolsPort {
   }
 
   async transcribeAudioDirect(
-    target: TelegramMediaTarget,
+    target: TelegramMediaTarget | VkAudioTarget,
     signal: AbortSignal,
   ): Promise<DirectAudioTranscriptionResult> {
     if (
-      (target.kind !== "voice" &&
-        target.kind !== "video_note" &&
-        target.kind !== "audio") ||
       target.durationSeconds === undefined ||
       target.durationSeconds > MAX_AUDIO_DURATION_SECONDS
+    ) {
+      return audioFailure("invalid_media", false);
+    }
+    if (target.kind === "vk_voice") {
+      if (!this.#vkDownloader) {
+        return audioFailure("invalid_media", false);
+      }
+      try {
+        const downloaded = await this.#vkDownloader.download(target, signal);
+        const transcript = await this.#transcriber.transcribe(
+          {
+            data: downloaded.data,
+            mediaType: downloaded.mediaType,
+            durationSeconds: target.durationSeconds,
+          },
+          signal,
+        );
+        return {
+          ok: true,
+          source: target.source,
+          durationSeconds: target.durationSeconds,
+          transcript,
+        };
+      } catch (error) {
+        return audioFailureFrom(error);
+      }
+    }
+    if (
+      target.kind !== "voice" &&
+      target.kind !== "video_note" &&
+      target.kind !== "audio"
     ) {
       return audioFailure("invalid_media", false);
     }
@@ -247,18 +277,14 @@ export class BotMediaTools implements BotMediaToolsPort {
         {
           data: downloaded.data,
           mediaType: downloaded.mediaType,
-          ...(target.durationSeconds === undefined
-            ? {}
-            : { durationSeconds: target.durationSeconds }),
+          durationSeconds: target.durationSeconds,
         },
         signal,
       );
       return {
         ok: true,
         source: target.source,
-        ...(target.durationSeconds === undefined
-          ? {}
-          : { durationSeconds: target.durationSeconds }),
+        durationSeconds: target.durationSeconds,
         transcript,
       };
     } catch (error) {
@@ -268,7 +294,7 @@ export class BotMediaTools implements BotMediaToolsPort {
 }
 
 function asModelAudioResult(
-  target: TelegramMediaTarget,
+  target: TelegramMediaTarget | VkAudioTarget,
   direct: Extract<DirectAudioTranscriptionResult, { ok: true }>,
 ): AudioTranscribeToolSuccess {
   const projection = boundedTranscript(direct.transcript);

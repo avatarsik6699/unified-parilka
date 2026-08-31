@@ -1,11 +1,13 @@
 import { BotMediaError } from "./contracts.js";
-import type { VkMediaReference } from "./vk-contracts.js";
+import type { VkAudioReference, VkMediaReference } from "./vk-contracts.js";
 
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+type VkDownloadable = VkMediaReference | VkAudioReference;
+
 export interface DownloadedVkMedia {
-  media: VkMediaReference;
+  media: VkDownloadable;
   data: Uint8Array;
   mediaType: string;
 }
@@ -45,7 +47,7 @@ export class VkMediaDownloader {
   }
 
   async download(
-    media: VkMediaReference,
+    media: VkDownloadable,
     externalSignal: AbortSignal,
   ): Promise<DownloadedVkMedia> {
     if (externalSignal.aborted) {
@@ -57,7 +59,9 @@ export class VkMediaDownloader {
       const response = await this.#fetch(media.url, {
         signal,
         redirect: "error",
-        headers: { Accept: "image/*" },
+        headers: {
+          Accept: media.kind === "vk_photo" ? "image/*" : "audio/*",
+        },
       });
       if (!response.ok || !response.body) {
         throw new BotMediaError("download_failed", "VK media download failed.");

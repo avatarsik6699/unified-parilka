@@ -17,6 +17,12 @@ interface FakePhotoAttachment {
   height?: number;
 }
 
+interface FakeVoiceAttachment {
+  oggUrl?: string;
+  mp3Url?: string;
+  duration?: number;
+}
+
 interface FakeMessageContextInput {
   id: number;
   peerId: number;
@@ -30,6 +36,7 @@ interface FakeMessageContextInput {
   hasAttachments?: boolean;
   hasGeo?: boolean;
   photos?: readonly FakePhotoAttachment[];
+  voices?: readonly FakeVoiceAttachment[];
 }
 
 function fakeContext(input: FakeMessageContextInput): MessageContext {
@@ -46,7 +53,11 @@ function fakeContext(input: FakeMessageContextInput): MessageContext {
     hasAttachments: () => input.hasAttachments ?? false,
     hasGeo: input.hasGeo ?? false,
     getAttachments: (type: string) =>
-      type === "photo" ? (input.photos ?? []) : [],
+      type === "photo"
+        ? (input.photos ?? [])
+        : type === "audio_message"
+          ? (input.voices ?? [])
+          : [],
   } as unknown as MessageContext;
 }
 
@@ -277,6 +288,59 @@ test("a photo with a caption keeps the caption text but still records vkPhoto ra
   assert.equal(result.message?.text, "смотри");
   assert.deepEqual(JSON.parse(result.message?.rawJson ?? "{}"), {
     vkPhoto: { url: "https://sun9-2.userapi.com/only.jpg" },
+  });
+});
+
+test("a voice-only message gets the [голосовое] placeholder and a parseable vkVoice rawJson", () => {
+  const result = normalizeVkUpdate(
+    fakeContext({
+      id: 0,
+      peerId: PEER_ID,
+      senderId: 42,
+      conversationMessageId: 11,
+      text: "",
+      subTypes: ["message_new"],
+      hasAttachments: true,
+      voices: [
+        {
+          oggUrl: "https://psv4.userapi.com/voice.ogg",
+          mp3Url: "https://psv4.userapi.com/voice.mp3",
+          duration: 7,
+        },
+      ],
+    }),
+    { allowedChatIds: new Set([ALLOWED_CHAT_ID]), groupId: GROUP_ID },
+  );
+  assert.equal(result.message?.text, "[голосовое]");
+  assert.deepEqual(JSON.parse(result.message?.rawJson ?? "{}"), {
+    vkVoice: {
+      url: "https://psv4.userapi.com/voice.ogg",
+      mediaType: "audio/ogg",
+      durationSeconds: 7,
+    },
+  });
+});
+
+test("a voice message with only an mp3 link falls back to audio/mpeg", () => {
+  const result = normalizeVkUpdate(
+    fakeContext({
+      id: 0,
+      peerId: PEER_ID,
+      senderId: 42,
+      conversationMessageId: 12,
+      text: "",
+      subTypes: ["message_new"],
+      hasAttachments: true,
+      voices: [{ mp3Url: "https://psv4.userapi.com/only.mp3", duration: 3 }],
+    }),
+    { allowedChatIds: new Set([ALLOWED_CHAT_ID]), groupId: GROUP_ID },
+  );
+  assert.deepEqual(JSON.parse(result.message?.rawJson ?? "{}"), {
+    vkVoice: {
+      url: "https://psv4.userapi.com/only.mp3",
+      mediaType: "audio/mpeg",
+      durationSeconds: 3,
+    },
   });
 });
 

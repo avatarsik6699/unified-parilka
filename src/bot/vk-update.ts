@@ -100,7 +100,8 @@ export function normalizeVkUpdate(
     ? context.replyMessage?.conversationMessageId
     : undefined;
   const photo = extractVkPhoto(context);
-  const rawJson = photo === undefined ? undefined : vkPhotoRawJson(photo);
+  const voice = extractVkVoice(context);
+  const rawJson = vkAttachmentsRawJson(photo, voice);
   const message: StoredMessage = {
     chatId,
     messageId,
@@ -108,7 +109,10 @@ export function normalizeVkUpdate(
     senderId,
     text: context.text?.trim()
       ? context.text
-      : mediaPlaceholder(context, photo !== undefined),
+      : mediaPlaceholder(context, {
+          hasPhoto: photo !== undefined,
+          hasVoice: voice !== undefined,
+        }),
     ...(replyToMessageId === undefined ? {} : { replyToMessageId }),
     ...(rawJson === undefined ? {} : { rawJson }),
   };
@@ -169,9 +173,15 @@ function vkDate(seconds: number): string | undefined {
   }
 }
 
-function mediaPlaceholder(context: MessageContext, hasPhoto: boolean): string {
-  if (hasPhoto) {
+function mediaPlaceholder(
+  context: MessageContext,
+  flags: { hasPhoto: boolean; hasVoice: boolean },
+): string {
+  if (flags.hasPhoto) {
     return "[фото]";
+  }
+  if (flags.hasVoice) {
+    return "[голосовое]";
   }
   if (context.hasAttachments()) {
     return "[вложение]";
@@ -182,12 +192,18 @@ function mediaPlaceholder(context: MessageContext, hasPhoto: boolean): string {
   return "";
 }
 
-const MAX_VK_PHOTO_RAW_CHARS = 4_000;
+const MAX_VK_ATTACHMENT_RAW_CHARS = 4_000;
 
 interface ExtractedVkPhoto {
   url: string;
   width?: number;
   height?: number;
+}
+
+interface ExtractedVkVoice {
+  url: string;
+  mediaType: "audio/ogg" | "audio/mpeg";
+  durationSeconds?: number;
 }
 
 /**
@@ -223,11 +239,47 @@ function extractVkPhoto(context: MessageContext): ExtractedVkPhoto | undefined {
 }
 
 /**
- * Nested under `vkPhoto` (not the top-level `photo` field Telegram's Bot API
- * uses) so `parseStoredVkMedia`/`parseStoredTelegramMedia` never collide
- * over the same `messages.raw_json` column.
+ * Picks the ogg URL (Telegram-equivalent Opus container Flov already
+ * handles) when available, falling back to mp3 -- VK's own voice-message
+ * player prefers ogg for the same reason (smaller, native web/mobile
+ * support).
  */
-function vkPhotoRawJson(photo: ExtractedVkPhoto): string | undefined {
-  const json = JSON.stringify({ vkPhoto: photo });
-  return json.length <= MAX_VK_PHOTO_RAW_CHARS ? json : undefined;
+function extractVkVoice(context: MessageContext): ExtractedVkVoice | undefined {
+  const voice = context.getAttachments("audio_message")[0];
+  if (!voice) {
+    return undefined;
+  }
+  const oggUrl = voice.oggUrl;
+  const mp3Url = voice.mp3Url;
+  const url = oggUrl ?? mp3Url;
+  if (url === undefined) {
+    return undefined;
+  }
+  return {
+    url,
+    mediaType: oggUrl !== undefined ? "audio/ogg" : "audio/mpeg",
+    ...(voice.duration === undefined
+      ? {}
+      : { durationSeconds: voice.duration }),
+  };
+}
+
+/**
+ * Nested under `vkPhoto`/`vkVoice` (never the top-level `photo`/`voice`/
+ * `audio`/`video_note` fields Telegram's Bot API uses) so
+ * `parseStoredVkPhoto`/`parseStoredVkVoice`/`parseStoredTelegramMedia` never
+ * collide over the same `messages.raw_json` column.
+ */
+function vkAttachmentsRawJson(
+  photo: ExtractedVkPhoto | undefined,
+  voice: ExtractedVkVoice | undefined,
+): string | undefined {
+  if (photo === undefined && voice === undefined) {
+    return undefined;
+  }
+  const json = JSON.stringify({
+    ...(photo === undefined ? {} : { vkPhoto: photo }),
+    ...(voice === undefined ? {} : { vkVoice: voice }),
+  });
+  return json.length <= MAX_VK_ATTACHMENT_RAW_CHARS ? json : undefined;
 }

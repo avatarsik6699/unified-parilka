@@ -162,6 +162,96 @@ test("resolveVision on a VK target without a configured vkDownloader fails as in
   );
 });
 
+test("Audio transcription resolves a VK voice target via the VK downloader, no Telegram getFile call", async () => {
+  const telegramDownloads = { count: 0 };
+  const downloader = new TelegramMediaDownloader({
+    async getFile() {
+      telegramDownloads.count += 1;
+      return { filePath: "should/not/be/used.ogg" };
+    },
+    fileUrl: (path) => `https://telegram.invalid/${path}`,
+  });
+  const bytes = new Uint8Array([5, 6, 7]);
+  const vkDownloader = new VkMediaDownloader({
+    async fetch() {
+      return new Response(bytes as Uint8Array<ArrayBuffer>, {
+        headers: { "content-type": "audio/ogg" },
+      });
+    },
+  });
+  const converter: AudioFlacConverter = {
+    async convert({ bytes }) {
+      assert.deepEqual([...bytes], [5, 6, 7]);
+      return new Uint8Array([1]);
+    },
+  };
+  const transcriber = new FlovAudioTranscriber({
+    converter,
+    async fetch() {
+      return new Response(JSON.stringify({ text: "голосовое сообщение" }));
+    },
+  });
+  const tools = new BotMediaTools({ downloader, vkDownloader, transcriber });
+
+  const trigger = stored({
+    vkVoice: {
+      url: "https://psv4.userapi.com/voice.ogg",
+      mediaType: "audio/ogg",
+      durationSeconds: 4,
+    },
+  });
+  const target = tools.findAudio(trigger);
+  assert.ok(target);
+  assert.equal(target.kind, "vk_voice");
+
+  const result = await tools.transcribeAudio(
+    target,
+    new AbortController().signal,
+  );
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.result.transcript, "голосовое сообщение");
+    assert.equal(result.result.source, "trigger");
+    assert.equal(result.result.durationSeconds, 4);
+  }
+  assert.equal(telegramDownloads.count, 0);
+});
+
+test("VK voice without a configured vkDownloader is rejected as invalid_media", async () => {
+  const downloader = new TelegramMediaDownloader({
+    async getFile() {
+      throw new Error("must not be called");
+    },
+    fileUrl: (path) => `https://telegram.invalid/${path}`,
+  });
+  const converter: AudioFlacConverter = {
+    async convert({ bytes }) {
+      return bytes;
+    },
+  };
+  const transcriber = new FlovAudioTranscriber({
+    converter,
+    async fetch() {
+      return new Response(JSON.stringify({ text: "" }));
+    },
+  });
+  const tools = new BotMediaTools({ downloader, transcriber });
+  const trigger = stored({
+    vkVoice: { url: "https://psv4.userapi.com/voice.ogg", durationSeconds: 4 },
+  });
+  const target = tools.findAudio(trigger);
+  assert.ok(target);
+
+  const result = await tools.transcribeAudio(
+    target,
+    new AbortController().signal,
+  );
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.error.code, "invalid_media");
+  }
+});
+
 test("Flov 4xx becomes a nonretryable local failure without serializing its body", async () => {
   const hidden = "НЕ_ПОКАЗЫВАТЬ_АУДИО_ТЕКСТ";
   const tools = makeTools({

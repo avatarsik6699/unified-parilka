@@ -20,3 +20,20 @@ export interface VkMediaTarget extends VkMediaReference {
   source: TelegramMediaSource;
   message: StoredMessage;
 }
+
+/**
+ * VK voice messages (`audio_message` attachment) carry `link_ogg`/`link_mp3`
+ * -- same directly-downloadable CDN shape as a photo, just a different
+ * attachment type.
+ */
+export interface VkAudioReference {
+  kind: "vk_voice";
+  url: string;
+  mediaType: "audio/ogg" | "audio/mpeg";
+  durationSeconds?: number;
+}
+
+export interface VkAudioTarget extends VkAudioReference {
+  source: TelegramMediaSource;
+  message: StoredMessage;
+}

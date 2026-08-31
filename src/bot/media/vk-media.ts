@@ -1,5 +1,10 @@
 import type { StoredMessage } from "../../store.js";
-import type { VkMediaReference, VkMediaTarget } from "./vk-contracts.js";
+import type {
+  VkAudioReference,
+  VkAudioTarget,
+  VkMediaReference,
+  VkMediaTarget,
+} from "./vk-contracts.js";
 
 const MAX_RAW_MESSAGE_CHARS = 2_000_000;
 const MAX_URL_CHARS = 2_000;
@@ -66,6 +71,66 @@ export function selectVkPhotoTarget(
     const replyPhoto = parseStoredVkPhoto(replyTarget);
     if (replyPhoto) {
       return { ...replyPhoto, source: "reply", message: replyTarget };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Extracts the VK voice-message reference from raw JSON, nested under
+ * `vkVoice` for the same reason `vkPhoto` is nested (no collision with
+ * Telegram's top-level `voice`/`audio`/`video_note` fields).
+ */
+export function parseStoredVkVoice(
+  message: Pick<StoredMessage, "rawJson">,
+): VkAudioReference | undefined {
+  const raw = message.rawJson;
+  if (
+    typeof raw !== "string" ||
+    raw.length === 0 ||
+    raw.length > MAX_RAW_MESSAGE_CHARS
+  ) {
+    return undefined;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  const voice = asObject(asObject(parsed)?.vkVoice);
+  if (!voice) {
+    return undefined;
+  }
+  const url = safeVkUrl(voice.url);
+  if (!url) {
+    return undefined;
+  }
+  const durationSeconds = nonNegativeInteger(voice.durationSeconds);
+  return {
+    kind: "vk_voice",
+    url,
+    mediaType:
+      typeof voice.mediaType === "string" && voice.mediaType === "audio/mpeg"
+        ? "audio/mpeg"
+        : "audio/ogg",
+    ...(durationSeconds === undefined ? {} : { durationSeconds }),
+  };
+}
+
+/** Convenience form mirroring `selectVkPhotoTarget`. */
+export function selectVkVoiceTarget(
+  trigger: StoredMessage,
+  replyTarget?: StoredMessage,
+): VkAudioTarget | undefined {
+  const triggerVoice = parseStoredVkVoice(trigger);
+  if (triggerVoice) {
+    return { ...triggerVoice, source: "trigger", message: trigger };
+  }
+  if (replyTarget) {
+    const replyVoice = parseStoredVkVoice(replyTarget);
+    if (replyVoice) {
+      return { ...replyVoice, source: "reply", message: replyTarget };
     }
   }
   return undefined;

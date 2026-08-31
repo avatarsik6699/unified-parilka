@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   parseStoredVkPhoto,
+  parseStoredVkVoice,
   selectVkPhotoTarget,
+  selectVkVoiceTarget,
 } from "../src/bot/media/vk-media.js";
 import type { StoredMessage } from "../src/store.js";
 
@@ -74,4 +76,53 @@ test("selectVkPhotoTarget prefers the trigger, falls back to the reply target", 
 test("selectVkPhotoTarget returns undefined when neither message has a photo", () => {
   const trigger = stored({ text: "привет" }, 1);
   assert.equal(selectVkPhotoTarget(trigger), undefined);
+});
+
+test("parses a valid vkVoice payload", () => {
+  const message = stored({
+    vkVoice: {
+      url: "https://psv4.userapi.com/voice.ogg",
+      mediaType: "audio/ogg",
+      durationSeconds: 5,
+    },
+  });
+  const media = parseStoredVkVoice(message);
+  assert.deepEqual(media, {
+    kind: "vk_voice",
+    url: "https://psv4.userapi.com/voice.ogg",
+    mediaType: "audio/ogg",
+    durationSeconds: 5,
+  });
+});
+
+test("rejects a vkVoice payload from a non-VK host", () => {
+  const message = stored({
+    vkVoice: { url: "https://evil.example.com/voice.ogg" },
+  });
+  assert.equal(parseStoredVkVoice(message), undefined);
+});
+
+test("Telegram-shaped rawJson never parses as a VK voice message", () => {
+  const message = stored({
+    voice: { file_id: "abc", duration: 3, mime_type: "audio/ogg" },
+  });
+  assert.equal(parseStoredVkVoice(message), undefined);
+});
+
+test("selectVkVoiceTarget prefers the trigger, falls back to the reply target", () => {
+  const trigger = stored({ text: "нет голосового" }, 20);
+  const reply = stored(
+    {
+      vkVoice: {
+        url: "https://psv4.userapi.com/reply.ogg",
+        durationSeconds: 4,
+      },
+    },
+    19,
+  );
+  const target = selectVkVoiceTarget(trigger, reply);
+  assert.ok(target);
+  assert.equal(target.source, "reply");
+  assert.equal(target.url, "https://psv4.userapi.com/reply.ogg");
+  assert.equal(target.message.messageId, 19);
 });
