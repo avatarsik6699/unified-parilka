@@ -3,9 +3,14 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test, type TestContext } from "node:test";
+import type { VK } from "vk-io";
 import type { AppConfig } from "../src/config.js";
+import { composeBotDaemon } from "../src/bot-daemon/composition.js";
 import { assertBotDaemonConfiguration } from "../src/bot-daemon/production.js";
+import type { BotDaemonApi } from "../src/bot-daemon/contracts.js";
+import type { AssistantChatConfig } from "../src/bot-config/assistant.js";
 import { parseBotRuntimeConfig } from "../src/bot/runtime-config.js";
+import type { TurnModelRouter } from "../src/bot/ai-agent.js";
 import { MessageStore } from "../src/store.js";
 
 const CHAT_ID = "-1003179772905";
@@ -47,6 +52,96 @@ test("a VK chat needs no TELEGRAM_ALLOWED_CHAT_IDS entry, but does need BOT_VK_G
     ),
   );
 });
+
+test("worker budget is split across a Telegram chat and a VK chat, not multiplied", (t) => {
+  const { store, dbPath } = fixtureStore(t);
+  const config = botConfig(dbPath, {
+    BOT_WORKERS: "3",
+    BOT_VK_GROUP_TOKEN: "vk1.a-fake-token",
+    BOT_VK_GROUP_ID: "123456",
+  });
+  const chats: AssistantChatConfig[] = [
+    {
+      transport: "telegram",
+      allowedChatId: CHAT_ID,
+      chatTitle: "Telegram Chat",
+      personaPrompt: "persona",
+    },
+    {
+      transport: "vk",
+      allowedChatId: "vk:2000000001",
+      chatTitle: "VK Chat",
+      personaPrompt: "persona",
+    },
+  ];
+
+  const composition = composeBotDaemon({
+    config,
+    chats,
+    store,
+    api: noNetworkApi(),
+    vkApi: {} as unknown as VK,
+    router: noNetworkRouter(),
+  });
+
+  // MAX_BOT_WORKER_CONCURRENCY(3) split across 2 chats: 2 + 1, never 3 + 3.
+  assert.equal(composition.workers.length, 3);
+  const telegramWorkers = composition.chats.get(CHAT_ID)!.workers.length;
+  const vkWorkers = composition.chats.get("vk:2000000001")!.workers.length;
+  assert.equal(telegramWorkers + vkWorkers, 3);
+  assert.ok(telegramWorkers >= 1 && vkWorkers >= 1);
+});
+
+test("more assistant chats than the worker budget fails composition with a clear error", (t) => {
+  const { store, dbPath } = fixtureStore(t);
+  const config = botConfig(dbPath, { BOT_WORKERS: "1" });
+  const chats: AssistantChatConfig[] = Array.from(
+    { length: 4 },
+    (_unused, index) => ({
+      transport: "telegram" as const,
+      allowedChatId: `-${1000 + index}`,
+      chatTitle: `Chat ${index}`,
+      personaPrompt: "persona",
+    }),
+  );
+
+  assert.throws(
+    () =>
+      composeBotDaemon({
+        config,
+        chats,
+        store,
+        api: noNetworkApi(),
+        router: noNetworkRouter(),
+      }),
+    /exceeding the process-wide worker budget/u,
+  );
+});
+
+function noNetworkRouter(): TurnModelRouter {
+  return {
+    async executeWithFallback<T>(): Promise<never> {
+      throw new Error("model router must not execute during composition");
+    },
+  };
+}
+
+function noNetworkApi(): BotDaemonApi {
+  return {
+    async getMe() {
+      throw new Error("unexpected Bot API call");
+    },
+    async deleteWebhook() {
+      throw new Error("unexpected Bot API call");
+    },
+    async getUpdates() {
+      throw new Error("unexpected Bot API call");
+    },
+    async sendMessage() {
+      throw new Error("unexpected Bot API call");
+    },
+  } as unknown as BotDaemonApi;
+}
 
 function fixtureStore(t: TestContext): {
   store: MessageStore;

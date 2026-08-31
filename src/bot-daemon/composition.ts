@@ -19,6 +19,7 @@ import {
   BotApiRuntime,
   BotUpdateProcessor,
   BotWorkerPump,
+  MAX_BOT_WORKER_CONCURRENCY,
   botRuntimeOptionsFromConfig,
   createApprovalPosterApiPort,
   createAssistantCuriositySendPort,
@@ -117,8 +118,21 @@ export function composeBotDaemon(
   // One full graph per assistant-role chat (Фаза 7): the coordinator's
   // fold/routing has no chat filter, so it -- and everything built against
   // it -- must not be shared across chats.
+  //
+  // BotWorkerPump enforces one process-wide worker cap
+  // (MAX_BOT_WORKER_CONCURRENCY), not a per-chat one -- with N>1 chats each
+  // naively getting config.workerConcurrency workers, the flattened total
+  // can exceed that cap (this is exactly what happens the first time a
+  // second chat/transport is configured). Distribute the shared budget
+  // across chats instead: each chat gets at least one worker, remainder
+  // handed out to the first chats in config order, all clamped by the
+  // operator's own config.workerConcurrency ceiling.
+  const workersPerChat = distributeWorkerBudget(
+    options.chats.length,
+    config.workerConcurrency,
+  );
   const chats = new Map<string, BotDaemonChatComposition>();
-  for (const chat of options.chats) {
+  for (const [chatIndex, chat] of options.chats.entries()) {
     const coordinator = new TurnCoordinator({
       maxActiveTurns: config.workerConcurrency,
       capacityPolicy: "refuse",
@@ -184,7 +198,7 @@ export function composeBotDaemon(
     const chatPublisher =
       chat.transport === "vk" ? requireVkPublisher(vkPublisher) : publisher;
     const workers = Array.from(
-      { length: config.workerConcurrency },
+      { length: workersPerChat[chatIndex] },
       (_unused, index) =>
         new BotTurnWorker({
           store: options.store,
@@ -368,6 +382,32 @@ function buildCuriosityTriggerLoop(
       }
     },
   });
+}
+
+/**
+ * Splits the process-wide MAX_BOT_WORKER_CONCURRENCY budget across
+ * `chatCount` chats: each gets `floor(budget / chatCount)`, clamped by
+ * `perChatCeiling` (the operator's own BOT_WORKERS setting), with the
+ * remainder handed to the first chats in config order so the budget isn't
+ * left partially unused. `chatCount` exceeding the budget is a
+ * configuration error (no chat can end up with zero workers), not silently
+ * degraded -- `selectAssistantChats`'s own MAX_ASSISTANT_CHATS ceiling (5)
+ * is higher than this budget (3), so this is reachable in practice.
+ */
+function distributeWorkerBudget(
+  chatCount: number,
+  perChatCeiling: number,
+): readonly number[] {
+  if (chatCount > MAX_BOT_WORKER_CONCURRENCY) {
+    throw new Error(
+      `BOT_BOTS_CONFIG_PATH lists ${String(chatCount)} assistant chats, exceeding the process-wide worker budget of ${String(MAX_BOT_WORKER_CONCURRENCY)} (MAX_BOT_WORKER_CONCURRENCY) -- each chat needs at least one dedicated worker. Reduce the number of configured chats or raise the budget.`,
+    );
+  }
+  const baseline = Math.floor(MAX_BOT_WORKER_CONCURRENCY / chatCount);
+  const remainder = MAX_BOT_WORKER_CONCURRENCY - baseline * chatCount;
+  return Array.from({ length: chatCount }, (_unused, index) =>
+    Math.min(perChatCeiling, baseline + (index < remainder ? 1 : 0)),
+  );
 }
 
 function requireVkPublisher(
