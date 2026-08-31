@@ -127,6 +127,7 @@ export function normalizeTelegramUpdate(
       reason: "chat_not_allowed",
       updateId,
       updateKind: selected.kind,
+      chat: toChatInfo(chat, chatId),
     });
   }
 

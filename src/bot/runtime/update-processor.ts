@@ -171,7 +171,12 @@ export class BotUpdateProcessor {
       !normalized.chat ||
       !normalized.message
     ) {
-      return this.#recordPoison(transport, updateId, normalized.reason);
+      return this.#recordPoison(
+        transport,
+        updateId,
+        normalized.reason,
+        normalized.chat?.chatId,
+      );
     }
 
     const result = this.#store.ingestBotUpdate({
@@ -410,6 +415,7 @@ export class BotUpdateProcessor {
     transport: BotTransport,
     updateId: number,
     reason: string,
+    chatId?: string,
   ): BotUpdateProcessingResult {
     const result = this.#store.recordBotUpdateFailure({
       updateId,
@@ -423,6 +429,7 @@ export class BotUpdateProcessor {
       updateId,
       transport,
       reason: safeMachineCode(reason),
+      ...(chatId === undefined ? {} : { chatId }),
       attempts: result.update.attempts,
       maxAttempts: result.update.maxAttempts,
       deadLetter: result.ackUpdateId !== undefined,

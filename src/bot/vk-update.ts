@@ -64,7 +64,17 @@ export function normalizeVkUpdate(
   }
 
   if (!options.allowedChatIds.has(chatId)) {
-    return { ingest: false, addressed: false, reason: "chat_not_allowed" };
+    // `chat` is included even though `ingest: false` means this is never
+    // stored -- only so the rejection log can show which peer_id was
+    // rejected (see BotUpdateProcessor#recordPoison), which matters in
+    // practice: onboarding a new VK беседа always starts with one rejected
+    // message before its peer_id is known.
+    return {
+      ingest: false,
+      addressed: false,
+      reason: "chat_not_allowed",
+      chat: { chatId, requested: chatId, kind: "chat" },
+    };
   }
 
   const messageId = context.id;
