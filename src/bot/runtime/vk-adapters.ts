@@ -11,6 +11,7 @@ import type {
   TelegramPublisherResult,
 } from "../worker.js";
 import { peerIdFromVkChatId } from "../../vk/types.js";
+import { safeErrorMessage } from "../worker/helpers.js";
 import { renderVkPlainText } from "./vk-text.js";
 
 type PublisherFailure = Extract<
@@ -94,7 +95,7 @@ export class VkBotTurnPublisher implements BotTurnPublisher {
       });
       attachment = photo.toString();
     } catch (error) {
-      return classifyThrownFailure(error, request.signal, 0);
+      return classifyThrownFailure(error, request.signal, 0, "upload_photo");
     }
     try {
       const response = await this.#vk.api.messages.send({
@@ -119,7 +120,7 @@ export class VkBotTurnPublisher implements BotTurnPublisher {
       }
       return { ok: true, chunksSent: 1, telegramMessageId: messageId };
     } catch (error) {
-      return classifyThrownFailure(error, request.signal, 0);
+      return classifyThrownFailure(error, request.signal, 0, "send_photo");
     }
   }
 
@@ -159,7 +160,12 @@ export class VkBotTurnPublisher implements BotTurnPublisher {
           }),
         });
       } catch (error) {
-        return classifyThrownFailure(error, request.signal, chunksSent);
+        return classifyThrownFailure(
+          error,
+          request.signal,
+          chunksSent,
+          "send_plain",
+        );
       }
 
       const messageId = readVkMessageId(response);
@@ -274,12 +280,17 @@ function classifyThrownFailure(
   error: unknown,
   signal: AbortSignal,
   chunksSent: number,
+  stage: string,
 ): TelegramPublisherResult {
   if (error instanceof APIError) {
     return ambiguousOrPartialFailure(chunksSent, {
       kind: "telegram_rejected",
       code: `VK_${String(error.code)}`,
       retryable: RETRYABLE_VK_CODES.has(Number(error.code)),
+      stage,
+      ...(safeErrorMessage(error.message) === undefined
+        ? {}
+        : { message: safeErrorMessage(error.message) }),
     });
   }
   return ambiguousOrPartialFailure(

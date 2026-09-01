@@ -90,6 +90,10 @@ export type TelegramPublisherResult =
             code: string;
             retryable: boolean;
             retryAfterMs?: number;
+            /** Upstream provider's human-readable rejection reason, bounded and sanitized. */
+            message?: string;
+            /** Which outbound call was rejected, e.g. "upload_photo" | "send_photo" | "send_plain". */
+            stage?: string;
           }
         | {
             kind: "network" | "timeout" | "unknown";

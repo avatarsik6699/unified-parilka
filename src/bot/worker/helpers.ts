@@ -115,6 +115,28 @@ export function safeMachineCode(value: string, fallback: string): string {
   return /^[A-Z0-9_]{1,64}$/u.test(value) ? value : fallback;
 }
 
+/**
+ * Bounds and sanitizes an upstream (untrusted, third-party) error message for
+ * logging: strips control characters and caps length so a malformed or
+ * oversized provider response can't bloat log lines.
+ */
+export function safeErrorMessage(
+  value: unknown,
+  maxLength = 300,
+): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  // eslint-disable-next-line no-control-regex -- deliberately stripping C0/C1 control chars
+  const cleaned = value.replace(/[\x00-\x1F\x7F]/gu, " ").trim();
+  if (cleaned.length === 0) {
+    return undefined;
+  }
+  return cleaned.length > maxLength
+    ? `${cleaned.slice(0, maxLength)}…`
+    : cleaned;
+}
+
 export function publisherFailureKind(value: unknown): string {
   return value === "network" ||
     value === "timeout" ||
@@ -137,11 +159,7 @@ export function boundedInteger(
   maximum: number,
   name: string,
 ): number {
-  if (
-    !Number.isSafeInteger(value) ||
-    value < minimum ||
-    value > maximum
-  ) {
+  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
     throw new RangeError(
       `${name} must be an integer between ${minimum} and ${maximum}`,
     );

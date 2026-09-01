@@ -58,7 +58,7 @@ test("system prompt biases toward brevity by default without imposing a hard cap
 
   assert.match(prompt, /# Длина ответа/);
   assert.match(prompt, /Жёсткого лимита на длину ответа нет/);
-  assert.match(prompt, /тяготей к более короткому ответу/);
+  assert.match(prompt, /по\s+умолчанию отвечай коротко/);
   assert.match(prompt, /Наращивай длину только когда вопрос сам её требует/);
 });
 
